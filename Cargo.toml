@@ -1,0 +1,11 @@
+[package]
+authors = ["Jason Ozias <jason.ozias@gmail.com>"]
+name = "twist"
+version = "0.1.0"
+
+[dependencies]
+byteorder = "1.0.0"
+futures = "0.1.9"
+tokio-core = "0.1.4"
+tokio-proto = "0.1.0"
+tokio-service = "0.1.0"
