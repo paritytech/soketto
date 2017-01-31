@@ -33,3 +33,18 @@ impl From<u8> for OpCode {
         }
     }
 }
+
+impl From<OpCode> for u8 {
+    fn from(opcode: OpCode) -> u8 {
+        match opcode {
+            OpCode::Continue => 0,
+            OpCode::Text => 1,
+            OpCode::Binary => 2,
+            OpCode::Close => 8,
+            OpCode::Ping => 9,
+            OpCode::Pong => 10,
+            OpCode::Reserved => 3,
+            OpCode::Bad => 3,
+        }
+    }
+}
