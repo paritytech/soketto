@@ -135,59 +135,44 @@ mod test {
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-    // static ref LONG: Vec<u8>  = vec![0b10001111, 0b11111111,
-    //                                  0b00000000, 0b00000000,
-    //                                  0b00000000, 0b00000000,
-    //                                  0b00000000, 0b10000000,
-    //                                  0b00000000, 0b00000000];
+    const LONG: [u8; 15] = [0x88, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x01, 0x00];
+    const CONT: [u8; 7] = [0x80, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
+    const TEXT: [u8; 7] = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
+    const BINARY: [u8; 7] = [0x82, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
+    const PING: [u8; 7] = [0x89, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
+    const PONG: [u8; 7] = [0x8A, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
+    const RES: [u8; 7] = [0x83, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
 
-    #[test]
-    fn decode_short() {
-        let mut ebs = EasyBuf::from(SHORT.to_vec());
+    fn decode_test(vec: Vec<u8>, opcode: OpCode, masked: bool, len: u64, mask: Option<u32>) {
+        let mut eb = EasyBuf::from(vec);
         let mut frame: Frame = Default::default();
-        if let Ok(Some(decoded)) = <Frame as Codec>::decode(&mut frame, &mut ebs) {
+        if let Ok(Some(decoded)) = <Frame as Codec>::decode(&mut frame, &mut eb) {
             assert!(decoded.fin);
             assert!(!decoded.rsv1);
             assert!(!decoded.rsv2);
             assert!(!decoded.rsv3);
-            assert!(decoded.opcode == OpCode::Close);
-            assert!(decoded.masked);
-            assert!(decoded.payload_length == 1);
-            assert!(decoded.mask_key == Some(1));
+            assert!(decoded.opcode == opcode);
+            assert!(decoded.masked == masked);
+            assert!(decoded.payload_length == len);
+            assert!(decoded.mask_key == mask);
             assert!(decoded.extension_data.is_none());
-
-            if let Some(application_data) = decoded.application_data {
-                assert!(application_data.len() == 1);
-            } else {
-                assert!(false);
-            }
+            assert!(decoded.application_data.is_some());
         } else {
             assert!(false);
         }
     }
 
     #[test]
-    fn decode_mid() {
-        let mut ebs = EasyBuf::from(MID.to_vec());
-        let mut frame: Frame = Default::default();
-        if let Ok(Some(decoded)) = <Frame as Codec>::decode(&mut frame, &mut ebs) {
-            assert!(decoded.fin);
-            assert!(!decoded.rsv1);
-            assert!(!decoded.rsv2);
-            assert!(!decoded.rsv3);
-            assert!(decoded.opcode == OpCode::Close);
-            assert!(decoded.masked);
-            assert!(decoded.payload_length == 126);
-            assert!(decoded.mask_key == Some(1));
-            assert!(decoded.extension_data.is_none());
-
-            if let Some(application_data) = decoded.application_data {
-                assert!(application_data.len() == 126);
-            } else {
-                assert!(false);
-            }
-        } else {
-            assert!(false);
-        }
+    fn decode() {
+        decode_test(SHORT.to_vec(), OpCode::Close, true, 1, Some(1));
+        decode_test(MID.to_vec(), OpCode::Close, true, 126, Some(1));
+        decode_test(LONG.to_vec(), OpCode::Close, true, 65536, Some(1));
+        decode_test(CONT.to_vec(), OpCode::Continue, true, 1, Some(1));
+        decode_test(TEXT.to_vec(), OpCode::Text, true, 1, Some(1));
+        decode_test(BINARY.to_vec(), OpCode::Binary, true, 1, Some(1));
+        decode_test(PING.to_vec(), OpCode::Ping, true, 1, Some(1));
+        decode_test(PONG.to_vec(), OpCode::Pong, true, 1, Some(1));
+        decode_test(RES.to_vec(), OpCode::Reserved, true, 1, Some(1));
     }
 }
