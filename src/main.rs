@@ -14,6 +14,7 @@ use tokio_service::Service;
 
 mod frame;
 mod opcode;
+mod util;
 
 struct LineCodec;
 
