@@ -231,6 +231,29 @@ mod test {
         }
     }
 
+    fn encode_test(cmp: Vec<u8>,
+                   opcode: OpCode,
+                   len: u64,
+                   masked: bool,
+                   mask: Option<u32>,
+                   app_data: Option<Vec<u8>>) {
+        let mut fc = FrameCodec;
+        let mut frame: Frame = Default::default();
+        frame.opcode = opcode;
+        frame.payload_length = len;
+        frame.masked = masked;
+        frame.mask_key = mask;
+        frame.application_data = app_data;
+        let mut buf = vec![];
+        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, frame, &mut buf) {
+            println!("{}", util::as_hex(&buf));
+            assert!(buf.len() == cmp.len());
+            for (a, b) in buf.iter().zip(cmp.iter()) {
+                assert!(a == b);
+            }
+        }
+    }
+
     #[test]
     fn decode() {
         decode_test(SHORT.to_vec(), OpCode::Close, true, 1, Some(1));
@@ -245,54 +268,45 @@ mod test {
     }
 
     #[test]
-    fn encode_short() {
-        let mut fc = FrameCodec;
-        let mut frame: Frame = Default::default();
-        frame.payload_length = 1;
-        frame.masked = true;
-        frame.mask_key = Some(1);
-        frame.application_data = Some(vec![0]);
-        let mut buf = vec![];
-        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, frame, &mut buf) {
-            println!("{}", util::as_hex(&buf));
-            assert!(buf.len() == SHORT.len());
-            assert!(&buf[..] == SHORT);
-        }
-    }
-
-    #[test]
-    fn encode_mid() {
-        let mut fc = FrameCodec;
-        let mut frame: Frame = Default::default();
-        frame.payload_length = 126;
-        frame.masked = true;
-        frame.mask_key = Some(1);
-        frame.application_data = Some(vec![0; 126]);
-        let mut buf = vec![];
-        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, frame, &mut buf) {
-            println!("{}", util::as_hex(&buf));
-            assert!(buf.len() == MID.len());
-            for (a, b) in buf.iter().zip(MID.iter()) {
-                assert!(a == b);
-            }
-        }
-    }
-
-    #[test]
-    fn encode_long() {
-        let mut fc = FrameCodec;
-        let mut frame: Frame = Default::default();
-        frame.payload_length = 65536;
-        frame.masked = true;
-        frame.mask_key = Some(1);
-        frame.application_data = Some(vec![0]);
-        let mut buf = vec![];
-        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, frame, &mut buf) {
-            println!("{}", util::as_hex(&buf));
-            assert!(buf.len() == LONG.len());
-            for (a, b) in buf.iter().zip(LONG.iter()) {
-                assert!(a == b);
-            }
-        }
+    fn encode() {
+        encode_test(SHORT.to_vec(),
+                    OpCode::Close,
+                    1,
+                    true,
+                    Some(1),
+                    Some(vec![0]));
+        encode_test(MID.to_vec(),
+                    OpCode::Close,
+                    126,
+                    true,
+                    Some(1),
+                    Some(vec![0; 126]));
+        encode_test(LONG.to_vec(),
+                    OpCode::Close,
+                    65536,
+                    true,
+                    Some(1),
+                    Some(vec![0]));
+        encode_test(CONT.to_vec(),
+                    OpCode::Continue,
+                    1,
+                    true,
+                    Some(1),
+                    Some(vec![0]));
+        encode_test(TEXT.to_vec(), OpCode::Text, 1, true, Some(1), Some(vec![0]));
+        encode_test(BINARY.to_vec(),
+                    OpCode::Binary,
+                    1,
+                    true,
+                    Some(1),
+                    Some(vec![0]));
+        encode_test(PING.to_vec(), OpCode::Ping, 1, true, Some(1), Some(vec![0]));
+        encode_test(PONG.to_vec(), OpCode::Pong, 1, true, Some(1), Some(vec![0]));
+        encode_test(RES.to_vec(),
+                    OpCode::Reserved,
+                    1,
+                    true,
+                    Some(1),
+                    Some(vec![0]));
     }
 }
