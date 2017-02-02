@@ -5,7 +5,10 @@ version = "0.1.0"
 
 [dependencies]
 byteorder = "1.0.0"
+clap = "2.20.1"
 futures = "0.1.9"
+slog = "1.4.1"
+slog-term = "1.4.0"
 tokio-core = "0.1.4"
 tokio-proto = "0.1.0"
 tokio-service = "0.1.0"

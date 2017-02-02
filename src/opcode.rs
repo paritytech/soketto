@@ -19,6 +19,15 @@ pub enum OpCode {
     Bad,
 }
 
+impl OpCode {
+    pub fn is_control(&self) -> bool {
+        match *self {
+            OpCode::Close | OpCode::Ping | OpCode::Pong => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<u8> for OpCode {
     fn from(val: u8) -> OpCode {
         match val {
