@@ -10,5 +10,13 @@ futures = "0.1.9"
 slog = "1.4.1"
 slog-term = "1.4.0"
 tokio-core = "0.1.4"
-tokio-proto = "0.1.0"
+tokio-proto = { git = "https://github.com/rustyhorde/tokio-proto.git" }
 tokio-service = "0.1.0"
+
+[[bin]]
+name = "twist"
+path = "src/main.rs"
+
+[[bin]]
+name = "twist-cl"
+path = "src/client/main.rs"

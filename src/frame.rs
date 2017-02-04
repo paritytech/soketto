@@ -1,6 +1,7 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use opcode::OpCode;
 use std::convert::From;
+use std::fmt;
 use std::io::{self, Cursor};
 use tokio_core::io::{Codec, EasyBuf};
 use tokio_proto::streaming::pipeline::Frame;
@@ -44,9 +45,23 @@ impl Default for WebsocketFrame {
     }
 }
 
-#[allow(dead_code)]
+impl fmt::Display for WebsocketFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+               "WebsocketFrame {{ fin: {} rsv1: {} }}",
+               self.fin,
+               self.rsv1)
+    }
+}
+
 pub struct FrameCodec {
     fragmented: bool,
+}
+
+impl Default for FrameCodec {
+    fn default() -> FrameCodec {
+        FrameCodec { fragmented: false }
+    }
 }
 
 fn to_byte_buf(frame: WebsocketFrame, buf: &mut Vec<u8>) -> Result<(), io::Error> {
@@ -78,6 +93,7 @@ fn to_byte_buf(frame: WebsocketFrame, buf: &mut Vec<u8>) -> Result<(), io::Error
         second_byte |= 0x80;
     }
 
+    println!("second byte: {}", second_byte);
     let len = frame.payload_length;
     if len < 126 {
         second_byte |= len as u8;
@@ -114,6 +130,7 @@ impl Codec for FrameCodec {
     type Out = Frame<WebsocketFrame, WebsocketFrame, io::Error>;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+        println!("buf: {:?}", buf);
         // Split of the 2 'header' bytes.
         let mut rest = buf.split_off(2);
         let header = buf.as_slice();
@@ -147,6 +164,7 @@ impl Codec for FrameCodec {
             length_code as u64
         };
 
+        println!("rest: {:?}, masked: {}", rest, masked);
         let mask_key = if masked {
             let mut rdr = Cursor::new(rest.drain_to(4));
             if let Ok(mask_key) = rdr.read_u32::<BigEndian>() {
@@ -208,13 +226,18 @@ impl Codec for FrameCodec {
         // The following case handles intemediate frames of a fragment chain,
         // where the fin bit is clear, and the opcode is Continue.
         else if self.fragmented && !fin && opcode == OpCode::Continue {
-            Ok(Some(Frame::Body { chunk: Some(ws_frame) }))
+            Ok(Some(Frame::Body {
+                fin: fin,
+                chunk: Some(ws_frame),
+            }))
         }
         // The following case handles the termination frame
         else if self.fragmented && fin && opcode == OpCode::Continue {
             self.fragmented = false;
-            // TODO: Where does the ws_frame data go here?  Right now it's dropped.
-            Ok(Some(Frame::Body { chunk: None }))
+            Ok(Some(Frame::Body {
+                fin: fin,
+                chunk: Some(ws_frame),
+            }))
         } else {
             Err(other(&format!("Unknown frame type: {} {:?}", ws_frame.fin, ws_frame.opcode)))
         }
@@ -222,13 +245,10 @@ impl Codec for FrameCodec {
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
         match msg {
-            Frame::Message { message, body } => {
-                if body && message.fin {
-                    // This is not allowed.
-                }
+            Frame::Message { message, .. } => {
                 try!(to_byte_buf(message, buf));
             }
-            Frame::Body { chunk } => {
+            Frame::Body { chunk, .. } => {
                 if let Some(chunk) = chunk {
                     try!(to_byte_buf(chunk, buf));
                 }
@@ -310,7 +330,7 @@ mod test {
                         assert!(message.extension_data.is_none());
                         assert!(message.application_data.is_some());
                     }
-                    Frame::Body { chunk } => {
+                    Frame::Body { chunk, .. } => {
                         if let Some(chunk) = chunk {
                             assert!(!chunk.fin);
                             assert!(chunk.opcode == opcode);

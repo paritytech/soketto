@@ -4,18 +4,24 @@ extern crate futures;
 extern crate slog_term;
 extern crate tokio_core;
 extern crate tokio_proto;
+extern crate tokio_service;
 
 #[macro_use]
 extern crate slog;
 
 mod frame;
 mod opcode;
+mod proto;
+mod service;
 mod util;
 
 use clap::{App, Arg};
+use proto::WebSocketProto;
+use service::PrintStdout;
 use slog::{DrainExt, level_filter, Level, Logger};
 use std::str::FromStr;
 use std::net::{IpAddr, SocketAddr};
+use tokio_proto::TcpServer;
 
 fn main() {
     let matches = App::new("twist")
@@ -71,6 +77,9 @@ fn main() {
         info!(stdout,
               "Listen for websocket connections on {}",
               socket_addr);
+        let server = TcpServer::new(WebSocketProto, socket_addr);
+
+        server.serve(|| Ok(PrintStdout));
     } else {
         error!(stderr, "Unable to parse address");
     }
