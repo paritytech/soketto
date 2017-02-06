@@ -28,6 +28,20 @@ pub struct WebsocketFrame {
     application_data: Option<Vec<u8>>,
 }
 
+impl WebsocketFrame {
+    pub fn opcode(&self) -> OpCode {
+        self.opcode
+    }
+
+    pub fn app_data(&self) -> &[u8] {
+        if let Some(ref data) = self.application_data {
+            data
+        } else {
+            &[]
+        }
+    }
+}
+
 impl Default for WebsocketFrame {
     fn default() -> WebsocketFrame {
         WebsocketFrame {
@@ -48,9 +62,18 @@ impl Default for WebsocketFrame {
 impl fmt::Display for WebsocketFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-               "WebsocketFrame {{ fin: {} rsv1: {} }}",
+               "WebsocketFrame {{ fin: {} rsv1: {} rsv2: {} rsv3: {} opcode: {:?} masked: {} \
+               payload_length: {} mask_key: {:?} extension_data: {:?}  application_data: {:?} }}",
                self.fin,
-               self.rsv1)
+               self.rsv1,
+               self.rsv2,
+               self.rsv3,
+               self.opcode,
+               self.masked,
+               self.payload_length,
+               self.mask_key,
+               self.extension_data,
+               self.application_data)
     }
 }
 
@@ -122,6 +145,7 @@ fn to_byte_buf(frame: WebsocketFrame, buf: &mut Vec<u8>) -> Result<(), io::Error
         buf.extend(app_data);
     }
 
+    println!("write buf: {:?}", buf);
     Ok(())
 }
 
@@ -130,10 +154,14 @@ impl Codec for FrameCodec {
     type Out = Frame<WebsocketFrame, WebsocketFrame, io::Error>;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
-        println!("buf: {:?}", buf);
+        if buf.len() == 0 {
+            return Ok(None);
+        }
+
         // Split of the 2 'header' bytes.
-        let mut rest = buf.split_off(2);
-        let header = buf.as_slice();
+        let header_bytes = buf.drain_to(2);
+        println!("post header buf len: {}", buf.len());
+        let header = header_bytes.as_slice();
         let first = header[0];
         let second = header[1];
 
@@ -147,14 +175,14 @@ impl Codec for FrameCodec {
         let length_code = (second & 0x7F) as u8;
 
         let payload_length = if length_code == TWO_EXT {
-            let mut rdr = Cursor::new(rest.drain_to(2));
+            let mut rdr = Cursor::new(buf.drain_to(2));
             if let Ok(len) = rdr.read_u16::<BigEndian>() {
                 len as u64
             } else {
                 return Ok(None);
             }
         } else if length_code == EIGHT_EXT {
-            let mut rdr = Cursor::new(rest.drain_to(8));
+            let mut rdr = Cursor::new(buf.drain_to(8));
             if let Ok(len) = rdr.read_u64::<BigEndian>() {
                 len
             } else {
@@ -164,9 +192,11 @@ impl Codec for FrameCodec {
             length_code as u64
         };
 
-        println!("rest: {:?}, masked: {}", rest, masked);
+        println!("post payload_len calc buf len: {}", buf.len());
+        println!("rest: {:?}, masked: {}", buf, masked);
+
         let mask_key = if masked {
-            let mut rdr = Cursor::new(rest.drain_to(4));
+            let mut rdr = Cursor::new(buf.drain_to(4));
             if let Ok(mask_key) = rdr.read_u32::<BigEndian>() {
                 Some(mask_key)
             } else {
@@ -176,7 +206,10 @@ impl Codec for FrameCodec {
             None
         };
 
-        let application_data = Some(rest.as_slice().to_vec());
+        println!("post mask_key buf len: {}", buf.len());
+        let rest_len = buf.len();
+        let app_data_bytes = buf.drain_to(rest_len);
+        let application_data = Some(app_data_bytes.as_slice().to_vec());
 
         let ws_frame = WebsocketFrame {
             fin: fin,
@@ -190,6 +223,8 @@ impl Codec for FrameCodec {
             application_data: application_data,
             ..Default::default()
         };
+
+        println!("decode ws_frame: {}", ws_frame);
 
         // Control frames (see Section 5.5) MAY be injected in the middle of
         // a fragmented message.  Control frames themselves MUST NOT be
