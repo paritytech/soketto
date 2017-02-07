@@ -7,36 +7,33 @@ use tokio_proto::streaming::{Body, Message};
 use tokio_service::Service;
 
 #[derive(Clone)]
-pub struct Logged<T> {
-    upstream: T,
-    stdout: Logger
+pub struct PrintStdout {
+    stdout: Option<Logger>,
+    stderr: Option<Logger>,
 }
 
-impl<T> Logged<T> {
-    pub fn new(upstream: T, logger: Logger) -> Logged<T> {
-        Logged {
-            upstream: upstream,
-            stdout: logger,
+impl PrintStdout {
+    pub fn add_stdout(&mut self, stdout: Logger) -> &mut PrintStdout {
+        let ps_stdout = stdout.new(o!("module" => module_path!()));
+        self.stdout = Some(ps_stdout);
+        self
+    }
+
+    pub fn add_stderr(&mut self, stderr: Logger) -> &mut PrintStdout {
+        let ps_stderr = stderr.new(o!("module" => module_path!()));
+        self.stderr = Some(ps_stderr);
+        self
+    }
+}
+
+impl Default for PrintStdout {
+    fn default() -> PrintStdout {
+        PrintStdout {
+            stdout: None,
+            stderr: None,
         }
     }
 }
-
-impl<T> Service for Logged<T>
-    where T: Service,
-          T::Error: From<io::Error>,
-{
-    type Request = T::Request;
-    type Response = T::Response;
-    type Error = T::Error;
-    type Future = T::Future;
-
-    fn call(&self, req: Self::Request) -> Self::Future {
-        self.upstream.call(req)
-    }
-}
-
-#[derive(Clone)]
-pub struct PrintStdout;
 
 impl Service for PrintStdout {
     type Request = Message<WebsocketFrame, Body<WebsocketFrame, io::Error>>;
@@ -49,12 +46,18 @@ impl Service for PrintStdout {
 
         match req {
             Message::WithoutBody(frame) => {
-                println!("Process This!: {:?}", frame.app_data());
+                if let Some(ref stdout) = self.stdout {
+                    trace!(stdout, "Process This!: {:?}", frame.app_data());
+                }
                 future::result(Ok(resp)).boxed()
             }
             Message::WithBody(message, body) => {
                 let app_datas = body.map(|frame| Vec::from(frame.app_data())).collect();
-
+                let soc = if let Some(ref stdout) = self.stdout {
+                    Some(stdout.clone())
+                } else {
+                    None
+                };
                 let yoblah = app_datas.map(move |v| {
                     let mut all_app_data = Vec::from(message.app_data());
                     for app_data in v.iter() {
@@ -62,9 +65,13 @@ impl Service for PrintStdout {
                     }
 
                     if message.opcode() == OpCode::Binary {
-                        println!("Process This As Binary!: {:?}", all_app_data);
+                        if let Some(ref stdout) = soc {
+                            trace!(stdout, "Process This As Binary!: {:?}", all_app_data);
+                        }
                     } else {
-                        println!("Process This As Text!: {:?}", all_app_data);
+                        if let Some(ref stdout) = soc {
+                            trace!(stdout, "Process This As Text!: {:?}", all_app_data);
+                        }
                     }
                     resp
                 });

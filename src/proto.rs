@@ -6,11 +6,17 @@ use tokio_proto::streaming::pipeline::ServerProto;
 
 pub struct WebSocketProto {
     stdout: Logger,
+    stderr: Logger,
 }
 
 impl WebSocketProto {
-    pub fn new(stdout: Logger) -> WebSocketProto {
-        WebSocketProto { stdout: stdout }
+    pub fn new(stdout: Logger, stderr: Logger) -> WebSocketProto {
+        let wsp_stdout = stdout.new(o!("module" => module_path!()));
+        let wsp_stderr = stderr.new(o!("module" => module_path!()));
+        WebSocketProto {
+            stdout: wsp_stdout,
+            stderr: wsp_stderr,
+        }
     }
 }
 
@@ -26,8 +32,10 @@ impl<T: Io + 'static> ServerProto<T> for WebSocketProto {
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
         trace!(self.stdout, "bind_transport");
+
         // Initialize the codec to be parsing message frames
-        let codec: FrameCodec = Default::default();
+        let mut codec: FrameCodec = Default::default();
+        codec.add_stdout(self.stdout.clone()).add_stderr(self.stderr.clone());
         Ok(io.framed(codec))
     }
 }

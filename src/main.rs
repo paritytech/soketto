@@ -18,8 +18,8 @@ mod util;
 
 use clap::{App, Arg};
 use proto::WebSocketProto;
-use service::{Logged, PrintStdout};
-use slog::{DrainExt, level_filter, Level, Logger};
+use service::PrintStdout;
+use slog::{DrainExt, Level, LevelFilter, Logger};
 use std::str::FromStr;
 use std::net::{IpAddr, SocketAddr};
 use tokio_proto::TcpServer;
@@ -66,12 +66,14 @@ fn main() {
         3 | _ => Level::Trace,
     };
 
-    let stdout_term = slog_term::streamer().compact().build();
-    let stdout_drain = level_filter(level, stdout_term).fuse();
-    let stdout = Logger::root(stdout_drain, o!("version" => env!("CARGO_PKG_VERSION")));
+    let stdout_term = slog_term::streamer().async().compact().build();
+    let stdout_drain = LevelFilter::new(stdout_term, level).fuse();
+    let stdout =
+        Logger::root(stdout_drain,
+                     o!("version" => env!("CARGO_PKG_VERSION"), "module" => module_path!()));
 
     let stderr_term = slog_term::streamer().async().stderr().compact().build();
-    let stderr_drain = level_filter(Level::Error, stderr_term).fuse();
+    let stderr_drain = LevelFilter::new(stderr_term, Level::Error).fuse();
     let stderr = Logger::root(stderr_drain, o!());
 
     if let Ok(addr) = IpAddr::from_str(address) {
@@ -79,10 +81,14 @@ fn main() {
         info!(stdout,
               "Listen for websocket connections on {}",
               socket_addr);
-        let ws_proto = WebSocketProto::new(stdout.clone());
+        let ws_proto = WebSocketProto::new(stdout.clone(), stderr.clone());
         let server = TcpServer::new(ws_proto, socket_addr);
-        let so_clone = stdout.clone();
-        server.serve(|| Ok(Logged::new(PrintStdout, so_clone)));
+        let mut service: PrintStdout = Default::default();
+        let soc = stdout.clone();
+        let sec = stderr.clone();
+        service.add_stdout(soc);
+        service.add_stderr(sec);
+        server.serve(move || Ok(service.clone()));
     } else {
         error!(stderr, "Unable to parse address");
     }

@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use opcode::OpCode;
+use slog::Logger;
 use std::convert::From;
 use std::fmt;
 use std::io::{self, Cursor};
@@ -62,8 +63,9 @@ impl Default for WebsocketFrame {
 impl fmt::Display for WebsocketFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
-               "WebsocketFrame {{ fin: {} rsv1: {} rsv2: {} rsv3: {} opcode: {:?} masked: {} \
-               payload_length: {} mask_key: {:?} extension_data: {:?}  application_data: {:?} }}",
+               "WebsocketFrame {{\n\tfin: {}\n\trsv1: {}\n\trsv2: {}\n\trsv3: {}\n\topcode: {:?}\
+               \n\tmasked: {}\n\tpayload_length: {}\n\tmask_key: {:?}\n\textension_data: {:?}\
+               \n\tapplication_data: {:?}\n}}",
                self.fin,
                self.rsv1,
                self.rsv2,
@@ -79,74 +81,96 @@ impl fmt::Display for WebsocketFrame {
 
 pub struct FrameCodec {
     fragmented: bool,
+    stdout: Option<Logger>,
+    stderr: Option<Logger>,
+}
+
+impl FrameCodec {
+    pub fn add_stdout(&mut self, stdout: Logger) -> &mut FrameCodec {
+        let fc_stdout = stdout.new(o!("module" => module_path!()));
+        self.stdout = Some(fc_stdout);
+        self
+    }
+
+    pub fn add_stderr(&mut self, stderr: Logger) -> &mut FrameCodec {
+        let fc_stderr = stderr.new(o!("module" => module_path!()));
+        self.stderr = Some(fc_stderr);
+        self
+    }
+
+    fn to_byte_buf(&mut self, frame: WebsocketFrame, buf: &mut Vec<u8>) -> Result<(), io::Error> {
+        let mut first_byte = 0_u8;
+
+        if frame.fin {
+            first_byte |= 0x80;
+        }
+
+        if frame.rsv1 {
+            first_byte |= 0x40;
+        }
+
+        if frame.rsv2 {
+            first_byte |= 0x20;
+        }
+
+        if frame.rsv3 {
+            first_byte |= 0x10;
+        }
+
+        let opcode: u8 = frame.opcode.into();
+        first_byte |= opcode;
+
+        buf.push(first_byte);
+
+        let mut second_byte = 0_u8;
+        if frame.masked {
+            second_byte |= 0x80;
+        }
+
+        let len = frame.payload_length;
+        if len < 126 {
+            second_byte |= len as u8;
+            buf.push(second_byte);
+        } else if len < 65536 {
+            second_byte |= 126;
+            let mut len_buf = Vec::with_capacity(2);
+            try!(len_buf.write_u16::<BigEndian>(len as u16));
+            buf.push(second_byte);
+            buf.extend(len_buf);
+        } else {
+            second_byte |= 127;
+            let mut len_buf = Vec::with_capacity(8);
+            try!(len_buf.write_u64::<BigEndian>(len));
+            buf.push(second_byte);
+            buf.extend(len_buf);
+        }
+
+        if let (true, Some(mask)) = (frame.masked, frame.mask_key) {
+            let mut mask_buf = Vec::with_capacity(4);
+            try!(mask_buf.write_u32::<BigEndian>(mask));
+            buf.extend(mask_buf);
+        }
+
+        if let Some(app_data) = frame.application_data {
+            buf.extend(app_data);
+        }
+
+        if let Some(ref stdout) = self.stdout {
+            trace!(stdout, "write buf: {:?}", buf);
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for FrameCodec {
     fn default() -> FrameCodec {
-        FrameCodec { fragmented: false }
+        FrameCodec {
+            fragmented: false,
+            stdout: None,
+            stderr: None,
+        }
     }
-}
-
-fn to_byte_buf(frame: WebsocketFrame, buf: &mut Vec<u8>) -> Result<(), io::Error> {
-    let mut first_byte = 0_u8;
-
-    if frame.fin {
-        first_byte |= 0x80;
-    }
-
-    if frame.rsv1 {
-        first_byte |= 0x40;
-    }
-
-    if frame.rsv2 {
-        first_byte |= 0x20;
-    }
-
-    if frame.rsv3 {
-        first_byte |= 0x10;
-    }
-
-    let opcode: u8 = frame.opcode.into();
-    first_byte |= opcode;
-
-    buf.push(first_byte);
-
-    let mut second_byte = 0_u8;
-    if frame.masked {
-        second_byte |= 0x80;
-    }
-
-    println!("second byte: {}", second_byte);
-    let len = frame.payload_length;
-    if len < 126 {
-        second_byte |= len as u8;
-        buf.push(second_byte);
-    } else if len < 65536 {
-        second_byte |= 126;
-        let mut len_buf = Vec::with_capacity(2);
-        try!(len_buf.write_u16::<BigEndian>(len as u16));
-        buf.push(second_byte);
-        buf.extend(len_buf);
-    } else {
-        second_byte |= 127;
-        let mut len_buf = Vec::with_capacity(8);
-        try!(len_buf.write_u64::<BigEndian>(len));
-        buf.push(second_byte);
-        buf.extend(len_buf);
-    }
-
-    if let (true, Some(mask)) = (frame.masked, frame.mask_key) {
-        let mut mask_buf = Vec::with_capacity(4);
-        try!(mask_buf.write_u32::<BigEndian>(mask));
-        buf.extend(mask_buf);
-    }
-
-    if let Some(app_data) = frame.application_data {
-        buf.extend(app_data);
-    }
-
-    println!("write buf: {:?}", buf);
-    Ok(())
 }
 
 impl Codec for FrameCodec {
@@ -160,7 +184,6 @@ impl Codec for FrameCodec {
 
         // Split of the 2 'header' bytes.
         let header_bytes = buf.drain_to(2);
-        println!("post header buf len: {}", buf.len());
         let header = header_bytes.as_slice();
         let first = header[0];
         let second = header[1];
@@ -192,9 +215,6 @@ impl Codec for FrameCodec {
             length_code as u64
         };
 
-        println!("post payload_len calc buf len: {}", buf.len());
-        println!("rest: {:?}, masked: {}", buf, masked);
-
         let mask_key = if masked {
             let mut rdr = Cursor::new(buf.drain_to(4));
             if let Ok(mask_key) = rdr.read_u32::<BigEndian>() {
@@ -206,7 +226,6 @@ impl Codec for FrameCodec {
             None
         };
 
-        println!("post mask_key buf len: {}", buf.len());
         let rest_len = buf.len();
         let app_data_bytes = buf.drain_to(rest_len);
         let application_data = Some(app_data_bytes.as_slice().to_vec());
@@ -224,8 +243,9 @@ impl Codec for FrameCodec {
             ..Default::default()
         };
 
-        println!("decode ws_frame: {}", ws_frame);
-
+        if let Some(ref stdout) = self.stdout {
+            trace!(stdout, "decoded ws_frame: {}", ws_frame);
+        }
         // Control frames (see Section 5.5) MAY be injected in the middle of
         // a fragmented message.  Control frames themselves MUST NOT be
         // fragmented.
@@ -274,6 +294,12 @@ impl Codec for FrameCodec {
                 chunk: Some(ws_frame),
             }))
         } else {
+            if let Some(ref stderr) = self.stderr {
+                error!(stderr,
+                       "Unknown frame type: {} {:?}",
+                       ws_frame.fin,
+                       ws_frame.opcode);
+            }
             Err(other(&format!("Unknown frame type: {} {:?}", ws_frame.fin, ws_frame.opcode)))
         }
     }
@@ -281,11 +307,11 @@ impl Codec for FrameCodec {
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
         match msg {
             Frame::Message { message, .. } => {
-                try!(to_byte_buf(message, buf));
+                try!(self.to_byte_buf(message, buf));
             }
             Frame::Body { chunk, .. } => {
                 if let Some(chunk) = chunk {
-                    try!(to_byte_buf(chunk, buf));
+                    try!(self.to_byte_buf(chunk, buf));
                 }
             }
             Frame::Error { error } => {
@@ -345,9 +371,17 @@ mod test {
     fn decode_test(vec: Vec<u8>, opcode: OpCode, masked: bool, len: u64, mask: Option<u32>) {
         let mut eb = EasyBuf::from(vec);
         let mut fc = if opcode == OpCode::Continue {
-            FrameCodec { fragmented: true }
+            FrameCodec {
+                fragmented: true,
+                stdout: None,
+                stderr: None,
+            }
         } else {
-            FrameCodec { fragmented: false }
+            FrameCodec {
+                fragmented: false,
+                stdout: None,
+                stderr: None,
+            }
         };
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
@@ -394,7 +428,11 @@ mod test {
                    masked: bool,
                    mask: Option<u32>,
                    app_data: Option<Vec<u8>>) {
-        let mut fc = FrameCodec { fragmented: false };
+        let mut fc = FrameCodec {
+            fragmented: false,
+            stdout: None,
+            stderr: None,
+        };
         let mut frame: WebsocketFrame = Default::default();
         frame.opcode = opcode;
         if opcode == OpCode::Continue {
