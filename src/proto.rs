@@ -1,4 +1,4 @@
-use frame::{FrameCodec, WebsocketFrame};
+use frame::{FrameCodec, WebSocketFrame};
 use slog::Logger;
 use std::io;
 use tokio_core::io::{Framed, Io};
@@ -21,10 +21,10 @@ impl WebSocketProto {
 }
 
 impl<T: Io + 'static> ServerProto<T> for WebSocketProto {
-    type Request = WebsocketFrame;
-    type RequestBody = WebsocketFrame;
-    type Response = WebsocketFrame;
-    type ResponseBody = WebsocketFrame;
+    type Request = WebSocketFrame;
+    type RequestBody = WebSocketFrame;
+    type Response = WebSocketFrame;
+    type ResponseBody = WebSocketFrame;
     type Error = io::Error;
 
     type Transport = Framed<T, FrameCodec>;

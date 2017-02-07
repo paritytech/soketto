@@ -1,31 +1,24 @@
-extern crate byteorder;
 extern crate clap;
-extern crate env_logger;
 extern crate futures;
 extern crate slog_term;
-extern crate tokio_core;
 extern crate tokio_proto;
 extern crate tokio_service;
+extern crate twist;
 
 #[macro_use]
 extern crate slog;
 
-mod frame;
-mod opcode;
-mod proto;
 mod service;
-mod util;
 
 use clap::{App, Arg};
-use proto::WebSocketProto;
 use service::PrintStdout;
 use slog::{DrainExt, Level, LevelFilter, Logger};
 use std::str::FromStr;
 use std::net::{IpAddr, SocketAddr};
 use tokio_proto::TcpServer;
+use twist::proto::WebSocketProto;
 
 fn main() {
-    env_logger::init().unwrap();
     let matches = App::new("twist")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Jason Ozias <jason.g.ozias@gmail.com>")
@@ -84,10 +77,7 @@ fn main() {
         let ws_proto = WebSocketProto::new(stdout.clone(), stderr.clone());
         let server = TcpServer::new(ws_proto, socket_addr);
         let mut service: PrintStdout = Default::default();
-        let soc = stdout.clone();
-        let sec = stderr.clone();
-        service.add_stdout(soc);
-        service.add_stderr(sec);
+        service.add_stdout(stdout.clone()).add_stderr(stderr.clone());
         server.serve(move || Ok(service.clone()));
     } else {
         error!(stderr, "Unable to parse address");
