@@ -1,10 +1,9 @@
-use futures::{future, Future, Stream};
+use futures::{future, Future};
 use slog::Logger;
 use std::io;
-use tokio_proto::streaming::{Body, Message};
 use tokio_service::Service;
 use twist::frame::WebSocketFrame;
-use twist::frame::base::{BaseFrame, OpCode};
+use twist::frame::base::BaseFrame;
 
 #[derive(Clone)]
 pub struct PrintStdout {
@@ -36,61 +35,21 @@ impl Default for PrintStdout {
 }
 
 impl Service for PrintStdout {
-    type Request = Message<WebSocketFrame, Body<WebSocketFrame, io::Error>>;
-    type Response = Message<WebSocketFrame, Body<WebSocketFrame, io::Error>>;
+    type Request = WebSocketFrame;
+    type Response = WebSocketFrame;
     type Error = io::Error;
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
+        if let Some(base) = req.base() {
+            if let Some(ref stdout) = self.stdout {
+                trace!(stdout, "Received {:?} frame", base.opcode());
+            }
+        }
         let base: BaseFrame = Default::default();
         let mut ws_frame: WebSocketFrame = Default::default();
         ws_frame.set_base(base);
-        let resp = Message::WithoutBody(ws_frame);
-
-        match req {
-            Message::WithoutBody(frame) => {
-                if let Some(ref stdout) = self.stdout {
-                    if let Some(base) = frame.base() {
-                        trace!(stdout, "Process This!: {:?}", base.app_data());
-                    }
-                }
-                future::result(Ok(resp)).boxed()
-            }
-            Message::WithBody(message, body) => {
-                let app_datas = body.map(|frame| if let Some(base) = frame.base() {
-                        Vec::from(base.app_data())
-                    } else {
-                        vec![]
-                    })
-                    .collect();
-                let soc = if let Some(ref stdout) = self.stdout {
-                    Some(stdout.clone())
-                } else {
-                    None
-                };
-                let yoblah = app_datas.map(move |v| {
-                    if let Some(base) = message.base() {
-                        let mut all_app_data = Vec::from(base.app_data());
-                        for app_data in v.iter() {
-                            all_app_data.extend(app_data);
-                        }
-
-                        if base.opcode() == OpCode::Binary {
-                            if let Some(ref stdout) = soc {
-                                trace!(stdout, "Process This As Binary!: {:?}", all_app_data);
-                            }
-                        } else {
-                            if let Some(ref stdout) = soc {
-                                trace!(stdout, "Process This As Text!: {:?}", all_app_data);
-                            }
-                        }
-                    }
-
-                    resp
-                });
-
-                Box::new(yoblah) as Self::Future
-            }
-        }
+        let resp = ws_frame;
+        future::result(Ok(resp)).boxed()
     }
 }

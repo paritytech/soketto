@@ -17,7 +17,7 @@ use slog::{DrainExt, Level, LevelFilter, Logger};
 use std::str::FromStr;
 use std::net::{IpAddr, SocketAddr};
 use tokio_proto::TcpServer;
-use twist::proto::WebSocketProto;
+use twist::proto::FrameProto;
 
 fn main() {
     env_logger::init().unwrap();
@@ -76,7 +76,7 @@ fn main() {
         info!(stdout,
               "Listen for websocket connections on {}",
               socket_addr);
-        let ws_proto = WebSocketProto::new(stdout.clone(), stderr.clone());
+        let ws_proto = FrameProto::new(stdout.clone(), stderr.clone());
         let server = TcpServer::new(ws_proto, socket_addr);
         let mut service: PrintStdout = Default::default();
         service.add_stdout(stdout.clone()).add_stderr(stderr.clone());

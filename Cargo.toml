@@ -4,29 +4,24 @@ name = "twist"
 version = "0.1.0"
 
 [[bin]]
-name = "twist-srv"
+name = "twists"
 path = "src/server/main.rs"
 
 [[bin]]
-name = "twist-cl"
+name = "twisty"
 path = "src/client/main.rs"
 
 [dependencies]
 byteorder = "1.0.0"
-clap = "2.20.1"
+clap = "2.20.3"
 env_logger = "0.4.0"
-futures = "0.1.9"
+futures = "0.1.10"
+slog = { version = "1.4.1", features = ["max_level_trace", "release_max_level_trace"] }
 slog-term = "1.4.0"
 tokio-core = "0.1.4"
+tokio-proto = { path = "/home/jozias/projects/tokio-proto" }
 tokio-service = "0.1.0"
-
-[dependencies.slog]
-features = ["max_level_trace", "release_max_level_trace"]
-version = "1.4.1"
-
-[dependencies.tokio-proto]
-branch = "stream-complete-with-chunk"
-path = "/home/jozias/projects/tokio-proto"
+# uuid = { version = "0.4", features = ["serde", "v4"] }
 
 [lib]
 name = "twist"

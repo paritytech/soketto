@@ -4,14 +4,9 @@ use slog::Logger;
 use std::fmt;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
-use tokio_proto::streaming::pipeline::Frame;
 
 pub mod base;
 pub mod handshake;
-
-fn other(desc: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, desc)
-}
 
 /// A struct representing a websocket frame.
 #[derive(Debug, Clone)]
@@ -21,6 +16,40 @@ pub struct WebSocketFrame {
 }
 
 impl WebSocketFrame {
+    pub fn pong(app_data: Option<Vec<u8>>) -> WebSocketFrame {
+        let mut base: BaseFrame = Default::default();
+        base.set_fin(true).set_opcode(OpCode::Pong).set_application_data(app_data);
+
+        WebSocketFrame {
+            base: Some(base),
+            handshake: None,
+        }
+    }
+
+    pub fn close(app_data: Option<Vec<u8>>) -> WebSocketFrame {
+        let mut base: BaseFrame = Default::default();
+        base.set_fin(true).set_opcode(OpCode::Close).set_application_data(app_data);
+
+        WebSocketFrame {
+            base: Some(base),
+            handshake: None,
+        }
+    }
+
+    pub fn is_close(&self) -> bool {
+        if let Some(ref base) = self.base {
+            return base.opcode() == OpCode::Close;
+        }
+        false
+    }
+
+    pub fn is_ping(&self) -> bool {
+        if let Some(ref base) = self.base {
+            return base.opcode() == OpCode::Ping;
+        }
+        false
+    }
+
     pub fn handshake(&self) -> Option<&HandshakeFrame> {
         if let Some(ref handshake) = self.handshake {
             Some(handshake)
@@ -75,6 +104,7 @@ impl fmt::Display for WebSocketFrame {
 
 pub struct FrameCodec {
     shaken: bool,
+    #[allow(dead_code)]
     fragmented: bool,
     stdout: Option<Logger>,
     stderr: Option<Logger>,
@@ -107,8 +137,8 @@ impl Default for FrameCodec {
 }
 
 impl Codec for FrameCodec {
-    type In = Frame<WebSocketFrame, WebSocketFrame, io::Error>;
-    type Out = Frame<WebSocketFrame, WebSocketFrame, io::Error>;
+    type In = WebSocketFrame;
+    type Out = WebSocketFrame;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
         if buf.len() == 0 {
@@ -120,91 +150,8 @@ impl Codec for FrameCodec {
         if self.shaken {
             let mut base: BaseFrame = Default::default();
             if let Ok(Some(base)) = base.decode(buf) {
-                let opcode = base.opcode();
-                let fin = base.fin();
-
                 ws_frame.set_base(base.clone());
-
-                // Control frames (see Section 5.5) MAY be injected in the middle of
-                // a fragmented message.  Control frames themselves MUST NOT be
-                // fragmented.
-                if opcode.is_control() && !self.fragmented {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "Control Frame: {:?}", base.opcode());
-                    }
-                    Ok(Some(Frame::Message {
-                        message: ws_frame,
-                        body: false,
-                        drop: true,
-                    }))
-                } else if opcode.is_control() && self.fragmented {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "Control Frame During Stream: {:?}", base.opcode());
-                    }
-                    Ok(Some(Frame::Message {
-                        message: ws_frame,
-                        body: false,
-                        drop: false,
-                    }))
-                }
-                // An unfragmented message consists of a single frame with the FIN
-                // bit set (Section 5.2) and an opcode other than 0.
-                else if !self.fragmented && fin && opcode != OpCode::Continue {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "Single Frame: {:?}", base.opcode());
-                    }
-                    Ok(Some(Frame::Message {
-                        message: ws_frame,
-                        body: false,
-                        drop: true,
-                    }))
-                }
-                // A fragmented message consists of a single frame with the FIN bit
-                // clear and an opcode other than 0, followed by zero or more frames
-                // with the FIN bit clear and the opcode set to 0, and terminated by
-                // a single frame with the FIN bit set and an opcode of 0.
-                //
-                // The following case handles the first message of a fragmented chain, where
-                // we have set the fragmented flag, the fin bit is clear, and the opcode
-                // is not Continue.
-                else if !self.fragmented && !fin && opcode != OpCode::Continue {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "First Frame: {:?}", base.opcode());
-                    }
-                    self.fragmented = true;
-                    Ok(Some(Frame::Message {
-                        message: ws_frame,
-                        body: true,
-                        drop: true,
-                    }))
-                }
-                // The following case handles intemediate frames of a fragment chain,
-                // where the fin bit is clear, and the opcode is Continue.
-                else if self.fragmented && !fin && opcode == OpCode::Continue {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "Intermediate Frame: {:?}", base.opcode());
-                    }
-                    Ok(Some(Frame::Body {
-                        fin: fin,
-                        chunk: Some(ws_frame),
-                    }))
-                }
-                // The following case handles the termination frame
-                else if self.fragmented && fin && opcode == OpCode::Continue {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "Termination Frame: {:?}", base.opcode());
-                    }
-                    self.fragmented = false;
-                    Ok(Some(Frame::Body {
-                        fin: fin,
-                        chunk: Some(ws_frame),
-                    }))
-                } else {
-                    if let Some(ref stderr) = self.stderr {
-                        error!(stderr, "Unknown frame type: {} {:?}", fin, opcode);
-                    }
-                    Err(other(&format!("Unknown frame type: {} {:?}", fin, opcode)))
-                }
+                Ok(Some(ws_frame))
             } else {
                 Ok(None)
             }
@@ -214,25 +161,9 @@ impl Codec for FrameCodec {
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
-        match msg {
-            Frame::Message { message, .. } => {
-                if self.shaken {
-                    if let Some(base) = message.base {
-                        try!(base.to_byte_buf(buf));
-                    }
-                }
-            }
-            Frame::Body { chunk, .. } => {
-                if self.shaken {
-                    if let Some(chunk) = chunk {
-                        if let Some(base) = chunk.base {
-                            try!(base.to_byte_buf(buf));
-                        }
-                    }
-                }
-            }
-            Frame::Error { error } => {
-                return Err(error);
+        if self.shaken {
+            if let Some(base) = msg.base {
+                try!(base.to_byte_buf(buf));
             }
         }
 
@@ -246,7 +177,6 @@ mod test {
     use frame::{WebSocketFrame, FrameCodec};
     use frame::base::{BaseFrame, OpCode};
     use tokio_core::io::{Codec, EasyBuf};
-    use tokio_proto::streaming::pipeline::Frame;
     use util;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -304,39 +234,23 @@ mod test {
         };
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
-                match decoded {
-                    Frame::Message { message, body, .. } => {
-                        if let Some(base) = message.base {
-                            assert!(!body);
-                            assert!(base.fin());
-                            assert!(!base.rsv1());
-                            assert!(!base.rsv2());
-                            assert!(!base.rsv3());
-                            assert!(base.opcode() == opcode);
-                            assert!(base.masked() == masked);
-                            assert!(base.payload_length() == len);
-                            assert!(base.mask_key() == mask);
-                            assert!(base.extension_data().is_none());
-                            assert!(base.application_data().is_some());
-                        } else {
-                            assert!(false);
-                        }
+                if let Some(base) = decoded.base {
+                    if base.opcode() == OpCode::Continue {
+                        assert!(!base.fin());
+                    } else {
+                        assert!(base.fin());
                     }
-                    Frame::Body { chunk, .. } => {
-                        if let Some(chunk) = chunk {
-                            if let Some(base) = chunk.base {
-                                assert!(!base.fin());
-                                assert!(base.opcode() == opcode);
-                            } else {
-                                assert!(false);
-                            }
-                        } else {
-                            assert!(false);
-                        }
-                    }
-                    _ => {
-                        assert!(false);
-                    }
+                    assert!(!base.rsv1());
+                    assert!(!base.rsv2());
+                    assert!(!base.rsv3());
+                    assert!(base.opcode() == opcode);
+                    assert!(base.masked() == masked);
+                    assert!(base.payload_length() == len);
+                    assert!(base.mask_key() == mask);
+                    assert!(base.extension_data().is_none());
+                    assert!(base.application_data().is_some());
+                } else {
+                    assert!(false);
                 }
             }
             Err(e) => {
@@ -374,12 +288,7 @@ mod test {
         frame.base = Some(base);
 
         let mut buf = vec![];
-        let msg = Frame::Message {
-            message: frame,
-            body: false,
-            drop: true,
-        };
-        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, msg, &mut buf) {
+        if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, frame, &mut buf) {
             println!("{}", util::as_hex(&buf));
             assert!(buf.len() == cmp.len());
             for (a, b) in buf.iter().zip(cmp.iter()) {
