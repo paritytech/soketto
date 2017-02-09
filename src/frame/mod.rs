@@ -135,14 +135,16 @@ impl Codec for FrameCodec {
                     Ok(Some(Frame::Message {
                         message: ws_frame,
                         body: false,
+                        drop: true,
                     }))
                 } else if opcode.is_control() && self.fragmented {
                     if let Some(ref stdout) = self.stdout {
                         trace!(stdout, "Control Frame During Stream: {:?}", base.opcode());
                     }
-                    Ok(Some(Frame::Body {
-                        fin: false,
-                        chunk: Some(ws_frame),
+                    Ok(Some(Frame::Message {
+                        message: ws_frame,
+                        body: false,
+                        drop: false,
                     }))
                 }
                 // An unfragmented message consists of a single frame with the FIN
@@ -154,6 +156,7 @@ impl Codec for FrameCodec {
                     Ok(Some(Frame::Message {
                         message: ws_frame,
                         body: false,
+                        drop: true,
                     }))
                 }
                 // A fragmented message consists of a single frame with the FIN bit
@@ -172,6 +175,7 @@ impl Codec for FrameCodec {
                     Ok(Some(Frame::Message {
                         message: ws_frame,
                         body: true,
+                        drop: true,
                     }))
                 }
                 // The following case handles intemediate frames of a fragment chain,
@@ -301,7 +305,7 @@ mod test {
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
                 match decoded {
-                    Frame::Message { message, body } => {
+                    Frame::Message { message, body, .. } => {
                         if let Some(base) = message.base {
                             assert!(!body);
                             assert!(base.fin());
@@ -373,6 +377,7 @@ mod test {
         let msg = Frame::Message {
             message: frame,
             body: false,
+            drop: true,
         };
         if let Ok(()) = <FrameCodec as Codec>::encode(&mut fc, msg, &mut buf) {
             println!("{}", util::as_hex(&buf));

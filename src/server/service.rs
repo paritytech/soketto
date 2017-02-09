@@ -58,11 +58,7 @@ impl Service for PrintStdout {
             }
             Message::WithBody(message, body) => {
                 let app_datas = body.map(|frame| if let Some(base) = frame.base() {
-                        if !base.opcode().is_control() {
-                            Vec::from(base.app_data())
-                        } else {
-                            vec![]
-                        }
+                        Vec::from(base.app_data())
                     } else {
                         vec![]
                     })

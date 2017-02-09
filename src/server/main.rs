@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate env_logger;
 extern crate futures;
 extern crate slog_term;
 extern crate tokio_proto;
@@ -19,6 +20,7 @@ use tokio_proto::TcpServer;
 use twist::proto::WebSocketProto;
 
 fn main() {
+    env_logger::init().unwrap();
     let matches = App::new("twist")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Jason Ozias <jason.g.ozias@gmail.com>")
