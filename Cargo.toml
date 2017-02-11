@@ -1,7 +1,14 @@
 [package]
-authors = ["Jason Ozias <jason.ozias@gmail.com>"]
 name = "twist"
 version = "0.1.0"
+authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
+description = "tokio base websocket server"
+documentation = "https://github.com/rustyhorde/twist"
+homepage = "https://github.com/rustyhorde/twist"
+repository = "https://github.com/rustyhorde/twist"
+readme = "README.md"
+license = "MIT"
+keywords = ["tokio","websocket"]
 
 [[bin]]
 name = "twists"
