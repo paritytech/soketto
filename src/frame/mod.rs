@@ -50,12 +50,23 @@ impl WebSocketFrame {
         false
     }
 
+    pub fn is_handshake(&self) -> bool {
+        self.handshake.is_some()
+    }
+
     pub fn handshake(&self) -> Option<&HandshakeFrame> {
         if let Some(ref handshake) = self.handshake {
             Some(handshake)
         } else {
             None
         }
+    }
+
+    pub fn set_handshake(&mut self, handshake: HandshakeFrame) -> &mut WebSocketFrame {
+        self.handshake = Some(handshake);
+        // Ensure mutually exculsive.
+        self.base = None;
+        self
     }
 
     pub fn base(&self) -> Option<&BaseFrame> {
@@ -68,6 +79,8 @@ impl WebSocketFrame {
 
     pub fn set_base(&mut self, base: BaseFrame) -> &mut WebSocketFrame {
         self.base = Some(base);
+        // Ensure mutually exclusive.
+        self.handshake = None;
         self
     }
 }
@@ -127,8 +140,7 @@ impl FrameCodec {
 impl Default for FrameCodec {
     fn default() -> FrameCodec {
         FrameCodec {
-            // TODO: Default this to false when Handshake is implemented.
-            shaken: true,
+            shaken: false,
             fragmented: false,
             stdout: None,
             stderr: None,
@@ -156,7 +168,21 @@ impl Codec for FrameCodec {
                 Ok(None)
             }
         } else {
-            return Ok(None);
+            let mut handshake: HandshakeFrame = Default::default();
+            match handshake.decode(buf) {
+                Ok(Some(hand)) => {
+                    self.shaken = true;
+                    ws_frame.set_handshake(hand.clone());
+                    Ok(Some(ws_frame))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => {
+                    if let Some(ref stderr) = self.stderr {
+                        error!(stderr, "{}", e);
+                    }
+                    Err(e)
+                }
+            }
         }
     }
 
@@ -164,6 +190,10 @@ impl Codec for FrameCodec {
         if self.shaken {
             if let Some(base) = msg.base {
                 try!(base.to_byte_buf(buf));
+            }
+        } else {
+            if let Some(handshake) = msg.handshake {
+                try!(handshake.to_byte_buf(buf));
             }
         }
 
@@ -253,8 +283,7 @@ mod test {
                     assert!(false);
                 }
             }
-            Err(e) => {
-                println!("{}", e);
+            Err(_) => {
                 assert!(false);
             }
             _ => {

@@ -41,6 +41,9 @@ impl Service for PrintStdout {
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
+        if let Some(ref stdout) = self.stdout {
+            trace!(stdout, "{}", req);
+        }
         if let Some(base) = req.base() {
             if let Some(ref stdout) = self.stdout {
                 trace!(stdout, "Received {:?} frame", base.opcode());

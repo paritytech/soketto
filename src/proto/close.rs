@@ -1,11 +1,9 @@
 use frame::WebSocketFrame;
-use futures::{Async, Poll, Sink, StartSend, Stream};
+use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
+use util;
 
-fn other(desc: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, desc)
-}
 
 pub struct CloseProto<T> {
     stdout: Logger,
@@ -73,10 +71,33 @@ impl<T> Sink for CloseProto<T>
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
         trace!(self.stdout, "sink poll_complete");
         if self.received {
-            let close = WebSocketFrame::close(self.app_data.clone());
-            let res = try!(self.upstream.start_send(close));
-        }
+            let mut close = WebSocketFrame::close(self.app_data.clone());
 
-        self.upstream.poll_complete()
+            loop {
+                let res = try!(self.upstream.start_send(close));
+                match res {
+                    AsyncSink::Ready => {
+                        loop {
+                            let res = self.upstream.poll_complete();
+
+                            match res {
+                                Ok(Async::Ready(_)) => {
+                                    trace!(self.stdout,
+                                           "received close, sending close, terminating");
+                                    return Err(util::other("Sent and closed"));
+                                }
+                                _ => {
+                                    // loop until ready so we can close
+                                }
+                            }
+                        }
+
+                    }
+                    AsyncSink::NotReady(v) => close = v,
+                }
+            }
+        } else {
+            self.upstream.poll_complete()
+        }
     }
 }

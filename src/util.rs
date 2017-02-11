@@ -1,3 +1,9 @@
+use std::io;
+
+pub fn other(desc: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, desc)
+}
+
 #[cfg(test)]
 pub fn as_hex(buf: &Vec<u8>) -> String {
     let mut hexy = String::new();

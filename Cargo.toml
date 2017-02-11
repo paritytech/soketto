@@ -11,17 +11,30 @@ path = "src/server/main.rs"
 name = "twisty"
 path = "src/client/main.rs"
 
+[[bin]]
+name = "twister"
+path = "src/tls_client/main.rs"
+
 [dependencies]
+base64 = "0.3.0"
 byteorder = "1.0.0"
 clap = "2.20.3"
 env_logger = "0.4.0"
 futures = "0.1.10"
-slog = { version = "1.4.1", features = ["max_level_trace", "release_max_level_trace"] }
+httparse = "1.2.1"
+native-tls = "0.1.1"
 slog-term = "1.4.0"
 tokio-core = "0.1.4"
-tokio-proto = { path = "/home/jozias/projects/tokio-proto" }
+tokio-proto = "0.1.0"
 tokio-service = "0.1.0"
-# uuid = { version = "0.4", features = ["serde", "v4"] }
+
+[dependencies.slog]
+features = ["max_level_trace", "release_max_level_trace"]
+version = "1.4.1"
+
+[dependencies.tokio-tls]
+features = ["tokio-proto"]
+version = "0.1.1"
 
 [lib]
 name = "twist"
