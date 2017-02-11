@@ -1,9 +1,13 @@
+use base64::encode;
 use httparse::{EMPTY_HEADER, Request};
+use sha1::Sha1;
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
 use tokio_core::io::EasyBuf;
 use util;
+
+static KEY: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 #[derive(Debug, Clone)]
 pub struct HandshakeFrame {
@@ -32,6 +36,15 @@ pub struct HandshakeFrame {
 
 // TODO: Convert to return result with reason code.
 impl HandshakeFrame {
+    pub fn ws_key(&self) -> String {
+        let mut res = String::new();
+
+        if let Some(ref key) = self.ws_key {
+            res.extend(key.chars());
+        }
+        res
+    }
+
     fn validate(&mut self, handshake: &HandshakeFrame) -> bool {
         if handshake.method != "GET" {
             return false;
@@ -133,7 +146,29 @@ impl HandshakeFrame {
         }
     }
 
-    pub fn to_byte_buf(&self, _buf: &mut Vec<u8>) -> Result<(), io::Error> {
+    fn accept_val(&self) -> Result<String, io::Error> {
+        if let Some(ref ws_key) = self.ws_key {
+            let mut base = ws_key.clone();
+            base.push_str(KEY);
+
+            let mut m = Sha1::new();
+            m.reset();
+            m.update(base.as_bytes());
+
+            Ok(encode(&m.digest().bytes()))
+        } else {
+            Err(util::other("invalid handshake frame"))
+        }
+    }
+
+    pub fn to_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
+        let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
+        response.push_str("Upgrade: websocket\r\n");
+        response.push_str("Connection: upgrade\r\n");
+        response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", try!(self.accept_val())));
+        response.push_str("\r\n");
+
+        buf.extend(response.as_bytes());
         Ok(())
     }
 }
@@ -169,5 +204,21 @@ impl fmt::Display for HandshakeFrame {
         try!(writeln!(f, "\tws_key: {:?}", self.ws_key));
         try!(writeln!(f, "\tws_version: {:?}", self.ws_version));
         write!(f, "}}")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::HandshakeFrame;
+
+    #[test]
+    pub fn accept() {
+        let mut hf: HandshakeFrame = Default::default();
+        hf.ws_key = Some("dGhlIHNhbXBsZSBub25jZQ==".to_string());
+        if let Ok(res) = hf.accept_val() {
+            assert!(res == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+        } else {
+            assert!(false);
+        }
     }
 }

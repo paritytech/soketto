@@ -1,6 +1,7 @@
 extern crate base64;
 extern crate byteorder;
 extern crate httparse;
+extern crate sha1;
 extern crate tokio_core;
 extern crate tokio_proto;
 

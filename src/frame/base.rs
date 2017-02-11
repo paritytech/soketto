@@ -188,6 +188,16 @@ impl BaseFrame {
         }
     }
 
+    fn apply_mask(&mut self, buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
+        let mut mask_buf = Vec::with_capacity(4);
+        try!(mask_buf.write_u32::<BigEndian>(mask));
+        let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
+        for (byte, &key) in iter {
+            *byte ^= key
+        }
+        Ok(())
+    }
+
     pub fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<BaseFrame>, io::Error> {
         // Split of the 2 'header' bytes.
         let header_bytes = buf.drain_to(2);
@@ -224,18 +234,24 @@ impl BaseFrame {
 
         let mask_key = if masked {
             let mut rdr = Cursor::new(buf.drain_to(4));
-            if let Ok(mask_key) = rdr.read_u32::<BigEndian>() {
-                Some(mask_key)
+            if let Ok(mask) = rdr.read_u32::<BigEndian>() {
+                Some(mask)
             } else {
-                return Ok(None);
+                None
             }
         } else {
             None
         };
 
         let rest_len = buf.len();
-        let app_data_bytes = buf.drain_to(rest_len);
-        let application_data = Some(app_data_bytes.as_slice().to_vec());
+        let mut app_data_bytes = buf.drain_to(rest_len);
+        let mut adb = app_data_bytes.get_mut();
+        let application_data = if let Some(mask_key) = mask_key {
+            let _ = try!(self.apply_mask(&mut adb, mask_key));
+            Some(adb.to_vec())
+        } else {
+            None
+        };
 
         let base_frame = BaseFrame {
             fin: fin,
@@ -249,10 +265,6 @@ impl BaseFrame {
             application_data: application_data,
             ..Default::default()
         };
-
-        // if let Some(ref stdout) = self.stdout {
-        //     trace!(stdout, "decoded base_frame: {}", base_frame);
-        // }
 
         Ok(Some(base_frame))
     }
@@ -313,10 +325,6 @@ impl BaseFrame {
         if let Some(ref app_data) = self.application_data {
             buf.extend(app_data);
         }
-
-        // if let Some(ref stdout) = self.stdout {
-        //     trace!(stdout, "write buf: {:?}", buf);
-        // }
 
         Ok(())
     }

@@ -1,3 +1,6 @@
+extern crate httparse;
+
+use httparse::{EMPTY_HEADER, Response};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::{thread, time};
@@ -25,7 +28,31 @@ fn main() {
         \r\n";
 
     println!("Sending Client Handshake Request");
+    let mut rb = Vec::new();
     let _ = stream.write_all(request.as_bytes());
+
+    loop {
+        let mut resp_buf = [0; 2048];
+        let mut headers = [EMPTY_HEADER; 32];
+        let mut resp = Response::new(&mut headers);
+
+        if let Ok(count) = stream.read(&mut resp_buf) {
+            let tmp = resp_buf[0..count].to_vec();
+            rb.extend(tmp);
+        }
+
+        if let Ok(res) = resp.parse(&rb) {
+            if res.is_partial() {
+                continue;
+            } else if res.is_complete() {
+                println!("VALID RESPONSE: {:?}", resp.code);
+                for header in resp.headers.iter() {
+                    println!("{}: {}", header.name, String::from_utf8_lossy(header.value));
+                }
+                break;
+            }
+        }
+    }
 
     let half_second = time::Duration::from_millis(500);
     thread::sleep(half_second);

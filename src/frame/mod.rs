@@ -16,6 +16,13 @@ pub struct WebSocketFrame {
 }
 
 impl WebSocketFrame {
+    pub fn handshake_resp(handshake_frame: HandshakeFrame) -> WebSocketFrame {
+        WebSocketFrame {
+            base: None,
+            handshake: Some(handshake_frame),
+        }
+    }
+
     pub fn pong(app_data: Option<Vec<u8>>) -> WebSocketFrame {
         let mut base: BaseFrame = Default::default();
         base.set_fin(true).set_opcode(OpCode::Pong).set_application_data(app_data);
@@ -171,7 +178,6 @@ impl Codec for FrameCodec {
             let mut handshake: HandshakeFrame = Default::default();
             match handshake.decode(buf) {
                 Ok(Some(hand)) => {
-                    self.shaken = true;
                     ws_frame.set_handshake(hand.clone());
                     Ok(Some(ws_frame))
                 }
@@ -194,6 +200,7 @@ impl Codec for FrameCodec {
         } else {
             if let Some(handshake) = msg.handshake {
                 try!(handshake.to_byte_buf(buf));
+                self.shaken = true;
             }
         }
 
