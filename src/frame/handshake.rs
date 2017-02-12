@@ -7,7 +7,7 @@ use std::io;
 use tokio_core::io::EasyBuf;
 use util;
 
-static KEY: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+static KEY: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 #[derive(Debug, Clone)]
 pub struct HandshakeFrame {
