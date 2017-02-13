@@ -121,10 +121,17 @@ impl Frame {
 
                 let mut headers = HashMap::new();
                 for header in req.headers {
-                    // I'm intentionally igonring duplicate headers here.  Is that ok?
+                    // Duplicate headers are concatenated as comma-separated string.
                     let key = header.name.to_string();
                     let val = String::from_utf8_lossy(header.value).into_owned();
-                    headers.insert(key, val);
+                    let mut entry = headers.entry(key).or_insert_with(String::new);
+
+                    if entry.is_empty() {
+                        entry.push_str(&val);
+                    } else {
+                        entry.push(',');
+                        entry.push_str(&val);
+                    }
                 }
 
                 // Required Headers
@@ -224,6 +231,20 @@ impl fmt::Display for Frame {
         }
         if let Some(ref ws_version) = self.ws_version {
             try!(writeln!(f, "\tws_version: {}", ws_version));
+        }
+        if let Some(ref origin) = self.origin {
+            try!(writeln!(f, "\torigin: {}", origin));
+        }
+        if let Some(ref protocol) = self.protocol {
+            try!(writeln!(f, "\tprotocol: {}", protocol));
+        }
+        if let Some(ref extensions) = self.extensions {
+            try!(writeln!(f, "\textensions: {}", extensions));
+        }
+        if !self.others.is_empty() {
+            for (k, v) in &self.others {
+                try!(writeln!(f, "\t{}: {}", k, v));
+            }
         }
         write!(f, "}}")
     }
