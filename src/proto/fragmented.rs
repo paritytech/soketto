@@ -20,6 +20,8 @@ pub struct Fragmented<T> {
     complete: bool,
     /// The `OpCode` from the original message.
     opcode: OpCode,
+    /// A running total of the payload lengths.
+    total_length: u64,
     /// The buffer used to store the fragmented data.
     buf: Vec<u8>,
 }
@@ -34,6 +36,7 @@ impl<T> Fragmented<T> {
             started: false,
             complete: false,
             opcode: OpCode::Close,
+            total_length: 0,
             buf: Vec::new(),
         }
     }
@@ -70,6 +73,7 @@ impl<T> Stream for Fragmented<T>
                         }
                         self.opcode = base.opcode();
                         self.started = true;
+                        self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
@@ -93,6 +97,7 @@ impl<T> Stream for Fragmented<T>
                         if let Some(ref stdout) = self.stdout {
                             trace!(stdout, "fragment frame received");
                         }
+                        self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
@@ -116,6 +121,7 @@ impl<T> Stream for Fragmented<T>
                             trace!(stdout, "fragment complete frame received");
                         }
                         self.complete = true;
+                        self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
@@ -149,6 +155,7 @@ impl<T> Sink for Fragmented<T>
             let mut base: Frame = Default::default();
             base.set_fin(true).set_opcode(self.opcode);
             base.set_application_data(Some(self.buf.clone()));
+            base.set_payload_length(self.total_length);
             coalesced.set_base(base);
             let _ = try!(self.upstream.start_send(coalesced));
             self.started = false;

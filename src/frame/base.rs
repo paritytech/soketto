@@ -410,10 +410,10 @@ impl fmt::Display for Frame {
         try!(write!(f, "\n\tmasked {}", self.masked));
         try!(write!(f, "\n\tpayload_length {}", self.payload_length));
         if let Some(ref ext_data) = self.extension_data {
-            try!(write!(f, "\n\textension_data {}", util::as_hex(ext_data)));
+            try!(write!(f, "\n\textension_data\n{}", util::as_hex(ext_data)));
         }
         if let Some(ref app_data) = self.application_data {
-            try!(write!(f, "\n\tapplication_data {}\n", util::as_hex(app_data)));
+            try!(write!(f, "\n\tapplication_data\n{}\n", util::as_hex(app_data)));
         }
         writeln!(f, "}}")
     }
