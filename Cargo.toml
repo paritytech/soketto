@@ -1,6 +1,6 @@
 [package]
 name = "twist"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "tokio base websocket server"
 documentation = "https://github.com/rustyhorde/twist"
