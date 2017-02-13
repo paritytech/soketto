@@ -14,7 +14,7 @@ Include the following in your `Cargo.toml` dependencies section
 Support extensions and subprotocol negotiation.
 
 ## Documentation
-[Documentation](https://docs.rs/crate/twist/0.1.1)
+[Documentation](https://docs.rs/twist/0.1.1/twist/)
 
 
 ## Example Usage
