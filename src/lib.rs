@@ -36,6 +36,7 @@ extern crate futures;
 extern crate slog;
 
 mod codec;
+mod extension;
 pub mod frame;
 pub mod proto;
 mod util;
