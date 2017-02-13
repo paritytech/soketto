@@ -1,3 +1,4 @@
+//! websocket handshake frame
 use base64::encode;
 use httparse::{EMPTY_HEADER, Request};
 use sha1::Sha1;
@@ -7,12 +8,18 @@ use std::io;
 use tokio_core::io::EasyBuf;
 use util;
 
+/// Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header in the server
+/// handshake response.
 static KEY: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 #[derive(Debug, Clone)]
-pub struct HandshakeFrame {
+/// The `Frame` struct.
+pub struct Frame {
+    /// The request method (must be 'GET').
     method: String,
+    /// The request path.
     path: String,
+    /// The request version (must be 1).
     version: u8,
     /// Host header (Required)
     host: Option<String>,
@@ -35,17 +42,19 @@ pub struct HandshakeFrame {
 }
 
 // TODO: Convert to return result with reason code.
-impl HandshakeFrame {
+impl Frame {
+    /// Get the `ws_key`.
     pub fn ws_key(&self) -> String {
         let mut res = String::new();
 
         if let Some(ref key) = self.ws_key {
-            res.extend(key.chars());
+            res.push_str(key);
         }
         res
     }
 
-    fn validate(&mut self, handshake: &HandshakeFrame) -> bool {
+    /// Validate the client handshake request.
+    fn validate(&mut self, handshake: &Frame) -> bool {
         if handshake.method != "GET" {
             return false;
         }
@@ -84,16 +93,17 @@ impl HandshakeFrame {
             return false;
         }
 
-        return true;
+        true
     }
 
-    pub fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<HandshakeFrame>, io::Error> {
+    /// Decode and `EasyBuf` into a `Frame`.
+    pub fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Frame>, io::Error> {
         let len = buf.len();
         let drained = buf.drain_to(len);
         let req_bytes = drained.as_slice();
         let mut headers = [EMPTY_HEADER; 32];
         let mut req = Request::new(&mut headers);
-        let mut handshake_frame: HandshakeFrame = Default::default();
+        let mut handshake_frame: Frame = Default::default();
 
         if let Ok(res) = req.parse(req_bytes) {
             if res.is_complete() {
@@ -129,7 +139,7 @@ impl HandshakeFrame {
                 handshake_frame.protocol = headers.remove("Sec-WebSocket-Protocol");
                 handshake_frame.extensions = headers.remove("Sec-WebSocket-Extensions");
 
-                if headers.len() > 0 {
+                if !headers.is_empty() {
                     handshake_frame.others = headers;
                 }
 
@@ -146,6 +156,7 @@ impl HandshakeFrame {
         }
     }
 
+    /// Generate the `Sec-WebSocket-Accept` value.
     fn accept_val(&self) -> Result<String, io::Error> {
         if let Some(ref ws_key) = self.ws_key {
             let mut base = ws_key.clone();
@@ -161,6 +172,7 @@ impl HandshakeFrame {
         }
     }
 
+    /// Convert a `Frame` into a byte buffer.
     pub fn to_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
         let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
         response.push_str("Upgrade: websocket\r\n");
@@ -173,9 +185,9 @@ impl HandshakeFrame {
     }
 }
 
-impl Default for HandshakeFrame {
-    fn default() -> HandshakeFrame {
-        HandshakeFrame {
+impl Default for Frame {
+    fn default() -> Frame {
+        Frame {
             method: String::new(),
             path: String::new(),
             version: 0,
@@ -192,28 +204,38 @@ impl Default for HandshakeFrame {
     }
 }
 
-impl fmt::Display for HandshakeFrame {
+impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(writeln!(f, "HandshakeFrame {{"));
+        try!(writeln!(f, "Frame {{"));
         try!(writeln!(f, "\tmethod: {}", self.method));
         try!(writeln!(f, "\tpath: {}", self.path));
         try!(writeln!(f, "\tversion: {}", self.version));
-        try!(writeln!(f, "\thost: {:?}", self.host));
-        try!(writeln!(f, "\tupgrade: {:?}", self.upgrade));
-        try!(writeln!(f, "\tconn: {:?}", self.conn));
-        try!(writeln!(f, "\tws_key: {:?}", self.ws_key));
-        try!(writeln!(f, "\tws_version: {:?}", self.ws_version));
+        if let Some(ref host) = self.host {
+            try!(writeln!(f, "\thost: {}", host));
+        }
+        if let Some(ref upgrade) = self.upgrade {
+            try!(writeln!(f, "\tupgrade: {}", upgrade));
+        }
+        if let Some(ref conn) = self.conn {
+            try!(writeln!(f, "\tconn: {}", conn));
+        }
+        if let Some(ref ws_key) = self.ws_key {
+            try!(writeln!(f, "\tws_key: {}", ws_key));
+        }
+        if let Some(ref ws_version) = self.ws_version {
+            try!(writeln!(f, "\tws_version: {}", ws_version));
+        }
         write!(f, "}}")
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::HandshakeFrame;
+    use super::Frame;
 
     #[test]
     pub fn accept() {
-        let mut hf: HandshakeFrame = Default::default();
+        let mut hf: Frame = Default::default();
         hf.ws_key = Some("dGhlIHNhbXBsZSBub25jZQ==".to_string());
         if let Ok(res) = hf.accept_val() {
             assert!(res == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");

@@ -1,48 +1,68 @@
-use frame::WebSocketFrame;
+//! The `PingPong` protocol middleware.
+use frame::WebSocket;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::collections::VecDeque;
 use std::io;
 
-pub struct PingPongProto<T> {
-    stdout: Logger,
-    stderr: Logger,
+/// The `PingPong` struct.
+pub struct PingPong<T> {
+    /// A slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// A slog stderr `Logger`
+    stderr: Option<Logger>,
+    /// The upstream protocol.
     upstream: T,
+    /// A vector of app datas for the given pings.  A pong is sent with the same data.
     app_datas: VecDeque<Option<Vec<u8>>>,
 }
 
-impl<T> PingPongProto<T> {
-    pub fn new(stdout: Logger, stderr: Logger, upstream: T) -> PingPongProto<T> {
-        let cfp_stdout = stdout.new(o!("proto" => "pingpong"));
-        let cfp_stderr = stderr.new(o!("proto" => "pingpong"));
-        PingPongProto {
-            stdout: cfp_stdout,
-            stderr: cfp_stderr,
+impl<T> PingPong<T> {
+    /// Create a new `PingPong` protocol middleware.
+    pub fn new(upstream: T) -> PingPong<T> {
+        PingPong {
+            stdout: None,
+            stderr: None,
             upstream: upstream,
             app_datas: VecDeque::new(),
         }
     }
+
+    /// Add a slog stdout `Logger` to this `Frame` protocol
+    pub fn add_stdout(&mut self, stdout: Logger) -> &mut PingPong<T> {
+        let pp_stdout = stdout.new(o!("module" => module_path!(), "proto" => "pingpong"));
+        self.stdout = Some(pp_stdout);
+        self
+    }
+
+    /// Add a slog stderr `Logger` to this `Frame` protocol.
+    pub fn add_stderr(&mut self, stderr: Logger) -> &mut PingPong<T> {
+        let pp_stderr = stderr.new(o!("module" => module_path!(), "proto" => "pingpong"));
+        self.stderr = Some(pp_stderr);
+        self
+    }
 }
 
-impl<T> Stream for PingPongProto<T>
-    where T: Stream<Item = WebSocketFrame, Error = io::Error>,
-          T: Sink<SinkItem = WebSocketFrame, SinkError = io::Error>
+impl<T> Stream for PingPong<T>
+    where T: Stream<Item = WebSocket, Error = io::Error>,
+          T: Sink<SinkItem = WebSocket, SinkError = io::Error>
 {
-    type Item = WebSocketFrame;
+    type Item = WebSocket;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<Option<WebSocketFrame>, io::Error> {
-        trace!(self.stdout, "stream poll");
+    fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
         loop {
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_ping() => {
-                    trace!(self.stdout, "ping message received");
+                    if let Some(ref stdout) = self.stdout {
+                        trace!(stdout, "ping message received");
+                    }
 
                     if let Some(base) = msg.base() {
                         self.app_datas.push_back(base.application_data().cloned());
-                    } else {
+                    } else if let Some(ref stderr) = self.stderr {
                         // This should never happen.
-                        error!(self.stderr, "couldn't extract base frame");
+                        error!(stderr, "couldn't extract base frame");
                     }
 
                     try!(self.poll_complete());
@@ -53,17 +73,17 @@ impl<T> Stream for PingPongProto<T>
     }
 }
 
-impl<T> Sink for PingPongProto<T>
-    where T: Sink<SinkItem = WebSocketFrame, SinkError = io::Error>
+impl<T> Sink for PingPong<T>
+    where T: Sink<SinkItem = WebSocket, SinkError = io::Error>
 {
-    type SinkItem = WebSocketFrame;
+    type SinkItem = WebSocket;
     type SinkError = io::Error;
 
-    fn start_send(&mut self, item: WebSocketFrame) -> StartSend<WebSocketFrame, io::Error> {
-        trace!(self.stdout, "sink start_send");
-
+    fn start_send(&mut self, item: WebSocket) -> StartSend<WebSocket, io::Error> {
         if !self.app_datas.is_empty() {
-            trace!(self.stdout, "sink has pending pings");
+            if let Some(ref stdout) = self.stdout {
+                trace!(stdout, "sink has pending pings");
+            }
             return Ok(AsyncSink::NotReady(item));
         }
 
@@ -71,19 +91,17 @@ impl<T> Sink for PingPongProto<T>
     }
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
-        trace!(self.stdout, "sink poll_complete");
         let mut cur = self.app_datas.pop_front();
-        loop {
-            match cur {
-                Some(app_data) => {
-                    let pong = WebSocketFrame::pong(app_data);
-                    let res = try!(self.upstream.start_send(pong));
+        while let Some(app_data) = cur {
+            let pong = WebSocket::pong(app_data);
+            let res = try!(self.upstream.start_send(pong));
 
-                    if !res.is_ready() {
-                        break;
-                    }
+            if res.is_ready() {
+                if let Some(ref stdout) = self.stdout {
+                    trace!(stdout, "pong message sent");
                 }
-                None => break,
+            } else {
+                break;
             }
             cur = self.app_datas.pop_front();
         }

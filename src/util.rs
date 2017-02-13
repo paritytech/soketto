@@ -1,11 +1,13 @@
+//! General Utilities
 use std::io;
 
+/// Generate an `io::ErrorKind::Other` error with the given description.
 pub fn other(desc: &str) -> io::Error {
     io::Error::new(io::ErrorKind::Other, desc)
 }
 
-#[cfg(test)]
-pub fn as_hex(buf: &Vec<u8>) -> String {
+/// Generate a formatted hex string from a vector of bytes.
+pub fn as_hex(buf: &[u8]) -> String {
     let mut hexy = String::new();
 
     hexy.push_str(&header());
@@ -26,7 +28,7 @@ pub fn as_hex(buf: &Vec<u8>) -> String {
     hexy
 }
 
-#[cfg(test)]
+/// Generate the hex string header.
 fn header() -> String {
     format!("{:8} {:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:>5}{:>5}{:>5}{:>5}{:>5}{:>5}",
             "Address",
