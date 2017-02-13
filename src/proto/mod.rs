@@ -17,7 +17,10 @@
 //! [open]: https://tools.ietf.org/html/rfc6455#section-4.2.1
 //! [resp]: https://tools.ietf.org/html/rfc6455#section-4.2.2
 use codec::Twist;
+#[cfg(feature = "pmdeflate")]
+use extension::pm::PerMessage;
 use frame::WebSocket;
+use futures::{Sink, Stream};
 use proto::close::Close;
 use proto::fragmented::Fragmented;
 use proto::handshake::Handshake;
@@ -66,9 +69,40 @@ impl Default for Frame {
 }
 
 /// The base codec type.
+#[cfg(not(feature = "pmdeflate"))]
 type BaseCodec<T> = Framed<T, Twist>;
+#[cfg(feature = "pmdeflate")]
+type BaseCodec<T> = PerMessage<Framed<T, Twist>>;
 /// The websocket protocol middleware chain type.
 type ProtoChain<T> = Handshake<Close<PingPong<Fragmented<BaseCodec<T>>>>>;
+
+#[cfg(not(feature = "pmdeflate"))]
+/// Create the base transport.
+fn fragmented<T>(upstream: T, _: &Option<Logger>, _: &Option<Logger>) -> Fragmented<T>
+    where T: Stream<Item = WebSocket, Error = io::Error>,
+          T: Sink<SinkItem = WebSocket, SinkError = io::Error>
+{
+    Fragmented::new(upstream)
+}
+
+#[cfg(feature = "pmdeflate")]
+/// Create the base transport with per-message extensions enabled.
+fn fragmented<T>(upstream: T,
+                 stdout: &Option<Logger>,
+                 stderr: &Option<Logger>)
+                 -> Fragmented<PerMessage<T>>
+    where T: Stream<Item = WebSocket, Error = io::Error>,
+          T: Sink<SinkItem = WebSocket, SinkError = io::Error>
+{
+    let mut pm = PerMessage::new(upstream);
+    if let Some(ref stdout) = *stdout {
+        pm.add_stdout(stdout.clone());
+    }
+    if let Some(ref stderr) = *stderr {
+        pm.add_stderr(stderr.clone());
+    }
+    Fragmented::new(pm)
+}
 
 impl<T: Io + 'static> ServerProto<T> for Frame {
     type Request = WebSocket;
@@ -90,7 +124,7 @@ impl<T: Io + 'static> ServerProto<T> for Frame {
             codec.add_stderr(stderr.clone());
         }
 
-        let mut fragmented = Fragmented::new(io.framed(codec));
+        let mut fragmented = fragmented(io.framed(codec), &self.stdout, &self.stderr);
         if let Some(ref stdout) = self.stdout {
             fragmented.add_stdout(stdout.clone());
         }

@@ -1,14 +1,14 @@
 [package]
-name = "twist"
-version = "0.1.1"
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
-description = "tokio base websocket server"
+description = "tokio-proto ServerProto and tokio-core Codec websocket implementation"
 documentation = "https://github.com/rustyhorde/twist"
 homepage = "https://github.com/rustyhorde/twist"
-repository = "https://github.com/rustyhorde/twist"
-readme = "README.md"
+keywords = ["tokio", "websocket"]
 license = "MIT"
-keywords = ["tokio","websocket"]
+name = "twist"
+readme = "README.md"
+repository = "https://github.com/rustyhorde/twist"
+version = "0.1.1"
 
 [dependencies]
 base64 = "0.3.0"
@@ -22,6 +22,11 @@ tokio-proto = "0.1.0"
 [dependencies.slog]
 features = ["max_level_trace", "release_max_level_trace"]
 version = "1.4.1"
+
+[features]
+default = []
+pmdeflate = []
+pf = []
 
 [lib]
 name = "twist"

@@ -187,6 +187,8 @@ impl Frame {
         response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", try!(self.accept_val())));
         response.push_str("\r\n");
 
+        // TODO: Add support for 400 response, extensions, subprotocols.
+
         buf.extend(response.as_bytes());
         Ok(())
     }
