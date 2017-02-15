@@ -8,11 +8,12 @@ license = "MIT"
 name = "twist"
 readme = "README.md"
 repository = "https://github.com/rustyhorde/twist"
-version = "0.1.1"
+version = "0.1.2"
 
 [dependencies]
 base64 = "0.3.0"
 byteorder = "1.0.0"
+flate2 = "0.2.17"
 futures = "0.1.10"
 httparse = "1.2.1"
 sha1 = "0.2.0"
@@ -26,7 +27,6 @@ version = "1.4.1"
 [features]
 default = []
 pmdeflate = []
-pf = []
 
 [lib]
 name = "twist"

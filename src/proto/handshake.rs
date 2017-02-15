@@ -60,7 +60,7 @@ impl<T> Stream for Handshake<T>
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_handshake() && !self.client_received => {
                     if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "client handshake message received\n{}", msg);
+                        trace!(stdout, "client handshake message received");
                     }
 
                     if let Some(handshake) = msg.handshake() {

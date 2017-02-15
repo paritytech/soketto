@@ -25,6 +25,8 @@
 #![deny(missing_docs)]
 extern crate base64;
 extern crate byteorder;
+#[cfg(feature = "pmdeflate")]
+extern crate flate2;
 extern crate httparse;
 extern crate sha1;
 extern crate tokio_core;
@@ -36,7 +38,6 @@ extern crate futures;
 extern crate slog;
 
 mod codec;
-mod extension;
 pub mod frame;
 pub mod proto;
 mod util;

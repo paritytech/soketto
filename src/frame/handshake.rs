@@ -53,6 +53,16 @@ impl Frame {
         res
     }
 
+    /// Get the `extensions`
+    pub fn extensions(&self) -> String {
+        let mut res = String::new();
+
+        if let Some(ref extensions) = self.extensions {
+            res.push_str(extensions);
+        }
+        res
+    }
+
     /// Validate the client handshake request.
     fn validate(&mut self, handshake: &Frame) -> bool {
         if handshake.method != "GET" {
@@ -179,15 +189,32 @@ impl Frame {
         }
     }
 
+    #[cfg(feature = "pmdeflate")]
+    /// Add the `Sec-WebSocket-Extensions: permessage-deflate` header to the response.
+    fn ext_header(&self, buf: &mut String) {
+        if let Some(ref extensions) = self.extensions {
+            if extensions.contains("permessage-deflate") {
+                buf.push_str("Sec-WebSocket-Extensions: permessage-deflate\r\n");
+            }
+        }
+    }
+
+    #[cfg(not(feature = "pmdeflate"))]
+    /// Does nothing when `pmdeflate` feature is disabled.
+    fn ext_header(&self, _buf: &mut String) {}
+
     /// Convert a `Frame` into a byte buffer.
     pub fn to_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
         let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
         response.push_str("Upgrade: websocket\r\n");
         response.push_str("Connection: upgrade\r\n");
         response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", try!(self.accept_val())));
+
+        // TODO: Add support for 400 response, subprotocols.
+        self.ext_header(&mut response);
+
         response.push_str("\r\n");
 
-        // TODO: Add support for 400 response, extensions, subprotocols.
 
         buf.extend(response.as_bytes());
         Ok(())
