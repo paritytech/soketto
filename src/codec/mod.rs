@@ -49,7 +49,7 @@ impl Twist {
             if let Some(app_data) = base.application_data() {
                 let len = app_data.len();
                 // Trim the [0x00, 0x00, 0xff, 0xff, 0x00]
-                let trimmed = &app_data[0..len-5];
+                let trimmed = &app_data[0..len - 5];
                 let mut decoder = DeflateDecoder::new(trimmed);
                 let mut read = decoder.read(&mut buf);
                 while let Ok(size) = read {
