@@ -10,10 +10,8 @@ use frame::{WebSocket, base, handshake};
 use slog::Logger;
 use std::io;
 #[cfg(feature = "pmdeflate")]
-use std::io::{BufRead, Read, Write};
+use std::io::{Read, Write};
 use tokio_core::io::{Codec, EasyBuf};
-// #[cfg(feature = "pmdeflate")]
-use util;
 
 /// The `Codec` struct.
 pub struct Twist {
@@ -25,7 +23,6 @@ pub struct Twist {
     stderr: Option<Logger>,
     /// Is the deflate extension enabled?
     deflate: bool,
-    first: bool,
 }
 
 impl Twist {
@@ -46,53 +43,24 @@ impl Twist {
     #[cfg(feature = "pmdeflate")]
     /// Uncompress the application data in the given base frame.
     fn inflate(&mut self, base: &mut base::Frame) {
-        if let Some(ref stdout) = self.stdout {
-            trace!(stdout, "rsv1: {}", base.rsv1());
-        }
         if base.rsv1() {
-            let mut out = [0; 2048];
+            let mut buf = [0; 4096];
             let mut total = 0;
             if let Some(app_data) = base.application_data() {
-                let mut ext_app_data = Vec::new();
                 let len = app_data.len();
-                ext_app_data.extend(app_data[0..len-5].iter());
-                if let Some(ref stdout) = self.stdout {
-                    trace!(stdout, "inflating\n{}", util::as_hex(&ext_app_data));
-                }
-                let mut decoder = DeflateDecoder::new(ext_app_data.as_slice());
-                let mut read = decoder.read(&mut out);
+                // Trim the [0x00, 0x00, 0xff, 0xff, 0x00]
+                let trimmed = &app_data[0..len-5];
+                let mut decoder = DeflateDecoder::new(trimmed);
+                let mut read = decoder.read(&mut buf);
                 while let Ok(size) = read {
                     total += size;
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "read {} bytes", total);
-                    }
-                    if size == 0 {
-                        break;
-                    }
-                    read = decoder.read(&mut out);
+                    read = decoder.read(&mut buf);
                 }
-                // match decoder.read_to_end(&mut out) {
-                //     Ok(size) => {
-                //         if let Some(ref stdout) = self.stdout {
-                //             trace!(stdout, "read {} bytes during inflation", size);
-                //         }
-                //     }
-                //     Err(e) => {
-                //         println!("{}", e);
-                //         if let Some(ref stderr) = self.stderr {
-                //             trace!(stderr, "err during inflation: {}", e);
-                //         }
-                //     }
-                // }
-            }
-
-            if let Some(ref stdout) = self.stdout {
-                trace!(stdout, "inflated\n{}", util::as_hex(&out[0..total]));
             }
 
             base.set_rsv1(false);
-            base.set_payload_length(out.len() as u64);
-            base.set_application_data(Some(out[0..total].to_vec()));
+            base.set_payload_length(total as u64);
+            base.set_application_data(Some(buf[0..total].to_vec()));
         }
     }
 
@@ -105,24 +73,20 @@ impl Twist {
     fn deflate(&mut self, base: &mut base::Frame) -> io::Result<()> {
         let mut compressed = Vec::<u8>::new();
         if let Some(app_data) = base.application_data() {
-            let mut e = DeflateEncoder::new(Vec::new(), Compression::Default);
-            try!(e.write_all(app_data));
-            if let Ok(vec) = e.finish() {
-                compressed.extend(vec);
-                compressed.extend(&[0x00]);
+            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::Default);
+            try!(encoder.write_all(app_data));
+            if let Ok(encoded_data) = encoder.finish() {
+                compressed.extend(encoded_data);
             }
         }
 
         if compressed.is_empty() {
             if let Some(ref stderr) = self.stderr {
-                warn!(stderr, "compressed is empty");
+                error!(stderr, "compressed is empty");
             }
             base.set_application_data(None);
         } else {
-            if self.first {
-                base.set_rsv1(true);
-                self.first = !self.first;
-            }
+            base.set_rsv1(true);
             base.set_payload_length(compressed.len() as u64);
             base.set_application_data(Some(compressed));
         }
@@ -144,7 +108,6 @@ impl Default for Twist {
             stdout: None,
             stderr: None,
             deflate: false,
-            first: true,
         }
     }
 }
@@ -164,9 +127,6 @@ impl Codec for Twist {
             let mut base: base::Frame = Default::default();
             if let Ok(Some(mut base)) = base.decode(buf) {
                 if self.deflate && !base.opcode().is_control() {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "inflating app data");
-                    }
                     self.inflate(&mut base);
                 }
                 ws_frame.set_base(base.clone());
@@ -179,9 +139,6 @@ impl Codec for Twist {
             match handshake.decode(buf) {
                 Ok(Some(hand)) => {
                     let extensions = hand.extensions();
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "requested extensions: {}", extensions);
-                    }
                     self.deflate = extensions.contains("permessage-deflate");
                     ws_frame.set_handshake(hand.clone());
                     Ok(Some(ws_frame))
@@ -201,15 +158,9 @@ impl Codec for Twist {
         if self.shaken {
             if let Some(base) = msg.base() {
                 if self.deflate && !base.opcode().is_control() {
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "deflating app data");
-                    }
                     let mut comp_base = base.clone();
                     try!(self.deflate(&mut comp_base));
                     try!(comp_base.to_byte_buf(buf));
-                    if let Some(ref stdout) = self.stdout {
-                        trace!(stdout, "buf\n{}", util::as_hex(&buf));
-                    }
                 } else {
                     try!(base.to_byte_buf(buf));
                 }
@@ -275,7 +226,6 @@ mod test {
             stdout: None,
             stderr: None,
             deflate: false,
-            first: true,
         };
 
         match fc.decode(&mut eb) {
@@ -319,7 +269,6 @@ mod test {
             stdout: None,
             stderr: None,
             deflate: false,
-            first: true,
         };
         let mut frame: WebSocket = Default::default();
         let mut base: Frame = Default::default();

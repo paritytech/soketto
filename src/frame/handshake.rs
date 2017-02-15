@@ -194,7 +194,8 @@ impl Frame {
     fn ext_header(&self, buf: &mut String) {
         if let Some(ref extensions) = self.extensions {
             if extensions.contains("permessage-deflate") {
-                buf.push_str("Sec-WebSocket-Extensions: permessage-deflate\r\n");
+                buf.push_str("Sec-WebSocket-Extensions: permessage-deflate; \
+                server_no_context_takeover\r\n");
             }
         }
     }
