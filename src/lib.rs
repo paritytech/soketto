@@ -25,11 +25,7 @@
 #![deny(missing_docs)]
 extern crate base64;
 extern crate byteorder;
-#[cfg(feature = "pmdeflate")]
-extern crate flate2;
 extern crate httparse;
-#[cfg(feature = "pmdeflate")]
-extern crate inflate;
 extern crate sha1;
 extern crate tokio_core;
 extern crate tokio_proto;

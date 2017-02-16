@@ -7,6 +7,7 @@ pub fn other(desc: &str) -> io::Error {
 }
 
 /// Generate a formatted hex string from a vector of bytes.
+#[cfg(test)]
 pub fn as_hex(buf: &[u8]) -> String {
     let mut hexy = String::new();
 
@@ -29,6 +30,7 @@ pub fn as_hex(buf: &[u8]) -> String {
 }
 
 /// Generate the hex string header.
+#[cfg(test)]
 fn header() -> String {
     format!("{:8} {:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:>5}{:>5}{:>5}{:>5}{:>5}{:>5}",
             "Address",

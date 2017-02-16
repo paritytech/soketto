@@ -1,15 +1,7 @@
 //! A websocket base frame
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-#[cfg(feature = "pmdeflate")]
-use flate2::Compression;
-#[cfg(feature = "pmdeflate")]
-use flate2::write::DeflateEncoder;
-#[cfg(feature = "pmdeflate")]
-use inflate::InflateStream;
 use std::fmt;
 use std::io::{self, Cursor};
-#[cfg(feature = "pmdeflate")]
-use std::io::Write;
 use tokio_core::io::EasyBuf;
 use util;
 
@@ -426,10 +418,6 @@ impl Frame {
             }
         }
 
-        if self.deflate && !self.opcode.is_control() && !self.inflated && self.fin {
-            try!(self.inflate());
-        }
-
         if self.opcode == OpCode::Text && self.fin {
             if let Some(ref app_data) = self.application_data {
                 try!(String::from_utf8(app_data.clone())
@@ -440,51 +428,9 @@ impl Frame {
         Ok(Some(self.clone()))
     }
 
-    #[cfg(feature = "pmdeflate")]
-    /// Uncompress the application data in the given base frame.
-    fn inflate(&mut self) -> io::Result<()> {
-        let mut buf = Vec::new();
-        // let mut total = 0;
-        if let Some(ref app_data) = self.application_data {
-            // let len = app_data.len();
-            let mut inflater = InflateStream::new();
-            let mut n = 0;
-            // let trimmed: Vec<u8> = app_data.iter().filter(|b| **b != 0x00).cloned().collect();
-            let mut extended = app_data.clone();
-            extended.extend(&[0x00, 0x00, 0xff, 0xff]);
-            while n < extended.len() {
-                let res = inflater.update(&extended[n..]);
-                if let Ok((num_bytes_read, result)) = res {
-                    n += num_bytes_read;
-                    buf.extend(result);
-                } else {
-                    res.expect("Unable to inflate buffer");
-                }
-            }
-        }
-
-        if !buf.is_empty() {
-            // let base = buf[0..total].to_vec();
-            self.inflated = true;
-            self.rsv1 = false;
-            self.payload_length = buf.len() as u64;
-            self.application_data = Some(buf);
-        }
-        Ok(())
-    }
-
-    #[cfg(not(feature = "pmdeflate"))]
-    /// Does nothing when `pmdeflate` feature is disabled.
-    fn inflate(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-
     /// Convert a `Frame` into a buffer of bytes.
     /// Inspired by [ws-rs](https://github.com/housleyjk/ws-rs)
-    pub fn as_byte_buf(&mut self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
-        if self.deflate && !self.opcode.is_control() && self.fin {
-            try!(self.deflate());
-        }
+    pub fn as_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
         let mut first_byte = 0_u8;
 
         if self.fin {
@@ -539,36 +485,6 @@ impl Frame {
 
         Ok(())
     }
-
-    #[cfg(feature = "pmdeflate")]
-    /// Compress the application data in the given base frame.
-    fn deflate(&mut self) -> io::Result<()> {
-        let mut compressed = Vec::<u8>::new();
-        if let Some(app_data) = self.application_data() {
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::Default);
-            try!(encoder.write_all(app_data));
-            if let Ok(encoded_data) = encoder.finish() {
-                compressed.extend(encoded_data);
-                // compressed.extend(&[0x00, 0x00, 0xff, 0xff]);
-            }
-        }
-
-        if compressed.is_empty() {
-            self.application_data = None;
-        } else {
-            self.rsv1 = true;
-            self.payload_length = compressed.len() as u64;
-            self.application_data = Some(compressed);
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(feature = "pmdeflate"))]
-    /// Does nothing when `pmdeflate` feature is disabled.
-    fn deflate(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 impl Default for Frame {
@@ -604,12 +520,12 @@ impl fmt::Display for Frame {
         try!(write!(f, "\n\topcode {}", self.opcode));
         try!(write!(f, "\n\tmasked {}", self.masked));
         try!(write!(f, "\n\tpayload_length {}", self.payload_length));
-        if let Some(ref ext_data) = self.extension_data {
-            try!(write!(f, "\n\textension_data\n{}", util::as_hex(ext_data)));
-        }
-        if let Some(ref app_data) = self.application_data {
-            try!(write!(f, "\n\tapplication_data\n{}\n", util::as_hex(app_data)));
-        }
+        // if let Some(ref ext_data) = self.extension_data {
+        //     try!(write!(f, "\n\textension_data\n{}", util::as_hex(ext_data)));
+        // }
+        // if let Some(ref app_data) = self.application_data {
+        //     try!(write!(f, "\n\tapplication_data\n{}\n", util::as_hex(app_data)));
+        // }
         writeln!(f, "}}")
     }
 }

@@ -189,7 +189,7 @@ impl Frame {
         }
     }
 
-    #[cfg(feature = "pmdeflate")]
+    #[cfg(feature = "pmd")]
     /// Add the `Sec-WebSocket-Extensions: permessage-deflate` header to the response.
     fn ext_header(&self, buf: &mut String) {
         if let Some(ref extensions) = self.extensions {
@@ -200,8 +200,8 @@ impl Frame {
         }
     }
 
-    #[cfg(not(feature = "pmdeflate"))]
-    /// Does nothing when `pmdeflate` feature is disabled.
+    #[cfg(not(feature = "pmd"))]
+    /// Does nothing when `pmd` feature is disabled.
     fn ext_header(&self, _buf: &mut String) {}
 
     /// Convert a `Frame` into a byte buffer.

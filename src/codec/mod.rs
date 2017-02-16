@@ -63,11 +63,7 @@ impl Codec for Twist {
         let mut ws_frame: WebSocket = Default::default();
         if self.shaken {
             if self.base.is_none() {
-                let mut base: base::Frame = Default::default();
-                if cfg!(feature = "pmdeflate") {
-                    base.set_deflate(self.deflate);
-                }
-                self.base = Some(base);
+                self.base = Some(Default::default());
             }
             if let Some(ref mut base) = self.base {
                 match base.decode(buf) {
@@ -112,11 +108,7 @@ impl Codec for Twist {
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
         if self.shaken {
             if let Some(base) = msg.base() {
-                let mut deflatable = base.clone();
-                if cfg!(feature = "pmdeflate") {
-                    deflatable.set_deflate(self.deflate);
-                }
-                try!(deflatable.as_byte_buf(buf));
+                try!(base.as_byte_buf(buf));
             }
         } else if let Some(handshake) = msg.handshake() {
             try!(handshake.as_byte_buf(buf));
