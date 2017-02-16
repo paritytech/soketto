@@ -3,7 +3,12 @@
    "outdir": "./reports/servers",
    "servers": [
       {
-         "url": "ws://127.0.0.1:9001"
+         "agent": "Twist Unsecure",
+         "url": "ws://10.0.0.200:11579"
+      },
+      {
+         "agent": "Twist Secure",
+         "url": "wss://jasonozias.com:32276"
       }
    ],
    "cases": ["*"],
