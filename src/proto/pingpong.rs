@@ -53,6 +53,10 @@ impl<T> Stream for PingPong<T>
     fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
         loop {
             match try_ready!(self.upstream.poll()) {
+                Some(ref msg) if msg.is_pong() => {
+                    // Eat pongs
+                    try!(self.poll_complete());
+                }
                 Some(ref msg) if msg.is_ping() => {
                     if let Some(ref stdout) = self.stdout {
                         trace!(stdout, "ping message received");

@@ -27,7 +27,10 @@ impl WebSocket {
     /// Create a pong response frame.
     pub fn pong(app_data: Option<Vec<u8>>) -> WebSocket {
         let mut base: base::Frame = Default::default();
-        base.set_fin(true).set_opcode(OpCode::Pong).set_application_data(app_data);
+        base.set_fin(true).set_opcode(OpCode::Pong);
+        if let Some(app_data) = app_data {
+            base.set_payload_length(app_data.len() as u64).set_application_data(Some(app_data));
+        }
 
         WebSocket {
             base: Some(base),
@@ -38,7 +41,11 @@ impl WebSocket {
     /// Create a close response frame.
     pub fn close(app_data: Option<Vec<u8>>) -> WebSocket {
         let mut base: base::Frame = Default::default();
-        base.set_fin(true).set_opcode(OpCode::Close).set_application_data(app_data);
+        base.set_fin(true).set_opcode(OpCode::Close);
+        if let Some(app_data) = app_data {
+            base.set_payload_length(app_data.len() as u64);
+            base.set_application_data(Some(app_data));
+        }
 
         WebSocket {
             base: Some(base),
@@ -62,6 +69,14 @@ impl WebSocket {
         false
     }
 
+    /// Is this frame a close request frame?
+    pub fn is_pong(&self) -> bool {
+        if let Some(ref base) = self.base {
+            return base.opcode() == OpCode::Pong;
+        }
+        false
+    }
+
     /// Is this frame a handshake frame?
     pub fn is_handshake(&self) -> bool {
         self.handshake.is_some()
@@ -79,6 +94,14 @@ impl WebSocket {
     pub fn is_fragment(&self) -> bool {
         if let Some(ref base) = self.base {
             return base.opcode() == OpCode::Continue && !base.fin();
+        }
+        false
+    }
+
+    /// Does the continuation frame have a bad opcode?
+    pub fn is_badfragment(&self) -> bool {
+        if let Some(ref base) = self.base {
+            return base.opcode() != OpCode::Continue && !base.opcode().is_control();
         }
         false
     }

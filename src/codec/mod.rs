@@ -1,17 +1,10 @@
 //! The `Twist` codec implementation.
 //! This is where the decoding/encoding of websocket frames happens.
-#[cfg(feature = "pmdeflate")]
-use flate2::Compression;
-#[cfg(feature = "pmdeflate")]
-use flate2::read::DeflateDecoder;
-#[cfg(feature = "pmdeflate")]
-use flate2::write::DeflateEncoder;
 use frame::{WebSocket, base, handshake};
 use slog::Logger;
 use std::io;
-#[cfg(feature = "pmdeflate")]
-use std::io::{Read, Write};
 use tokio_core::io::{Codec, EasyBuf};
+use util;
 
 /// The `Codec` struct.
 pub struct Twist {
@@ -23,6 +16,10 @@ pub struct Twist {
     stderr: Option<Logger>,
     /// Is the deflate extension enabled?
     deflate: bool,
+    /// Current base frame being decoded.
+    base: Option<base::Frame>,
+    /// Current handshake frame being decoded.
+    handshake: Option<handshake::Frame>,
 }
 
 impl Twist {
@@ -39,66 +36,6 @@ impl Twist {
         self.stderr = Some(fc_stderr);
         self
     }
-
-    #[cfg(feature = "pmdeflate")]
-    /// Uncompress the application data in the given base frame.
-    fn inflate(&mut self, base: &mut base::Frame) {
-        if base.rsv1() {
-            let mut buf = [0; 4096];
-            let mut total = 0;
-            if let Some(app_data) = base.application_data() {
-                let len = app_data.len();
-                // Trim the [0x00, 0x00, 0xff, 0xff, 0x00]
-                let trimmed = &app_data[0..len - 5];
-                let mut decoder = DeflateDecoder::new(trimmed);
-                let mut read = decoder.read(&mut buf);
-                while let Ok(size) = read {
-                    total += size;
-                    read = decoder.read(&mut buf);
-                }
-            }
-
-            base.set_rsv1(false);
-            base.set_payload_length(total as u64);
-            base.set_application_data(Some(buf[0..total].to_vec()));
-        }
-    }
-
-    #[cfg(not(feature = "pmdeflate"))]
-    /// Does nothing when `pmdeflate` feature is disabled.
-    fn inflate(&mut self, _base: &mut base::Frame) {}
-
-    #[cfg(feature = "pmdeflate")]
-    /// Compress the application data in the given base frame.
-    fn deflate(&mut self, base: &mut base::Frame) -> io::Result<()> {
-        let mut compressed = Vec::<u8>::new();
-        if let Some(app_data) = base.application_data() {
-            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::Default);
-            try!(encoder.write_all(app_data));
-            if let Ok(encoded_data) = encoder.finish() {
-                compressed.extend(encoded_data);
-            }
-        }
-
-        if compressed.is_empty() {
-            if let Some(ref stderr) = self.stderr {
-                error!(stderr, "compressed is empty");
-            }
-            base.set_application_data(None);
-        } else {
-            base.set_rsv1(true);
-            base.set_payload_length(compressed.len() as u64);
-            base.set_application_data(Some(compressed));
-        }
-
-        Ok(())
-    }
-
-    #[cfg(not(feature = "pmdeflate"))]
-    /// Does nothing when `pmdeflate` feature is disabled.
-    fn deflate(&mut self, _base: &mut base::Frame) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 impl Default for Twist {
@@ -108,6 +45,8 @@ impl Default for Twist {
             stdout: None,
             stderr: None,
             deflate: false,
+            base: None,
+            handshake: None,
         }
     }
 }
@@ -117,53 +56,68 @@ impl Codec for Twist {
     type Out = WebSocket;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+        // println!("buf: {}", util::as_hex(&buf.as_slice()));
         if buf.len() == 0 {
             return Ok(None);
         }
 
         let mut ws_frame: WebSocket = Default::default();
-
         if self.shaken {
-            let mut base: base::Frame = Default::default();
-            if let Ok(Some(mut base)) = base.decode(buf) {
-                if self.deflate && !base.opcode().is_control() {
-                    self.inflate(&mut base);
+            if self.base.is_none() {
+                let mut base: base::Frame = Default::default();
+                if cfg!(feature = "pmdeflate") {
+                    base.set_deflate(self.deflate);
                 }
-                ws_frame.set_base(base.clone());
-                Ok(Some(ws_frame))
-            } else {
-                Ok(None)
+                self.base = Some(base);
             }
-        } else {
-            let mut handshake: handshake::Frame = Default::default();
-            match handshake.decode(buf) {
-                Ok(Some(hand)) => {
-                    let extensions = hand.extensions();
-                    self.deflate = extensions.contains("permessage-deflate");
-                    ws_frame.set_handshake(hand.clone());
-                    Ok(Some(ws_frame))
-                }
-                Ok(None) => Ok(None),
-                Err(e) => {
-                    if let Some(ref stderr) = self.stderr {
-                        error!(stderr, "{}", e);
+            if let Some(ref mut base) = self.base {
+                match base.decode(buf) {
+                    Ok(None) => return Ok(None),
+                    Ok(Some(_)) => {
+                        ws_frame.set_base(base.clone());
                     }
-                    Err(e)
+                    Err(e) => return Err(e),
                 }
+            } else {
+                return Err(util::other("invalid base frame"));
             }
+            self.base = None;
+            return Ok(Some(ws_frame));
+        } else {
+            if self.handshake.is_none() {
+                self.handshake = Some(Default::default());
+            }
+            if let Some(ref mut handshake) = self.handshake {
+                match handshake.decode(buf) {
+                    Ok(Some(hand)) => {
+                        let extensions = hand.extensions();
+                        self.deflate = extensions.contains("permessage-deflate");
+                        ws_frame.set_handshake(hand.clone());
+                    }
+                    Ok(None) => return Ok(None),
+                    Err(e) => {
+                        if let Some(ref stderr) = self.stderr {
+                            error!(stderr, "{}", e);
+                        }
+                        return Err(e);
+                    }
+                }
+            } else {
+                return Err(util::other("invalid handshake request"));
+            }
+            self.handshake = None;
+            return Ok(Some(ws_frame));
         }
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
         if self.shaken {
             if let Some(base) = msg.base() {
-                if self.deflate && !base.opcode().is_control() {
-                    let mut comp_base = base.clone();
-                    try!(self.deflate(&mut comp_base));
-                    try!(comp_base.to_byte_buf(buf));
-                } else {
-                    try!(base.to_byte_buf(buf));
+                let mut deflatable = base.clone();
+                if cfg!(feature = "pmdeflate") {
+                    deflatable.set_deflate(self.deflate);
                 }
+                try!(deflatable.to_byte_buf(buf));
             }
         } else if let Some(handshake) = msg.handshake() {
             try!(handshake.to_byte_buf(buf));
@@ -175,8 +129,6 @@ impl Codec for Twist {
         Ok(())
     }
 }
-
-
 
 #[cfg(test)]
 mod test {
@@ -226,6 +178,8 @@ mod test {
             stdout: None,
             stderr: None,
             deflate: false,
+            base: None,
+            handshake: None,
         };
 
         match fc.decode(&mut eb) {
@@ -269,6 +223,8 @@ mod test {
             stdout: None,
             stderr: None,
             deflate: false,
+            base: None,
+            handshake: None,
         };
         let mut frame: WebSocket = Default::default();
         let mut base: Frame = Default::default();

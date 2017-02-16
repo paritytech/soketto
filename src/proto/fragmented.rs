@@ -133,6 +133,12 @@ impl<T> Stream for Fragmented<T>
                         return Err(util::other("invalid fragment complete frame received"));
                     }
                 }
+                Some(ref msg) if msg.is_badfragment() => {
+                    if self.started && !self.complete {
+                        return Err(util::other("invalid opcode for continuation fragment"));
+                    }
+                    return Ok(Async::Ready(Some(msg.clone())));
+                }
                 m => return Ok(Async::Ready(m)),
             }
         }
@@ -153,6 +159,11 @@ impl<T> Sink for Fragmented<T>
         if self.started && self.complete {
             let mut coalesced: WebSocket = Default::default();
             let mut base: Frame = Default::default();
+
+            if self.opcode == OpCode::Text {
+                try!(String::from_utf8(self.buf.clone())
+                    .map_err(|_| util::other("invalid utf8 in text frame")));
+            }
             base.set_fin(true).set_opcode(self.opcode);
             base.set_application_data(Some(self.buf.clone()));
             base.set_payload_length(self.total_length);
