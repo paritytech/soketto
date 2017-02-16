@@ -5,13 +5,9 @@ use flate2::Compression;
 #[cfg(feature = "pmdeflate")]
 use flate2::write::DeflateEncoder;
 #[cfg(feature = "pmdeflate")]
-use flate2::read::DeflateDecoder;
-#[cfg(feature = "pmdeflate")]
 use inflate::InflateStream;
 use std::fmt;
 use std::io::{self, Cursor};
-#[cfg(feature = "pmdeflate")]
-use std::io::Read;
 #[cfg(feature = "pmdeflate")]
 use std::io::Write;
 use tokio_core::io::EasyBuf;
@@ -306,7 +302,9 @@ impl Frame {
                 DecodeState::NONE => {
                     self.min_len += 2;
                     // Split of the 2 'header' bytes.
-                    if buf_len < self.min_len as usize {
+                    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                    let size = self.min_len as usize;
+                    if buf_len < size {
                         return Ok(None);
                     }
                     let header_bytes = buf.drain_to(2);
@@ -343,7 +341,9 @@ impl Frame {
                 DecodeState::HEADER => {
                     if self.length_code == TWO_EXT {
                         self.min_len += 2;
-                        if buf_len < self.min_len as usize {
+                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                        let size = self.min_len as usize;
+                        if buf_len < size {
                             self.min_len -= 2;
                             return Ok(None);
                         }
@@ -356,7 +356,9 @@ impl Frame {
                         }
                     } else if self.length_code == EIGHT_EXT {
                         self.min_len += 8;
-                        if buf_len < self.min_len as usize {
+                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                        let size = self.min_len as usize;
+                        if buf_len < size {
                             self.min_len -= 8;
                             return Ok(None);
                         }
@@ -375,7 +377,9 @@ impl Frame {
                 DecodeState::LENGTH => {
                     if self.masked {
                         self.min_len += 4;
-                        if buf_len < self.min_len as usize {
+                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                        let size = self.min_len as usize;
+                        if buf_len < size {
                             self.min_len -= 4;
                             return Ok(None);
                         }
@@ -393,8 +397,9 @@ impl Frame {
                 }
                 DecodeState::MASK => {
                     self.min_len += self.payload_length;
-                    // #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                    if buf_len < self.min_len as usize {
+                    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                    let size = self.min_len as usize;
+                    if buf_len < size {
                         self.min_len -= self.payload_length;
                         return Ok(None);
                     }
@@ -403,6 +408,7 @@ impl Frame {
                         return Err(util::other("invalid control frame"));
                     }
                     if self.payload_length > 0 {
+                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                         let mut app_data_bytes = buf.drain_to(self.payload_length as usize);
                         let mut adb = app_data_bytes.get_mut();
                         if let Some(mask_key) = self.mask_key {
@@ -440,26 +446,24 @@ impl Frame {
         let mut buf = Vec::new();
         // let mut total = 0;
         if let Some(ref app_data) = self.application_data {
-            let len = app_data.len();
+            // let len = app_data.len();
             let mut inflater = InflateStream::new();
             let mut n = 0;
             // let trimmed: Vec<u8> = app_data.iter().filter(|b| **b != 0x00).cloned().collect();
             let mut extended = app_data.clone();
             extended.extend(&[0x00, 0x00, 0xff, 0xff]);
-            println!("extended: {}", util::as_hex(&extended));
             while n < extended.len() {
                 let res = inflater.update(&extended[n..]);
                 if let Ok((num_bytes_read, result)) = res {
                     n += num_bytes_read;
                     buf.extend(result);
                 } else {
-                    res.unwrap();
+                    res.expect("Unable to inflate buffer");
                 }
             }
         }
 
         if !buf.is_empty() {
-            println!("buf: {}", util::as_hex(&buf));
             // let base = buf[0..total].to_vec();
             self.inflated = true;
             self.rsv1 = false;
@@ -477,7 +481,7 @@ impl Frame {
 
     /// Convert a `Frame` into a buffer of bytes.
     /// Inspired by [ws-rs](https://github.com/housleyjk/ws-rs)
-    pub fn to_byte_buf(&mut self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
+    pub fn as_byte_buf(&mut self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
         if self.deflate && !self.opcode.is_control() && self.fin {
             try!(self.deflate());
         }
@@ -550,10 +554,8 @@ impl Frame {
         }
 
         if compressed.is_empty() {
-            println!("Compressed is Empty!");
             self.application_data = None;
         } else {
-            println!("Compressed Length: {}", compressed.len());
             self.rsv1 = true;
             self.payload_length = compressed.len() as u64;
             self.application_data = Some(compressed);

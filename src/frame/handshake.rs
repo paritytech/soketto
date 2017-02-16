@@ -205,7 +205,7 @@ impl Frame {
     fn ext_header(&self, _buf: &mut String) {}
 
     /// Convert a `Frame` into a byte buffer.
-    pub fn to_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
+    pub fn as_byte_buf(&self, buf: &mut Vec<u8>) -> Result<(), io::Error> {
         let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
         response.push_str("Upgrade: websocket\r\n");
         response.push_str("Connection: upgrade\r\n");

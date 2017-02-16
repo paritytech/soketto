@@ -9,7 +9,8 @@ use std::io::{self, Cursor, ErrorKind};
 use util;
 
 #[derive(Debug, Clone)]
-pub enum CloseCode {
+/// Close `ReasonCode` defined per RFC.
+pub enum ReasonCode {
     /// 0 - 999
     Unused,
     /// 1000
@@ -26,98 +27,94 @@ pub enum CloseCode {
     Reserved2,
     /// 1006
     Reserved3,
-    // 1007
+    /// 1007
     InvalidUtf8,
-    // 1008
+    /// 1008
     PolicyViolation,
-    // 1009
+    /// 1009
     MessageTooBig,
-    // 1010
+    /// 1010
     ExtNegotiationFailure,
-    // 1011
+    /// 1011
     UnexpectedFailure,
-    // 1015
+    /// 1015
     Reserved4,
-    // 1012, 1013, 1014, 1016-2099
+    /// 1012, 1013, 1014, 1016-2099
     Reserved5,
-    // 3000 - 3999
+    /// 3000 - 3999
     AppSpecific,
-    // 4000 - 4999
+    /// 4000 - 4999
     Undefined,
 }
 
-impl From<u16> for CloseCode {
-    fn from(val: u16) -> CloseCode {
+impl From<u16> for ReasonCode {
+    fn from(val: u16) -> ReasonCode {
         match val {
-            0...999 => CloseCode::Unused,
-            1000 => CloseCode::Normal,
-            1001 => CloseCode::Shutdown,
-            1002 => CloseCode::ProtocolError,
-            1003 => CloseCode::CannotAccept,
-            1004 => CloseCode::Reserved1,
-            1005 => CloseCode::Reserved2,
-            1006 => CloseCode::Reserved3,
-            1007 => CloseCode::InvalidUtf8,
-            1008 => CloseCode::PolicyViolation,
-            1009 => CloseCode::MessageTooBig,
-            1010 => CloseCode::ExtNegotiationFailure,
-            1011 => CloseCode::UnexpectedFailure,
-            1012 => CloseCode::Reserved5,
-            1013 => CloseCode::Reserved5,
-            1014 => CloseCode::Reserved5,
-            1015 => CloseCode::Reserved4,
-            1016...2999 => CloseCode::Reserved5,
-            3000...3999 => CloseCode::AppSpecific,
-            4000...4999 => CloseCode::Undefined,
-            _ => CloseCode::ProtocolError,
+            0...999 => ReasonCode::Unused,
+            1000 => ReasonCode::Normal,
+            1001 => ReasonCode::Shutdown,
+            1003 => ReasonCode::CannotAccept,
+            1004 => ReasonCode::Reserved1,
+            1005 => ReasonCode::Reserved2,
+            1006 => ReasonCode::Reserved3,
+            1007 => ReasonCode::InvalidUtf8,
+            1008 => ReasonCode::PolicyViolation,
+            1009 => ReasonCode::MessageTooBig,
+            1010 => ReasonCode::ExtNegotiationFailure,
+            1011 => ReasonCode::UnexpectedFailure,
+            1012 | 1013 | 1014 | 1016...2999 => ReasonCode::Reserved5,
+            1015 => ReasonCode::Reserved4,
+            3000...3999 => ReasonCode::AppSpecific,
+            4000...4999 => ReasonCode::Undefined,
+            _ => ReasonCode::ProtocolError,
         }
     }
 }
 
-impl From<CloseCode> for u16 {
-    fn from(closecode: CloseCode) -> u16 {
+impl From<ReasonCode> for u16 {
+    fn from(closecode: ReasonCode) -> u16 {
         match closecode {
-            CloseCode::Unused => 0,
-            CloseCode::Normal => 1000,
-            CloseCode::Shutdown => 1001,
-            CloseCode::ProtocolError => 1002,
-            CloseCode::CannotAccept => 1003,
-            CloseCode::Reserved1 => 1004,
-            CloseCode::Reserved2 => 1005,
-            CloseCode::Reserved3 => 1006,
-            CloseCode::InvalidUtf8 => 1007,
-            CloseCode::PolicyViolation => 1008,
-            CloseCode::MessageTooBig => 1009,
-            CloseCode::ExtNegotiationFailure => 1010,
-            CloseCode::UnexpectedFailure => 1011,
-            CloseCode::Reserved5 => 1012,
-            CloseCode::Reserved4 => 1015,
-            CloseCode::AppSpecific => 3000,
-            CloseCode::Undefined => 4000,
+            ReasonCode::Unused => 0,
+            ReasonCode::Normal => 1000,
+            ReasonCode::Shutdown => 1001,
+            ReasonCode::ProtocolError => 1002,
+            ReasonCode::CannotAccept => 1003,
+            ReasonCode::Reserved1 => 1004,
+            ReasonCode::Reserved2 => 1005,
+            ReasonCode::Reserved3 => 1006,
+            ReasonCode::InvalidUtf8 => 1007,
+            ReasonCode::PolicyViolation => 1008,
+            ReasonCode::MessageTooBig => 1009,
+            ReasonCode::ExtNegotiationFailure => 1010,
+            ReasonCode::UnexpectedFailure => 1011,
+            ReasonCode::Reserved5 => 1012,
+            ReasonCode::Reserved4 => 1015,
+            ReasonCode::AppSpecific => 3000,
+            ReasonCode::Undefined => 4000,
         }
     }
 }
 
-impl fmt::Display for CloseCode {
+impl fmt::Display for ReasonCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CloseCode::Unused => write!(f, "0-999: Unused"),
-            CloseCode::Normal => write!(f, "1000: Normal"),
-            CloseCode::Shutdown => write!(f, "1001: Server Shutdown"),
-            CloseCode::ProtocolError => write!(f, "1002: Protocol Error"),
-            CloseCode::CannotAccept => write!(f, "1003: Cannot Accept"),
-            CloseCode::Reserved1 => write!(f, "1004: Reserved1"),
-            CloseCode::Reserved2 => write!(f, "1005: Reserved2"),
-            CloseCode::Reserved3 => write!(f, "1006: Reserved3"),
-            CloseCode::InvalidUtf8 => write!(f, "1007: Invalid UTF-8"),
-            CloseCode::PolicyViolation => write!(f, "1008: Policy Violation"),
-            CloseCode::MessageTooBig => write!(f, "1009: Message Too Large"),
-            CloseCode::ExtNegotiationFailure => write!(f, "1010: Extension Negotiation Failure"),
-            CloseCode::UnexpectedFailure => write!(f, "1011: Unexpected Failure"),
-            CloseCode::Reserved5 => write!(f, "1012, 1013, 1014, 1016-2999: Reserved5"),
-            CloseCode::Reserved4 => write!(f, "1015: Reserved4"),
-            CloseCode::AppSpecific => write!(f, "3000-3999: Application Specific"),
-            CloseCode::Undefined => write!(f, "4000-4999: Application Specific"),
+            ReasonCode::Unused => write!(f, "0-999: Unused"),
+            ReasonCode::Normal => write!(f, "1000: Normal"),
+            ReasonCode::Shutdown => write!(f, "1001: Server Shutdown"),
+            ReasonCode::ProtocolError => write!(f, "1002: Protocol Error"),
+            ReasonCode::CannotAccept => write!(f, "1003: Cannot Accept"),
+            ReasonCode::Reserved1 => write!(f, "1004: Reserved1"),
+            ReasonCode::Reserved2 => write!(f, "1005: Reserved2"),
+            ReasonCode::Reserved3 => write!(f, "1006: Reserved3"),
+            ReasonCode::InvalidUtf8 => write!(f, "1007: Invalid UTF-8"),
+            ReasonCode::PolicyViolation => write!(f, "1008: Policy Violation"),
+            ReasonCode::MessageTooBig => write!(f, "1009: Message Too Large"),
+            ReasonCode::ExtNegotiationFailure => write!(f, "1010: Extension Negotiation Failure"),
+            ReasonCode::UnexpectedFailure => write!(f, "1011: Unexpected Failure"),
+            ReasonCode::Reserved5 => write!(f, "1012, 1013, 1014, 1016-2999: Reserved5"),
+            ReasonCode::Reserved4 => write!(f, "1015: Reserved4"),
+            ReasonCode::AppSpecific => write!(f, "3000-3999: Application Specific"),
+            ReasonCode::Undefined => write!(f, "4000-4999: Application Specific"),
         }
     }
 }
@@ -195,21 +192,10 @@ impl<T> Stream for Close<T>
                 }
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Err(e) => {
-                    match e.kind() {
-                        ErrorKind::Other => {
-                            if let Some(ref stderr) = self.stderr {
-                                error!(stderr, "{}", e.description());
-                            }
-                            // let mut data = Vec::with_capacity(2);
-                            // if let Err(_) = data.write_u16::<BigEndian>(
-                            // CloseCode::ProtocolError.into()) {
-                            //     return Err(util::other("unable to write close code"));
-                            // }
-                            // self.app_data = Some(data);
-                            // self.received = true;
-                            // try!(self.poll_complete());
+                    if let ErrorKind::Other = e.kind() {
+                        if let Some(ref stderr) = self.stderr {
+                            error!(stderr, "{}", e.description());
                         }
-                        _ => {}
                     }
                     return Err(e);
                 }
@@ -236,38 +222,36 @@ impl<T> Sink for Close<T>
                 if app_data.len() > 1 {
                     orig.extend(&app_data[0..2]);
                     let mut rdr = Cursor::new(&app_data[0..2]);
-                    let mut cc = if let Ok(len) = rdr.read_u16::<BigEndian>() {
-                        CloseCode::from(len)
+                    if let Ok(len) = rdr.read_u16::<BigEndian>() {
+                        if String::from_utf8(app_data[2..].to_vec()).is_err() {
+                            ReasonCode::ProtocolError
+                        } else {
+                            rest.extend(&app_data[2..]);
+                            ReasonCode::from(len)
+                        }
                     } else {
-                        CloseCode::ProtocolError
-                    };
-
-                    if let Err(_) = String::from_utf8(app_data[2..].to_vec()) {
-                        cc = CloseCode::ProtocolError;
-                    } else {
-                        rest.extend(&app_data[2..]);
+                        ReasonCode::ProtocolError
                     }
-                    cc
                 } else {
-                    CloseCode::ProtocolError
+                    ReasonCode::ProtocolError
                 }
             } else {
-                CloseCode::Normal
+                ReasonCode::Normal
             };
 
             let mut data = Vec::with_capacity(2);
             match close_code {
-                CloseCode::Unused |
-                CloseCode::ProtocolError |
-                CloseCode::Reserved1 |
-                CloseCode::Reserved2 |
-                CloseCode::Reserved3 |
-                CloseCode::Reserved4 |
-                CloseCode::Reserved5 => {
-                    if let Err(_) = data.write_u16::<BigEndian>(CloseCode::ProtocolError.into()) {
+                ReasonCode::Unused |
+                ReasonCode::ProtocolError |
+                ReasonCode::Reserved1 |
+                ReasonCode::Reserved2 |
+                ReasonCode::Reserved3 |
+                ReasonCode::Reserved4 |
+                ReasonCode::Reserved5 => {
+                    if data.write_u16::<BigEndian>(ReasonCode::ProtocolError.into()).is_err() {
                         return Err(util::other("unable to write close code"));
                     }
-                    data.extend(format!("{}", CloseCode::ProtocolError).bytes())
+                    data.extend(format!("{}", ReasonCode::ProtocolError).bytes())
                 }
                 _ => {
                     data.extend(orig);
