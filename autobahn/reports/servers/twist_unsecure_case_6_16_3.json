@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a text message with payload which is not valid UTF-8 in one fragment.<br><br>Payload: 0xfefeffff",
    "droppedByMe": false,
-   "duration": 1,
+   "duration": 4,
    "expectation": "The connection is failed immediately, since the payload is not valid UTF-8.",
    "expected": {
       "OK": []
@@ -22,8 +22,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: y9wCK53rCwi+XY3B6cqpqg==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: PkeqxH63PoxQBep7GRM/1GtpDs4=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: NbvmBgiiPoMXEV71/oCbSA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: jax5VpVuXGPx7yuW5jH8xYtNLIo=\r\n\r\n",
    "id": "6.16.3",
    "isServer": false,
    "localCloseCode": null,
@@ -39,7 +39,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-16T21:37:42.514Z",
+   "started": "2017-02-17T03:43:53.894Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 1
@@ -78,7 +78,7 @@
          1,
          true,
          0,
-         "08d77073",
+         "0255ca18",
          null,
          null,
          false
@@ -87,7 +87,7 @@
          "TO",
          [
             10,
-            "818408d77073f6298f8c"
+            "81840255ca18fcab35e7"
          ],
          false
       ],

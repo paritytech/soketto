@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a text message with payload which is not valid UTF-8 in one fragment.<br><br>Payload: 0xc0e080f08080f8808080fc80808080dfefbff7bfbffbbfbfbffdbfbfbfbf",
    "droppedByMe": false,
-   "duration": 0,
+   "duration": 3,
    "expectation": "The connection is failed immediately, since the payload is not valid UTF-8.",
    "expected": {
       "OK": []
@@ -22,8 +22,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: 4OkbE460Ec+/acyKDk9+7Q==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: Cemq+AAd06A4Gg0einkd1+ofS8w=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: BUlVByhiuJKGKs/F6UKuhQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 2HthJb4rK2vqDfPH/+D3BJCBDlU=\r\n\r\n",
    "id": "6.15.1",
    "isServer": false,
    "localCloseCode": null,
@@ -39,7 +39,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-16T21:37:42.507Z",
+   "started": "2017-02-17T03:43:53.871Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 1
@@ -78,7 +78,7 @@
          1,
          true,
          0,
-         "e5def2a2",
+         "8d50a4fe",
          null,
          null,
          false
@@ -87,7 +87,7 @@
          "TO",
          [
             36,
-            "819ee5def2a2253e7252655e0a22655e0e22655e727d0a61051d5a254d1d5a234d1d5a61"
+            "819e8d50a4fe4db0240e0dd05c7e0dd0587e0dd0242162ef534132ab1b4132ad1b4132ef"
          ],
          false
       ],

@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send ping with binary payload of 125 octets, send in octet-wise chops.",
    "droppedByMe": false,
-   "duration": 19,
+   "duration": 21,
    "expectation": "Pong with payload echo'ed is sent in reply to Ping. Implementations must be TCP clean. Clean close with normal code.",
    "expected": {
       "OK": [
@@ -26,8 +26,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: m65VviK1KUO0cCmwo/5e2w==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: TegMOHx66n32WCufT4sxrZbjU0w=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: IrYMI/tmMwecY+BcmMiXug==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: Pq6En1LjrkU61GTKyWss/7ZZdRs=\r\n\r\n",
    "id": "2.6",
    "isServer": false,
    "localCloseCode": 1000,
@@ -53,7 +53,7 @@
       "127": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:37:32.151Z",
+   "started": "2017-02-17T03:43:43.331Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1,
@@ -94,7 +94,7 @@
          9,
          true,
          0,
-         "441630dc",
+         "5ceb30b6",
          null,
          1,
          false
@@ -123,7 +123,7 @@
          "TO",
          [
             1,
-            "44"
+            "5c"
          ],
          true
       ],
@@ -131,7 +131,7 @@
          "TO",
          [
             1,
-            "16"
+            "eb"
          ],
          true
       ],
@@ -147,7 +147,7 @@
          "TO",
          [
             1,
-            "dc"
+            "b6"
          ],
          true
       ],
@@ -155,7 +155,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -163,39 +163,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -211,7 +179,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -219,7 +187,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -227,39 +195,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -275,7 +211,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -283,7 +219,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -291,39 +227,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -339,7 +243,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -347,7 +251,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -355,39 +259,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -403,7 +275,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -411,7 +283,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -419,39 +291,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -467,7 +307,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -475,7 +315,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -483,39 +323,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -531,7 +339,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -539,7 +347,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -547,39 +355,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -595,7 +371,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -603,7 +379,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -611,39 +387,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -659,7 +403,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -667,7 +411,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -675,39 +419,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -723,7 +435,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -731,7 +443,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -739,39 +451,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -787,7 +467,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -795,7 +475,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -803,39 +483,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -851,7 +499,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -859,7 +507,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -867,39 +515,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -915,7 +531,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -923,7 +539,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -931,39 +547,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -979,7 +563,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -987,7 +571,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -995,39 +579,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -1043,7 +595,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -1051,7 +603,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -1059,39 +611,7 @@
          "TO",
          [
             1,
-            "e8"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ce"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "22"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ba"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -1107,7 +627,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -1115,7 +635,7 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
          ],
          true
       ],
@@ -1123,7 +643,7 @@
          "TO",
          [
             1,
-            "e8"
+            "15"
          ],
          true
       ],
@@ -1139,7 +659,7 @@
          "TO",
          [
             1,
-            "22"
+            "48"
          ],
          true
       ],
@@ -1147,7 +667,487 @@
          "TO",
          [
             1,
-            "ba"
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "15"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ce"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "a2"
          ],
          true
       ],
@@ -1179,7 +1179,7 @@
          8,
          true,
          0,
-         "63936c0e",
+         "2dde3435",
          null,
          null,
          false
@@ -1188,7 +1188,7 @@
          "TO",
          [
             8,
-            "888263936c0e607b"
+            "88822dde34352e36"
          ],
          false
       ],

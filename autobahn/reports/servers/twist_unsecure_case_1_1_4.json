@@ -27,8 +27,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: bPZBJwV4M2JnTe8i0BAsCA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: b8t7v62mF0+UjbPSYFgciDh+sa8=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: xcbtNQ91u+99of7+3/DHWw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: XtBWcu3v6a8NopWX8oBbsO9u/ng=\r\n\r\n",
    "id": "1.1.4",
    "isServer": false,
    "localCloseCode": 1000,
@@ -55,7 +55,7 @@
       "129": 1,
       "131": 1
    },
-   "started": "2017-02-16T21:37:32.039Z",
+   "started": "2017-02-17T03:43:43.165Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 1,
@@ -96,7 +96,7 @@
          1,
          true,
          0,
-         "5d687f60",
+         "938e5343",
          null,
          null,
          false
@@ -105,7 +105,7 @@
          "TO",
          [
             135,
-            "81fe007f5d687f607742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a7742554a ..."
+            "81fe007f938e5343b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969b9a47969 ..."
          ],
          false
       ],
@@ -141,7 +141,7 @@
          8,
          true,
          0,
-         "394110ce",
+         "fcf926e0",
          null,
          null,
          false
@@ -150,7 +150,7 @@
          "TO",
          [
             8,
-            "8882394110ce3aa9"
+            "8882fcf926e0ff11"
          ],
          false
       ],

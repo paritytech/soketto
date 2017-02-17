@@ -27,8 +27,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: FYDNIukzVrtNrs13LgZwFA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 7rdvp9K14b8MRcG6YBDtUwSiEwY=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: fr2uhXslwZU9Cwm/aBh9vw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: d1m6ynBoEu3Zrlo7rd9ZbeKvlXs=\r\n\r\n",
    "id": "1.2.4",
    "isServer": false,
    "localCloseCode": 1000,
@@ -55,7 +55,7 @@
       "129": 1,
       "131": 1
    },
-   "started": "2017-02-16T21:37:32.065Z",
+   "started": "2017-02-17T03:43:43.189Z",
    "trafficStats": null,
    "txFrameStats": {
       "2": 1,
@@ -96,7 +96,7 @@
          2,
          true,
          0,
-         "54cf5e6d",
+         "5e322ce8",
          null,
          null,
          false
@@ -105,7 +105,7 @@
          "TO",
          [
             135,
-            "82fe007f54cf5e6daa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093aa31a093 ..."
+            "82fe007f5e322ce8a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216a0ccd216 ..."
          ],
          false
       ],
@@ -141,7 +141,7 @@
          8,
          true,
          0,
-         "d4e081c3",
+         "a2070f23",
          null,
          null,
          false
@@ -150,7 +150,7 @@
          "TO",
          [
             8,
-            "8882d4e081c3d708"
+            "8882a2070f23a1ef"
          ],
          false
       ],

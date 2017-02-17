@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send Close with <b>RSV = 7</b>.",
    "droppedByMe": false,
-   "duration": 0,
+   "duration": 1,
    "expectation": "The connection is failed immediately, since RSV must be 0.",
    "expected": {
       "OK": []
@@ -21,8 +21,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: /rofxcmqSd4GIxSXYQxY1g==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: I+I2+e/j0IW83na3ecoYEq5LR9M=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: +kpAM9BLb4lFYKHGtj6HHQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: e/MEhMJyMB2GpyZqTaiiDYPp4FU=\r\n\r\n",
    "id": "3.7",
    "isServer": false,
    "localCloseCode": null,
@@ -38,7 +38,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-16T21:37:32.252Z",
+   "started": "2017-02-17T03:43:43.468Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1
@@ -77,7 +77,7 @@
          8,
          true,
          7,
-         "f966570a",
+         "0d43dd9a",
          null,
          null,
          false
@@ -86,7 +86,7 @@
          "TO",
          [
             6,
-            "f880f966570a"
+            "f8800d43dd9a"
          ],
          false
       ],

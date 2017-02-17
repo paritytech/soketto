@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send unsolicited pong without payload. Verify nothing is received. Clean close with normal code.",
    "droppedByMe": false,
-   "duration": 6,
+   "duration": 2,
    "expectation": "Nothing.",
    "expected": {
       "OK": []
@@ -21,8 +21,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: WnHMfErLha8FEKzQzjks9g==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: agL0SqsCLMp93AHWsgpK0bHCOtY=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: HQLJoYFe2enbMNGdjV4A0A==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: HI8H5PIfbEsfTz/P5783vE8yk9k=\r\n\r\n",
    "id": "2.7",
    "isServer": false,
    "localCloseCode": 1000,
@@ -41,7 +41,7 @@
       "4": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:37:59.076Z",
+   "started": "2017-02-17T03:44:12.999Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1,
@@ -82,7 +82,7 @@
          10,
          true,
          0,
-         "e8208346",
+         "50939050",
          null,
          null,
          false
@@ -91,7 +91,7 @@
          "TO",
          [
             6,
-            "8a80e8208346"
+            "8a8050939050"
          ],
          false
       ],
@@ -104,7 +104,7 @@
          8,
          true,
          0,
-         "c6a45471",
+         "b3c0cc8b",
          null,
          null,
          false
@@ -113,7 +113,7 @@
          "TO",
          [
             8,
-            "8882c6a45471c54c"
+            "8882b3c0cc8bb028"
          ],
          false
       ],

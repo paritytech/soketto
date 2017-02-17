@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a text message with payload which is not valid UTF-8 in one fragment.<br><br>Payload: 0x808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbe",
    "droppedByMe": false,
-   "duration": 1,
+   "duration": 0,
    "expectation": "The connection is failed immediately, since the payload is not valid UTF-8.",
    "expected": {
       "OK": []
@@ -22,8 +22,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: H/WUV+2xe4sFsmHKrSUwjg==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: anPHNJLYpvLOHuLY7HYQpRfuqeU=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: 7uhTMBVRJMEN96s6hhBA6g==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: AGM5UsORCcF6vgwfGZBq+Pl6+X4=\r\n\r\n",
    "id": "6.12.8",
    "isServer": false,
    "localCloseCode": null,
@@ -39,7 +39,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-16T21:37:42.480Z",
+   "started": "2017-02-17T03:43:53.835Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 1
@@ -78,7 +78,7 @@
          1,
          true,
          0,
-         "4e16dcd0",
+         "0d5528cd",
          null,
          null,
          false
@@ -87,7 +87,7 @@
          "TO",
          [
             69,
-            "81bf4e16dcd0ce975e53ca935a57c69f565bc29b525fde874e43da834a47d68f464bd28b424feeb77e73eab37a77e6bf767be2bb727ffea76e63faa36a67f6af ..."
+            "81bf0d5528cd8dd4aa4e89d0ae4a85dca24681d8a6429dc4ba5e99c0be5a95ccb25691c8b652adf48a6ea9f08e6aa5fc8266a1f88662bde49a7eb9e09e7ab5ec ..."
          ],
          false
       ],

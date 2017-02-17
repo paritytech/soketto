@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send small text message, then send again with <b>RSV = 4</b>, then send Ping. Octets are sent in octet-wise chops.",
    "droppedByMe": false,
-   "duration": 3,
+   "duration": 2,
    "expectation": "Echo for first message is received, but then connection is failed immediately, since RSV must be 0, when no extension defining RSV meaning has been negotiated. The Pong is not received.",
    "expected": {
       "NON-STRICT": [],
@@ -28,8 +28,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: gZoroWPlTITFFt6YhNT91Q==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: BzT2ndIM7m0hSbL7uueJFMetLCo=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: kL1p9rPJE/Xi/TltF94F0w==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: Yyv/EsW/wGkVwrtVFQ7kxfkXDVA=\r\n\r\n",
    "id": "3.4",
    "isServer": false,
    "localCloseCode": null,
@@ -54,14 +54,14 @@
       "15": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:37:32.243Z",
+   "started": "2017-02-17T03:43:43.460Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 2,
       "9": 1
    },
    "txOctetStats": {
-      "1": 22,
+      "1": 23,
       "242": 1
    },
    "wasClean": false,
@@ -94,7 +94,7 @@
          1,
          true,
          0,
-         "3745698b",
+         "649f248f",
          null,
          1,
          false
@@ -116,7 +116,7 @@
          1,
          true,
          4,
-         "7f12f5a6",
+         "0eca3c6a",
          null,
          1,
          false
@@ -130,7 +130,7 @@
          9,
          true,
          0,
-         "4014abae",
+         "eff14387",
          null,
          1,
          false
@@ -151,7 +151,127 @@
          "TO",
          [
             1,
-            "37"
+            "64"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "9f"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "24"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "8f"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "2c"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "fa"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "e3"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "0b"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "b3"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "04"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "f8"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "0b"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "ed"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "48"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "eb"
          ],
          true
       ],
@@ -167,127 +287,15 @@
          "TO",
          [
             1,
-            "69"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "8b"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "7f"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "20"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "05"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "e7"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "58"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "69"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "49"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "fc"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "58"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "37"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "05"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "ef"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
-            "16"
-         ],
-         true
-      ],
-      [
-         "TO",
-         [
-            1,
             "c1"
+         ],
+         true
+      ],
+      [
+         "TO",
+         [
+            1,
+            "8d"
          ],
          true
       ],
@@ -314,7 +322,7 @@
          "TO",
          [
             1,
-            "8d"
+            "0e"
          ],
          true
       ],
@@ -322,7 +330,7 @@
          "TO",
          [
             1,
-            "7f"
+            "ca"
          ],
          true
       ]

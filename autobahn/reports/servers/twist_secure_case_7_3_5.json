@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a close frame with close code and close reason of maximum length (123)",
    "droppedByMe": false,
-   "duration": 3,
+   "duration": 4,
    "expectation": "Clean close with normal code.",
    "expected": {
       "OK": []
@@ -21,8 +21,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: GF2xTfphA2GDhc17i6TK2A==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: CwkHm7UgACrDH8AgPzoCMfe7Dm4=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: IRSby8C5CV3HfTQ716nN1A==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: PFixGVUd8Hz5KshDewf2sYRwAh4=\r\n\r\n",
    "id": "7.3.5",
    "isServer": false,
    "localCloseCode": 1000,
@@ -41,7 +41,7 @@
       "127": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:38:16.136Z",
+   "started": "2017-02-17T03:44:29.184Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1
@@ -80,7 +80,7 @@
          8,
          true,
          0,
-         "ade559b4",
+         "49d16d1c",
          null,
          null,
          false
@@ -89,7 +89,7 @@
          "TO",
          [
             131,
-            "88fdade559b4ae0d739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf739e87cf ..."
+            "88fd49d16d1c4a39473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb473663fb ..."
          ],
          false
       ],

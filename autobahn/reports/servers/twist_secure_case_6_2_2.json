@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a valid UTF-8 text message in two fragments, fragmented on UTF-8 code point boundary.<br><br>MESSAGE FRAGMENT 1:<br>Hello-\u00b5@\u00df\u00f6\u00e4<br>48656c6c6f2dc2b540c39fc3b6c3a4<br><br>MESSAGE FRAGMENT 2:<br>\u00fc\u00e0\u00e1-UTF-8!!<br>c3bcc3a0c3a12d5554462d382121",
    "droppedByMe": false,
-   "duration": 12,
+   "duration": 5,
    "expectation": "The message is echo'ed back to us.",
    "expected": {
       "OK": [
@@ -27,8 +27,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: YWTpt1zGKh1FuMww1URNjg==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: HAL/4VcZhHQcRp1CD97AduYRDHM=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: m7cAUYVY4TdCgR2vnPsVvA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: zFaqZPwujlQCiUIjyrCi6VcKavo=\r\n\r\n",
    "id": "6.2.2",
    "isServer": false,
    "localCloseCode": 1000,
@@ -55,7 +55,7 @@
       "31": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:38:02.945Z",
+   "started": "2017-02-17T03:44:16.783Z",
    "trafficStats": null,
    "txFrameStats": {
       "0": 1,
@@ -98,7 +98,7 @@
          1,
          false,
          0,
-         "610c3db7",
+         "1edbb090",
          null,
          null,
          false
@@ -107,7 +107,7 @@
          "TO",
          [
             21,
-            "018f610c3db7296951db0e21ff0221cfa274d7cf99"
+            "018f1edbb09056bedcfc71f672255e182f53a81814"
          ],
          false
       ],
@@ -120,7 +120,7 @@
          0,
          true,
          0,
-         "6caa0991",
+         "93c0fb5a",
          null,
          null,
          false
@@ -129,7 +129,7 @@
          "TO",
          [
             20,
-            "808e6caa0991af16ca31af0b24c438ec24a94d8b"
+            "808e93c0fb5a507c38fa5061d60fc786d662b2e1"
          ],
          false
       ],
@@ -165,7 +165,7 @@
          8,
          true,
          0,
-         "16daa48f",
+         "a26c0433",
          null,
          null,
          false
@@ -174,7 +174,7 @@
          "TO",
          [
             8,
-            "888216daa48f1532"
+            "8882a26c0433a184"
          ],
          false
       ],

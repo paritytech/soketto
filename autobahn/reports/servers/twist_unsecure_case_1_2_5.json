@@ -27,8 +27,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: /Zyl2h49qiytE7jYGU0O1Q==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: +frIjl4I5X4S76Qer1mVuFZx3cE=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: 66epk716DbzWxgY/U1hJyw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: WizCIS2j5qWLVzlnXhxV1tXHqgg=\r\n\r\n",
    "id": "1.2.5",
    "isServer": false,
    "localCloseCode": 1000,
@@ -55,7 +55,7 @@
       "129": 1,
       "132": 1
    },
-   "started": "2017-02-16T21:37:32.067Z",
+   "started": "2017-02-17T03:43:43.191Z",
    "trafficStats": null,
    "txFrameStats": {
       "2": 1,
@@ -96,7 +96,7 @@
          2,
          true,
          0,
-         "a6c4c859",
+         "323bc610",
          null,
          null,
          false
@@ -105,7 +105,7 @@
          "TO",
          [
             136,
-            "82fe0080a6c4c859583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7583a36a7 ..."
+            "82fe0080323bc610ccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538eeccc538ee ..."
          ],
          false
       ],
@@ -141,7 +141,7 @@
          8,
          true,
          0,
-         "f48f3f33",
+         "84eabb23",
          null,
          null,
          false
@@ -150,7 +150,7 @@
          "TO",
          [
             8,
-            "8882f48f3f33f767"
+            "888284eabb238702"
          ],
          false
       ],

@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send small text message, then send frame with reserved control <b>Opcode = 13</b>, then send Ping.",
    "droppedByMe": false,
-   "duration": 3,
+   "duration": 5,
    "expectation": "Echo for first message is received, but then connection is failed immediately, since reserved opcode frame is used. A Pong is not received.",
    "expected": {
       "NON-STRICT": [],
@@ -28,8 +28,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: vvAVvCLmyLpOhbpqXr3DbA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: mtNLM5wDyxWTewulMdAzXxEcEv8=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: 8Pj1M5PUdqnP/kZRBPeV/Q==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: e9ILgkUzXf2uUx3WNHvXZzVSnpQ=\r\n\r\n",
    "id": "4.2.3",
    "isServer": false,
    "localCloseCode": null,
@@ -45,7 +45,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-16T21:37:59.819Z",
+   "started": "2017-02-17T03:44:13.797Z",
    "trafficStats": null,
    "txFrameStats": {
       "1": 1,
@@ -87,7 +87,7 @@
          1,
          true,
          0,
-         "c11e86f5",
+         "dc0485a0",
          null,
          null,
          false
@@ -96,7 +96,7 @@
          "TO",
          [
             19,
-            "818dc11e86f5897bea99ae32a682ae6cea91e0"
+            "818ddc0485a09461e9ccb328a5d7b376e9c4fd"
          ],
          false
       ],
@@ -109,7 +109,7 @@
          13,
          true,
          0,
-         "ce5042b3",
+         "93c94b12",
          null,
          null,
          false
@@ -118,7 +118,7 @@
          "TO",
          [
             6,
-            "8d80ce5042b3"
+            "8d8093c94b12"
          ],
          false
       ],
@@ -131,7 +131,7 @@
          9,
          true,
          0,
-         "20d04641",
+         "334347ff",
          null,
          null,
          false
@@ -140,7 +140,7 @@
          "TO",
          [
             6,
-            "898020d04641"
+            "8980334347ff"
          ],
          false
       ],

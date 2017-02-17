@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send a close frame with payload length 1",
    "droppedByMe": false,
-   "duration": 7,
+   "duration": 3,
    "expectation": "Clean close with protocol error or drop TCP.",
    "expected": {
       "OK": []
@@ -21,8 +21,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: MqwTOyq6zFcp9iA9omPlzw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 28XDsSkRBL+6aO26mdRP9KNAro0=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: yJH04skzZIsZ1aHnO+CwpQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: ERrD6DO5VhQ0KP/lyltrbuvEWlo=\r\n\r\n",
    "id": "7.3.2",
    "isServer": false,
    "localCloseCode": null,
@@ -41,7 +41,7 @@
       "24": 1,
       "129": 1
    },
-   "started": "2017-02-16T21:38:16.033Z",
+   "started": "2017-02-17T03:44:29.107Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1
@@ -80,7 +80,7 @@
          8,
          true,
          0,
-         "a6388d81",
+         "ffdb10e3",
          null,
          null,
          false
@@ -89,7 +89,7 @@
          "TO",
          [
             7,
-            "8881a6388d81c7"
+            "8881ffdb10e39e"
          ],
          false
       ],
