@@ -7,7 +7,7 @@
 // modified, or distributed except according to those terms.
 
 //! An implementation of the [RFC6455][rfc6455] websocket protocol as
-//! a tokio [`Codec`][codec] anda tokio-proto pipeline [`ServerProto`][proto]
+//! a set of tokio [`Codec`][codec] anda tokio-proto pipeline [`ServerProto`][proto]
 //!
 //! # Basic Usage
 //!
@@ -36,6 +36,14 @@ extern crate futures;
 extern crate slog;
 
 mod codec;
-pub mod frame;
-pub mod proto;
+mod frame;
+mod proto;
 mod util;
+
+pub use codec::Twist as TwistCodec;
+pub use codec::base::FrameCodec as BaseFrameCodec;
+pub use codec::handshake::FrameCodec as HanshakeCodec;
+pub use frame::WebSocket as WebSocketFrame;
+pub use frame::base::Frame as BaseFrame;
+pub use frame::base::OpCode;
+pub use proto::WebSocketProtocol;

@@ -28,37 +28,39 @@ use tokio_core::io::{Framed, Io};
 use tokio_proto::pipeline::ServerProto;
 
 mod close;
-mod fragmented;
 mod handshake;
+mod fragmented;
 mod pingpong;
 
-/// The `Frame` protocol that you should run a `TcpServer` with.
-pub struct Frame {
+/// The protocol that you should run a tokio-proto
+/// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) with to
+/// handle websocket handshake and base frames.
+pub struct WebSocketProtocol {
     /// An optional slog stdout `Logger`
     stdout: Option<Logger>,
     /// An optional slog stderr `Logger`
     stderr: Option<Logger>,
 }
 
-impl Frame {
+impl WebSocketProtocol {
     /// Add a slog stdout `Logger` to this `Frame` protocol
-    pub fn add_stdout(&mut self, stdout: Logger) -> &mut Frame {
+    pub fn add_stdout(&mut self, stdout: Logger) -> &mut WebSocketProtocol {
         let fp_stdout = stdout.new(o!("module" => module_path!(), "proto" => "frame"));
         self.stdout = Some(fp_stdout);
         self
     }
 
     /// Add a slog stderr `Logger` to this `Frame` protocol.
-    pub fn add_stderr(&mut self, stderr: Logger) -> &mut Frame {
+    pub fn add_stderr(&mut self, stderr: Logger) -> &mut WebSocketProtocol {
         let fp_stderr = stderr.new(o!("module" => module_path!(), "proto" => "frame"));
         self.stderr = Some(fp_stderr);
         self
     }
 }
 
-impl Default for Frame {
-    fn default() -> Frame {
-        Frame {
+impl Default for WebSocketProtocol {
+    fn default() -> WebSocketProtocol {
+        WebSocketProtocol {
             stdout: None,
             stderr: None,
         }
@@ -70,7 +72,7 @@ type BaseCodec<T> = Framed<T, Twist>;
 /// The websocket protocol middleware chain type.
 type ProtoChain<T> = Handshake<Close<PingPong<Fragmented<BaseCodec<T>>>>>;
 
-impl<T: Io + 'static> ServerProto<T> for Frame {
+impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
     type Request = WebSocket;
     type Response = WebSocket;
 

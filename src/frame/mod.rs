@@ -5,7 +5,7 @@ use std::fmt;
 pub mod base;
 pub mod handshake;
 
-/// A struct representing a websocket frame.  Note a websocket frame is either a handshake frame or
+/// A `twist` websocket frame.  Note a websocket frame is either a handshake frame or
 /// a base frame.  They are mutually exclusive.
 #[derive(Debug, Clone)]
 pub struct WebSocket {
