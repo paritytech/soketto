@@ -1,5 +1,6 @@
 //! A websocket base frame
 use std::fmt;
+use util;
 
 /// Operation codes defined in [RFC6455](//! [rfc6455]: https://tools.ietf.org/html/rfc6455).
 ///
@@ -236,12 +237,26 @@ impl fmt::Display for Frame {
         try!(write!(f, "\n\trsv3 {}", self.rsv3));
         try!(write!(f, "\n\topcode {}", self.opcode));
         try!(write!(f, "\n\tpayload_length {}", self.payload_length));
-        // if let Some(ref ext_data) = self.extension_data {
-        //     try!(write!(f, "\n\textension_data\n{}", util::as_hex(ext_data)));
-        // }
-        // if let Some(ref app_data) = self.application_data {
-        //     try!(write!(f, "\n\tapplication_data\n{}\n", util::as_hex(app_data)));
-        // }
+        if let Some(ref ext_data) = self.extension_data {
+            let len = ext_data.len();
+            if len <= 256 {
+                try!(write!(f, "\n\textension_data:\n"));
+                try!(write!(f, "{}\n", util::hex_header()));
+                try!(write!(f, "{}", util::as_hex(ext_data)));
+            } else {
+                try!(write!(f, "\n\textension_data: [ {} bytes ]", len));
+            }
+        }
+        if let Some(ref app_data) = self.application_data {
+            let len = app_data.len();
+            if len <= 256 {
+                try!(write!(f, "\n\tapplication_data:\n"));
+                try!(write!(f, "{}\n", util::hex_header()));
+                try!(write!(f, "{}", util::as_hex(app_data)));
+            } else {
+                try!(write!(f, "\n\tapplication_data: [ {} bytes ]", len));
+            }
+        }
         writeln!(f, "}}")
     }
 }

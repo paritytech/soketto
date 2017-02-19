@@ -1,5 +1,12 @@
 //! General Utilities
 use std::io;
+#[cfg(test)]
+use std::io::Write;
+
+#[cfg(test)]
+pub fn stdo(msg: &str) {
+    writeln!(io::stdout(), "{}", msg).expect("Unable to write to stdout!");
+}
 
 /// Generate an `io::ErrorKind::Other` error with the given description.
 pub fn other(desc: &str) -> io::Error {
@@ -7,12 +14,8 @@ pub fn other(desc: &str) -> io::Error {
 }
 
 /// Generate a formatted hex string from a vector of bytes.
-#[cfg(test)]
 pub fn as_hex(buf: &[u8]) -> String {
     let mut hexy = String::new();
-
-    hexy.push_str(&header());
-    hexy.push('\n');
 
     for (idx, byte) in buf.iter().enumerate() {
         if idx % 16 == 0 {
@@ -30,8 +33,7 @@ pub fn as_hex(buf: &[u8]) -> String {
 }
 
 /// Generate the hex string header.
-#[cfg(test)]
-fn header() -> String {
+pub fn hex_header() -> String {
     format!("{:8} {:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:5}{:>5}{:>5}{:>5}{:>5}{:>5}{:>5}",
             "Address",
             0,

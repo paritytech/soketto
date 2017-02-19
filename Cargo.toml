@@ -1,14 +1,15 @@
 [package]
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
-description = "tokio-proto ServerProto and tokio-core Codec websocket implementation"
-documentation = "https://github.com/rustyhorde/twist"
-homepage = "https://github.com/rustyhorde/twist"
-keywords = ["tokio", "websocket"]
-license = "MIT"
+description = """An implementation of the RFC6455 websocket protocol as a set
+of tokio Codec anda tokio-proto pipeline ServerProto"""
+documentation = "https://docs.rs/twist"
+homepage = "https://rustyhorde.github.io/twist/"
+keywords = ["tokio", "websocket", "codec", "serverproto"]
+license = "MIT/Apache-2.0"
 name = "twist"
 readme = "README.md"
 repository = "https://github.com/rustyhorde/twist"
-version = "0.1.2"
+version = "0.1.3"
 
 [dependencies]
 base64 = "0.3.0"

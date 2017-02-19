@@ -108,23 +108,30 @@ impl Codec for FrameCodec {
                     if self.rsv1 {
                         return Err(util::other("invalid rsv1 bit set"));
                     }
+
                     self.rsv2 = first & 0x20 != 0;
                     if self.rsv2 {
                         return Err(util::other("invlid rsv2 bit set"));
                     }
+
                     self.rsv3 = first & 0x10 != 0;
                     if self.rsv3 {
                         return Err(util::other("invlid rsv3 bit set"));
                     }
+
                     self.opcode = OpCode::from((first & 0x0F) as u8);
                     if self.opcode.is_invalid() {
                         return Err(util::other("invalid opcode set"));
                     }
-
                     if self.opcode.is_control() && !self.fin {
                         return Err(util::other("control frames must not be fragmented"));
                     }
+
                     self.masked = second & 0x80 != 0;
+                    if !self.masked {
+                        return Err(util::other("all client frames must have a mask"));
+                    }
+
                     self.length_code = (second & 0x7F) as u8;
                     self.state = DecodeState::HEADER;
                 }
@@ -163,6 +170,9 @@ impl Codec for FrameCodec {
                         self.payload_length = self.length_code as u64;
                         self.state = DecodeState::LENGTH;
                     }
+                    if self.payload_length > 125 && self.opcode.is_control() {
+                        return Err(util::other("invalid control frame"));
+                    }
                 }
                 DecodeState::LENGTH => {
                     if self.masked {
@@ -194,9 +204,6 @@ impl Codec for FrameCodec {
                         return Ok(None);
                     }
 
-                    if self.payload_length > 125 && self.opcode.is_control() {
-                        return Err(util::other("invalid control frame"));
-                    }
                     if self.payload_length > 0 {
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                         let mut app_data_bytes = buf.drain_to(self.payload_length as usize);
@@ -290,5 +297,203 @@ impl From<FrameCodec> for Frame {
         frame.set_application_data(frame_codec.application_data);
         frame.set_extension_data(frame_codec.extension_data);
         frame
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::FrameCodec;
+    use frame::base::{Frame, OpCode};
+    use std::io;
+    use tokio_core::io::{Codec, EasyBuf};
+    use util;
+
+    // Bad Frames, should err
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Mask bit must be one. 2nd byte must be 0x80 or greater.
+    const NO_MASK: [u8; 2]           = [0x89, 0x00];
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
+    const CTRL_PAYLOAD_LEN : [u8; 9] = [0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+    // Truncated Frames, should return Ok(None)
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // One byte of the 2 byte header is ok.
+    const PARTIAL_HEADER: [u8; 1]    = [0x89];
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Between 0 and 2 bytes of a 2 byte length block is ok.
+    const PARTIAL_LENGTH_1: [u8; 3]  = [0x89, 0xFE, 0x01];
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Between 0 and 8 bytes of an 8 byte length block is ok.
+    const PARTIAL_LENGTH_2: [u8; 6]  = [0x89, 0xFF, 0x01, 0x02, 0x03, 0x04];
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Between 0 and 4 bytes of the 4 byte mask is ok.
+    const PARTIAL_MASK: [u8; 6]      = [0x82, 0xFE, 0x01, 0x02, 0x00, 0x00];
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    // Between 0 and X bytes of the X byte payload is ok.
+    const PARTIAL_PAYLOAD: [u8; 8]    = [0x82, 0x85, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00];
+
+    // Good Frames, should return Ok(Some(x))
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    const PING_NO_DATA: [u8; 6]     = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
+
+    fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
+        let mut eb = EasyBuf::from(buf.to_vec());
+        let mut fc: FrameCodec = Default::default();
+        fc.decode(&mut eb)
+    }
+
+    #[test]
+    /// Checking that partial header returns Ok(None).
+    fn decode_partial_header() {
+        if let Ok(None) = decode(&PARTIAL_HEADER) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that partial 2 byte length returns Ok(None).
+    fn decode_partial_len_1() {
+        if let Ok(None) = decode(&PARTIAL_LENGTH_1) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that partial 8 byte length returns Ok(None).
+    fn decode_partial_len_2() {
+        if let Ok(None) = decode(&PARTIAL_LENGTH_2) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that partial mask returns Ok(None).
+    fn decode_partial_mask() {
+        if let Ok(None) = decode(&PARTIAL_MASK) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that partial payload returns Ok(None).
+    fn decode_partial_payload() {
+        if let Ok(None) = decode(&PARTIAL_PAYLOAD) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that partial mask returns Ok(None).
+    fn decode_invalid_control_payload_len() {
+        if let Err(_e) = decode(&CTRL_PAYLOAD_LEN) {
+            assert!(true);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    /// Checking that rsv1, rsv2, and rsv3 bit set returns error.
+    fn decode_reserved() {
+        // rsv1, rsv2, and rsv3.
+        let reserved = [0x90, 0xa0, 0xc0];
+
+        for res in &reserved {
+            let mut buf = Vec::with_capacity(2);
+            let mut first_byte = 0_u8;
+            first_byte |= *res;
+            buf.push(first_byte);
+            buf.push(0x00);
+            if let Err(_e) = decode(&buf) {
+                assert!(true);
+                // TODO: Assert error type when implemented.
+            } else {
+                util::stdo(&format!("rsv should not be set: {}", res));
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    /// Checking that a control frame, where fin bit is 0, returns an error.
+    fn decode_fragmented_control() {
+        let second_bytes = [8, 9, 10];
+
+        for sb in &second_bytes {
+            let mut buf = Vec::with_capacity(2);
+            let mut first_byte = 0_u8;
+            first_byte |= *sb;
+            buf.push(first_byte);
+            buf.push(0x00);
+            if let Err(_e) = decode(&buf) {
+                assert!(true);
+                // TODO: Assert error type when implemented.
+            } else {
+                util::stdo("control frame {} is marked as fragment");
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    /// Checking that reserved opcodes return an error.
+    fn decode_reserved_opcodes() {
+        let reserved = [3, 4, 5, 6, 7, 11, 12, 13, 14, 15];
+
+        for res in &reserved {
+            let mut buf = Vec::with_capacity(2);
+            let mut first_byte = 0_u8;
+            first_byte |= 0x80;
+            first_byte |= *res;
+            buf.push(first_byte);
+            buf.push(0x00);
+            if let Err(_e) = decode(&buf) {
+                assert!(true);
+                // TODO: Assert error type when implemented.
+            } else {
+                util::stdo(&format!("opcode {} should be reserved", res));
+                assert!(false);
+            }
+        }
+    }
+
+    #[test]
+    /// Checking that a decode frame (always from client) with the mask bit not set returns an
+    /// error.
+    fn decode_no_mask() {
+        if let Err(_e) = decode(&NO_MASK) {
+            assert!(true);
+            // TODO: Assert error type when implemented.
+        } else {
+            util::stdo("decoded frames should always have a mask");
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn decode_ping_no_data() {
+        if let Ok(Some(frame)) = decode(&PING_NO_DATA) {
+            assert!(frame.fin());
+            assert!(!frame.rsv1());
+            assert!(!frame.rsv2());
+            assert!(!frame.rsv3());
+            assert!(frame.opcode() == OpCode::Ping);
+            assert!(frame.payload_length() == 0);
+            assert!(frame.extension_data().is_none());
+            assert!(frame.application_data().is_none());
+        } else {
+            assert!(false);
+        }
     }
 }
