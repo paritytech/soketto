@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send ping with binary payload of 126 octets.",
    "droppedByMe": false,
-   "duration": 1,
+   "duration": 0,
    "expectation": "Connection is failed immediately (1002/Protocol Error), since control frames are only allowed to have payload up to and including 125 octets..",
    "expected": {
       "OK": []
@@ -21,8 +21,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: Ksfpn5NPpyXKYl2fPJrMIQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: oEIEX8Ga8IKHnBX8SCYAP4A1mhA=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: jEHAAKmBi6ad4oB5xAH4OA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: a5MRV6aN2r5wfTHKQ1qE7Y5aQi4=\r\n\r\n",
    "id": "2.5",
    "isServer": false,
    "localCloseCode": null,
@@ -38,7 +38,7 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-17T03:43:43.329Z",
+   "started": "2017-02-20T15:04:40.028Z",
    "trafficStats": null,
    "txFrameStats": {
       "9": 1
@@ -77,7 +77,7 @@
          9,
          true,
          0,
-         "5f16c9ea",
+         "65d04a04",
          null,
          null,
          false
@@ -86,7 +86,7 @@
          "TO",
          [
             134,
-            "89fe007e5f16c9eaa1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714a1e83714 ..."
+            "89fe007e65d04a049b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa9b2eb4fa ..."
          ],
          false
       ],

@@ -1,6 +1,6 @@
 {
    "agent": "Twist Unsecure",
-   "behavior": "NON-STRICT",
+   "behavior": "OK",
    "behaviorClose": "OK",
    "case": 74,
    "closedByMe": false,
@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send invalid UTF-8 text message in 3 fragments (frames).\nFirst frame payload is valid, then wait, then 2nd frame which contains the payload making the sequence invalid, then wait, then 3rd frame with rest.\nNote that PART1 and PART3 are valid UTF-8 in themselves, PART2 is a 0x110000 encoded as in the UTF-8 integer encoding scheme, but the codepoint is invalid (out of range).\n<br><br>MESSAGE PARTS:<br>\nPART1 = cebae1bdb9cf83cebcceb5<br>\nPART2 = f4908080<br>\nPART3 = 656469746564<br>\n",
    "droppedByMe": false,
-   "duration": 2002,
+   "duration": 1001,
    "expectation": "The first frame is accepted, we expect to timeout on the first wait. The 2nd frame should be rejected immediately (fail fast on UTF-8). If we timeout, we expect the connection is failed at least then, since the complete message payload is not valid UTF-8.",
    "expected": {
       "NON-STRICT": [
@@ -37,8 +37,8 @@
       "requireClean": false
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: 5+ktQTYLrDTIw18o+WR8sQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: uMQbSe+Vc8QzEe43Kx9a+tgUqYE=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: KpaVTEtVrfHH94np74YyqQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: WDwYh4o/cFbQq1suWdjRZK05IRg=\r\n\r\n",
    "id": "6.4.1",
    "isServer": false,
    "localCloseCode": null,
@@ -47,10 +47,6 @@
       [
          "timeout",
          "A"
-      ],
-      [
-         "timeout",
-         "B"
       ]
    ],
    "remoteCloseCode": null,
@@ -63,15 +59,14 @@
    "rxOctetStats": {
       "129": 1
    },
-   "started": "2017-02-17T03:43:45.614Z",
+   "started": "2017-02-20T15:04:42.401Z",
    "trafficStats": null,
    "txFrameStats": {
-      "0": 2,
+      "0": 1,
       "1": 1
    },
    "txOctetStats": {
       "10": 1,
-      "12": 1,
       "17": 1,
       "242": 1
    },
@@ -105,7 +100,7 @@
          1,
          false,
          0,
-         "d5ad63a8",
+         "c6bdac1a",
          null,
          null,
          false
@@ -114,7 +109,7 @@
          "TO",
          [
             17,
-            "018bd5ad63a81b1782156c62e0666963d6"
+            "018bc6bdac1a08074da77f722fd47a7319"
          ],
          false
       ],
@@ -136,7 +131,7 @@
          0,
          false,
          0,
-         "e71e3947",
+         "e968719a",
          null,
          null,
          false
@@ -145,7 +140,7 @@
          "TO",
          [
             10,
-            "0084e71e3947138eb9c7"
+            "0084e968719a1df8f11a"
          ],
          false
       ],
@@ -153,36 +148,6 @@
          "CT",
          1,
          "B"
-      ],
-      [
-         "CTE",
-         "B"
-      ],
-      [
-         "TF",
-         [
-            6,
-            "edited"
-         ],
-         0,
-         true,
-         0,
-         "4df9757c",
-         null,
-         null,
-         false
-      ],
-      [
-         "TO",
-         [
-            12,
-            "80864df9757c289d1c08289d"
-         ],
-         false
-      ],
-      [
-         "KL",
-         1
       ]
    ]
 }

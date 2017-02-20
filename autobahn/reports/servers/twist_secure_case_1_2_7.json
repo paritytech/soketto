@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send binary message message with payload of length 65536.",
    "droppedByMe": false,
-   "duration": 159,
+   "duration": 155,
    "expectation": "Receive echo'ed binary message (with payload as sent). Clean close with normal code.",
    "expected": {
       "OK": [
@@ -27,8 +27,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: lXYBkIJToxVreYSEo2rJ3g==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 9Kwes1J4zAz/uR4bz1lqicguKmU=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: jasonozias.com:32276\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: ByHe90RWTbZO5jhMExuLDA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: hMzvHAbGcvO/BhmCPyYedsFxBKg=\r\n\r\n",
    "id": "1.2.7",
    "isServer": false,
    "localCloseCode": 1000,
@@ -56,7 +56,7 @@
       "129": 1,
       "16384": 4
    },
-   "started": "2017-02-17T03:44:12.438Z",
+   "started": "2017-02-20T15:05:02.048Z",
    "trafficStats": null,
    "txFrameStats": {
       "2": 1,
@@ -97,7 +97,7 @@
          2,
          true,
          0,
-         "b86ab98e",
+         "b58dd800",
          null,
          null,
          false
@@ -106,7 +106,7 @@
          "TO",
          [
             65550,
-            "82ff0000000000010000b86ab98e4694477046944770469447704694477046944770469447704694477046944770469447704694477046944770469447704694 ..."
+            "82ff0000000000010000b58dd8004b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b7326fe4b73 ..."
          ],
          false
       ],
@@ -170,7 +170,7 @@
          8,
          true,
          0,
-         "aeacba7f",
+         "8b3ad224",
          null,
          null,
          false
@@ -179,7 +179,7 @@
          "TO",
          [
             8,
-            "8882aeacba7fad44"
+            "88828b3ad22488d2"
          ],
          false
       ],
