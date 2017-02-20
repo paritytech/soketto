@@ -27,13 +27,19 @@ extern crate base64;
 extern crate byteorder;
 extern crate httparse;
 extern crate sha1;
+extern crate slog_atomic;
+extern crate slog_term;
 extern crate tokio_core;
 extern crate tokio_proto;
 
 #[macro_use]
 extern crate futures;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate slog;
+#[macro_use]
+mod macros;
 
 mod codec;
 mod frame;
@@ -46,4 +52,4 @@ pub use codec::handshake::FrameCodec as HanshakeCodec;
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;
 pub use frame::base::OpCode;
-pub use proto::WebSocketProtocol;
+pub use proto::{set_stdout_level, WebSocketProtocol};

@@ -3,7 +3,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
 use tokio_core::io::{Codec, EasyBuf};
-use util;
+use util::{self, utf8};
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
 /// length.
@@ -86,10 +86,12 @@ impl Codec for FrameCodec {
         if buf_len == 0 {
             return Ok(None);
         }
+
         self.min_len = 0;
         loop {
             match self.state {
                 DecodeState::NONE => {
+                    // println!("buf at state NONE\n{}", util::as_hex(buf.as_slice()));
                     self.min_len += 2;
                     // Split of the 2 'header' bytes.
                     #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
@@ -111,12 +113,12 @@ impl Codec for FrameCodec {
 
                     self.rsv2 = first & 0x20 != 0;
                     if self.rsv2 {
-                        return Err(util::other("invlid rsv2 bit set"));
+                        return Err(util::other("invalid rsv2 bit set"));
                     }
 
                     self.rsv3 = first & 0x10 != 0;
                     if self.rsv3 {
-                        return Err(util::other("invlid rsv3 bit set"));
+                        return Err(util::other("invalid rsv3 bit set"));
                     }
 
                     self.opcode = OpCode::from((first & 0x0F) as u8);
@@ -136,6 +138,7 @@ impl Codec for FrameCodec {
                     self.state = DecodeState::HEADER;
                 }
                 DecodeState::HEADER => {
+                    // println!("buf at state HEADER\n{}", util::as_hex(buf.as_slice()));
                     if self.length_code == TWO_EXT {
                         self.min_len += 2;
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
@@ -201,6 +204,22 @@ impl Codec for FrameCodec {
                     let size = self.min_len as usize;
                     if buf_len < size {
                         self.min_len -= self.payload_length;
+                        if self.opcode == OpCode::Text {
+                            let mut test_buf = buf.as_slice().to_vec();
+                            if let Some(mask_key) = self.mask_key {
+                                try!(self.apply_mask(&mut test_buf, mask_key));
+                                match utf8::validate(&test_buf) {
+                                    Ok(Some(_)) => {}
+                                    Ok(None) => return Ok(None),
+                                    Err(_e) => {
+                                        return Err(util::other("error during UTF-8 \
+                                        validation"))
+                                    }
+                                }
+                            } else {
+                                return Err(util::other("cannot unmask data"));
+                            }
+                        }
                         return Ok(None);
                     }
 
@@ -225,8 +244,8 @@ impl Codec for FrameCodec {
 
         if self.opcode == OpCode::Text && self.fin {
             if let Some(ref app_data) = self.application_data {
-                try!(String::from_utf8(app_data.clone())
-                    .map_err(|_| util::other("invalid utf8 in text frame")));
+                try!(String::from_utf8(app_data.to_vec())
+                    .map_err(|_| util::other("invalid UTF-8 in text frame")));
             }
         }
 

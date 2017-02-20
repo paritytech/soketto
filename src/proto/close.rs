@@ -2,7 +2,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use frame::WebSocket;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
-use slog::Logger;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Cursor, ErrorKind};
@@ -121,10 +120,6 @@ impl fmt::Display for ReasonCode {
 
 /// The `Close` struct.
 pub struct Close<T> {
-    /// A slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// A slog stderr `Logger`
-    stderr: Option<Logger>,
     /// The upstream protocol.
     upstream: T,
     /// Has a close frame been received?
@@ -134,29 +129,15 @@ pub struct Close<T> {
     app_data: Option<Vec<u8>>,
 }
 
+
 impl<T> Close<T> {
     /// Create a new `Close` protocol middleware
     pub fn new(upstream: T) -> Close<T> {
         Close {
-            stdout: None,
-            stderr: None,
             upstream: upstream,
             received: false,
             app_data: None,
         }
-    }
-    /// Add a slog stdout `Logger` to this `Frame` protocol
-    pub fn add_stdout(&mut self, stdout: Logger) -> &mut Close<T> {
-        let c_stdout = stdout.new(o!("module" => module_path!(), "proto" => "close"));
-        self.stdout = Some(c_stdout);
-        self
-    }
-
-    /// Add a slog stderr `Logger` to this `Frame` protocol.
-    pub fn add_stderr(&mut self, stderr: Logger) -> &mut Close<T> {
-        let c_stderr = stderr.new(o!("module" => module_path!(), "proto" => "close"));
-        self.stderr = Some(c_stderr);
-        self
     }
 }
 
@@ -173,16 +154,13 @@ impl<T> Stream for Close<T>
                 Ok(Async::Ready(t)) => {
                     match t {
                         Some(ref msg) if msg.is_close() => {
-                            if let Some(ref stdout) = self.stdout {
-                                trace!(stdout, "close message received");
-                            }
+                            stdout_trace!("proto" => "close"; "close message received");
 
                             if let Some(base) = msg.base() {
                                 self.app_data = base.application_data().cloned();
                                 self.received = true;
-                            } else if let Some(ref stderr) = self.stderr {
-                                // This should never happen.
-                                error!(stderr, "couldn't extract base frame");
+                            } else {
+                                return Err(util::other("couldn't extract base frame"));
                             }
 
                             try!(self.poll_complete());
@@ -193,11 +171,11 @@ impl<T> Stream for Close<T>
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Err(e) => {
                     if let ErrorKind::Other = e.kind() {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "{}", e.description());
-                        }
+                        stderr_error!("proto" => "close"; "{}", e.description());
+                        return Err(e);
+                    } else {
+                        return Err(e);
                     }
-                    return Err(e);
                 }
             }
         }
@@ -267,9 +245,10 @@ impl<T> Sink for Close<T>
                     AsyncSink::Ready => {
                         loop {
                             if let Ok(Async::Ready(_)) = self.upstream.poll_complete() {
-                                if let Some(ref stdout) = self.stdout {
-                                    trace!(stdout, "received close, sending close, terminating");
-                                }
+                                stdout_trace!(
+                                    "proto" => "close";
+                                    "received close, sending close, terminating"
+                                );
                                 return Err(util::other("Sent and closed"));
                             }
                         }

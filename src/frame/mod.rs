@@ -7,7 +7,7 @@ pub mod handshake;
 
 /// A `twist` websocket frame.  Note a websocket frame is either a handshake frame or
 /// a base frame.  They are mutually exclusive.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct WebSocket {
     /// The hanshake portion of a websocket frame.
     handshake: Option<handshake::Frame>,
@@ -148,15 +148,6 @@ impl WebSocket {
         // Ensure mutually exclusive.
         self.handshake = None;
         self
-    }
-}
-
-impl Default for WebSocket {
-    fn default() -> WebSocket {
-        WebSocket {
-            handshake: None,
-            base: None,
-        }
     }
 }
 

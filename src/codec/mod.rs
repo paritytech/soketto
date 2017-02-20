@@ -1,7 +1,6 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames.
 use frame::WebSocket;
-use slog::Logger;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
 
@@ -12,10 +11,6 @@ pub mod handshake;
 /// decoding/encoding of both websocket handshakes and websocket base frames.
 #[derive(Default)]
 pub struct Twist {
-    /// An optional stdout slog `Logger`
-    stdout: Option<Logger>,
-    /// An optional stderr slog `Logger`
-    stderr: Option<Logger>,
     /// The handshake indicator.  If this is false, the handshake is not complete.
     shaken: bool,
     /// Is the deflate extension enabled?
@@ -24,22 +19,6 @@ pub struct Twist {
     frame_codec: Option<base::FrameCodec>,
     /// blah
     handshake_codec: Option<handshake::FrameCodec>,
-}
-
-impl Twist {
-    /// Add a stdout slog `Logger` to this `Codec`
-    pub fn add_stdout(&mut self, stdout: Logger) -> &mut Twist {
-        let fc_stdout = stdout.new(o!("module" => module_path!()));
-        self.stdout = Some(fc_stdout);
-        self
-    }
-
-    /// Add a stderr slog `Logger` to this `Codec`
-    pub fn add_stderr(&mut self, stderr: Logger) -> &mut Twist {
-        let fc_stderr = stderr.new(o!("module" => module_path!()));
-        self.stderr = Some(fc_stderr);
-        self
-    }
 }
 
 impl Codec for Twist {
@@ -100,7 +79,6 @@ impl Codec for Twist {
         } else {
             // TODO: This is probably an error condition.
         }
-
         Ok(())
     }
 }
@@ -112,7 +90,6 @@ mod test {
     use frame::base::{Frame, OpCode};
     use std::io::{self, Write};
     use tokio_core::io::{Codec, EasyBuf};
-    use util;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     const SHORT:  [u8; 7]   = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
@@ -195,7 +172,7 @@ mod test {
         let mut buf = vec![];
         if let Ok(()) = <Twist as Codec>::encode(&mut fc, frame, &mut buf) {
             if buf.len() < 1024 {
-                println!("{}", util::as_hex(&buf));
+                // println!("{}", util::as_hex(&buf));
             }
             // There is no mask in encoded frames
             assert!(buf.len() == (cmp.len() - 4));

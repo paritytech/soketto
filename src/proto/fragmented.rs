@@ -2,16 +2,11 @@
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use futures::{Async, Poll, Sink, StartSend, Stream};
-use slog::Logger;
 use std::io;
-use util;
+use util::{self, utf8};
 
 /// The `Fragmented` struct.
 pub struct Fragmented<T> {
-    /// A slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// A slog stderr `Logger`
-    stderr: Option<Logger>,
     /// The upstream protocol.
     upstream: T,
     /// Has the fragmented message started?
@@ -30,8 +25,6 @@ impl<T> Fragmented<T> {
     /// Create a new `Fragmented` protocol middleware.
     pub fn new(upstream: T) -> Fragmented<T> {
         Fragmented {
-            stdout: None,
-            stderr: None,
             upstream: upstream,
             started: false,
             complete: false,
@@ -39,20 +32,6 @@ impl<T> Fragmented<T> {
             total_length: 0,
             buf: Vec::new(),
         }
-    }
-
-    /// Add a slog stdout `Logger` to this `Fragmented` protocol
-    pub fn add_stdout(&mut self, stdout: Logger) -> &mut Fragmented<T> {
-        let fp_stdout = stdout.new(o!("module" => module_path!(), "proto" => "fragment"));
-        self.stdout = Some(fp_stdout);
-        self
-    }
-
-    /// Add a slog stderr `Logger` to this `Fragmented` protocol.
-    pub fn add_stderr(&mut self, stderr: Logger) -> &mut Fragmented<T> {
-        let fp_stderr = stderr.new(o!("module" => module_path!(), "proto" => "fragment"));
-        self.stderr = Some(fp_stderr);
-        self
     }
 }
 
@@ -68,68 +47,59 @@ impl<T> Stream for Fragmented<T>
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_fragment_start() => {
                     if let Some(base) = msg.base() {
-                        if let Some(ref stdout) = self.stdout {
-                            trace!(stdout, "fragment start frame received");
-                        }
+                        stdout_trace!("proto" => "fragmented"; "fragment start frame received");
                         self.opcode = base.opcode();
                         self.started = true;
                         self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
+
                         try!(self.poll_complete());
                     } else {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "invalid fragment start frame received");
-                        }
                         return Err(util::other("invalid fragment start frame received"));
                     }
                 }
                 Some(ref msg) if msg.is_fragment() => {
                     if !self.started || self.complete {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "invalid fragment frame received");
-                        }
                         return Err(util::other("invalid fragment frame received"));
                     }
 
                     if let Some(base) = msg.base() {
-                        if let Some(ref stdout) = self.stdout {
-                            trace!(stdout, "fragment frame received");
-                        }
+                        stdout_trace!("proto" => "fragmented"; "fragment frame received");
                         self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
+
+                        if self.opcode == OpCode::Text && self.total_length < 8096 {
+                            match utf8::validate(&self.buf) {
+                                Ok(_) => {}
+                                Err(_e) => {
+                                    return Err(util::other("error during UTF-8 \
+                                    validation"))
+                                }
+                            }
+                        }
                         try!(self.poll_complete());
                     } else {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "invalid fragment frame received");
-                        }
                         return Err(util::other("invalid fragment frame received"));
                     }
                 }
                 Some(ref msg) if msg.is_fragment_complete() => {
                     if !self.started || self.complete {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "invalid fragment complete frame received");
-                        }
                         return Err(util::other("invalid fragment complete frame received"));
                     }
                     if let Some(base) = msg.base() {
-                        if let Some(ref stdout) = self.stdout {
-                            trace!(stdout, "fragment complete frame received");
-                        }
+                        stdout_trace!("proto" => "fragmented"; "fragment complete frame received");
                         self.complete = true;
                         self.total_length += base.payload_length();
                         if let Some(app_data) = base.application_data() {
                             self.buf.extend(app_data);
                         }
+
                         try!(self.poll_complete());
                     } else {
-                        if let Some(ref stderr) = self.stderr {
-                            error!(stderr, "invalid fragment complete frame received");
-                        }
                         return Err(util::other("invalid fragment complete frame received"));
                     }
                 }
@@ -173,9 +143,7 @@ impl<T> Sink for Fragmented<T>
             self.complete = false;
             self.opcode = OpCode::Close;
             self.buf.clear();
-            if let Some(ref stdout) = self.stdout {
-                trace!(stdout, "fragment complete sending coalesced");
-            }
+            stdout_trace!("proto" => "fragmented"; "fragment complete sending coalesced");
             return self.upstream.poll_complete();
         }
         self.upstream.poll_complete()

@@ -22,10 +22,11 @@ use proto::close::Close;
 use proto::fragmented::Fragmented;
 use proto::handshake::Handshake;
 use proto::pingpong::PingPong;
-use slog::Logger;
 use std::io;
 use tokio_core::io::{Framed, Io};
 use tokio_proto::pipeline::ServerProto;
+
+pub use util::set_stdout_level;
 
 mod close;
 mod handshake;
@@ -35,37 +36,8 @@ mod pingpong;
 /// The protocol that you should run a tokio-proto
 /// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) with to
 /// handle websocket handshake and base frames.
-pub struct WebSocketProtocol {
-    /// An optional slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// An optional slog stderr `Logger`
-    stderr: Option<Logger>,
-}
-
-impl WebSocketProtocol {
-    /// Add a slog stdout `Logger` to this `Frame` protocol
-    pub fn add_stdout(&mut self, stdout: Logger) -> &mut WebSocketProtocol {
-        let fp_stdout = stdout.new(o!("module" => module_path!(), "proto" => "frame"));
-        self.stdout = Some(fp_stdout);
-        self
-    }
-
-    /// Add a slog stderr `Logger` to this `Frame` protocol.
-    pub fn add_stderr(&mut self, stderr: Logger) -> &mut WebSocketProtocol {
-        let fp_stderr = stderr.new(o!("module" => module_path!(), "proto" => "frame"));
-        self.stderr = Some(fp_stderr);
-        self
-    }
-}
-
-impl Default for WebSocketProtocol {
-    fn default() -> WebSocketProtocol {
-        WebSocketProtocol {
-            stdout: None,
-            stderr: None,
-        }
-    }
-}
+#[derive(Default)]
+pub struct WebSocketProtocol;
 
 /// The base codec type.
 type BaseCodec<T> = Framed<T, Twist>;
@@ -80,50 +52,8 @@ impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        if let Some(ref stdout) = self.stdout {
-            trace!(stdout, "bind_transport");
-        }
-        // Initialize the codec to be parsing message frames
-        let mut codec: Twist = Default::default();
-        if let Some(ref stdout) = self.stdout {
-            codec.add_stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            codec.add_stderr(stderr.clone());
-        }
-
-        let mut fragmented = Fragmented::new(io.framed(codec));
-        if let Some(ref stdout) = self.stdout {
-            fragmented.add_stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            fragmented.add_stderr(stderr.clone());
-        }
-
-        let mut pingpong = PingPong::new(fragmented);
-        if let Some(ref stdout) = self.stdout {
-            pingpong.add_stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            pingpong.add_stderr(stderr.clone());
-        }
-
-        let mut close = Close::new(pingpong);
-        if let Some(ref stdout) = self.stdout {
-            close.add_stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            close.add_stderr(stderr.clone());
-        }
-
-        let mut hand = Handshake::new(close);
-        if let Some(ref stdout) = self.stdout {
-            hand.add_stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            hand.add_stderr(stderr.clone());
-        }
-
-        Ok(hand)
+        stdout_trace!("proto" => "server"; "bind_transport");
+        Ok(Handshake::new(
+            Close::new(PingPong::new(Fragmented::new(io.framed(Default::default()))))))
     }
 }
