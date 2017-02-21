@@ -1,5 +1,5 @@
 # twist
-A tokio-proto pipelined [ServerProto](https://docs.rs/tokio-proto/0.1.0/tokio_proto/pipeline/trait.ServerProto.html) and tokio-core [Codec](https://docs.rs/tokio-core/0.1.4/tokio_core/io/trait.Codec.html) websocket implementation.
+An implementation of the RFC6455 websocket protocol as a tokio-core [Codec](https://docs.rs/tokio-core/0.1.4/tokio_core/io/trait.Codec.html) and a tokio-proto pipeline [ServerProto](https://docs.rs/tokio-proto/0.1.0/tokio_proto/pipeline/trait.ServerProto.html)
 
 This can be used to serve up a tokio-service [Service](https://docs.rs/tokio-service/0.1.0/tokio_service/trait.Service.html) in a tokio-proto [TcpServer](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) (See [twists](https://github.com/rustyhorde/twists) for an example).
 
