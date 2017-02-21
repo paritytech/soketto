@@ -1,8 +1,12 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames.
 use frame::WebSocket;
+use ext::{FromHeader, PerFrame, PerMessage};
+#[cfg(feature = "pmd")]
+use ext::pmd::Deflate;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
+use util;
 
 pub mod base;
 pub mod handshake;
@@ -13,12 +17,39 @@ pub mod handshake;
 pub struct Twist {
     /// The handshake indicator.  If this is false, the handshake is not complete.
     shaken: bool,
-    /// Is the deflate extension enabled?
-    deflate: bool,
-    /// blah
+    /// The `Codec` to use to decode the buffer into a `base::Frame`.  Due to the reentrant nature
+    /// of decode, the codec is initialized if set to None, reused if Some, and reset to None
+    /// after every successful decode.
     frame_codec: Option<base::FrameCodec>,
-    /// blah
+    /// The `Codec` use to decode the buffer into a `handshake::Frame`.  Due to the reentrant nature
+    /// of decode, the codec is initialized if set to None, reused if Some, and reset to None
+    /// after every successful decode.
     handshake_codec: Option<handshake::FrameCodec>,
+    /// The `Origin` header, if present.
+    origin: Option<String>,
+    /// Per-message extensions (applied after fragmented messages are consolidated, and before any
+    /// fragmentation on the way out).
+    pmext: Vec<Box<PerMessage>>,
+    /// Per-frame extensions (applied after every inbound frame, and befer every outbound frame).
+    _pfext: Vec<Box<PerFrame>>,
+}
+
+impl Twist {
+    #[cfg(not(feature = "pmd"))]
+    /// Disabled when the `pmd` feature is disabled.
+    fn setup_deflate(&mut self, header: String) {}
+
+    #[cfg(feature = "pmd")]
+    /// Setup the `Deflate` extension.
+    fn setup_deflate(&mut self, header: String) {
+        let deflate = <Deflate as Default>::default().build(&header);
+        self.pmext.push(Box::new(deflate));
+    }
+
+    /// Setup the codec extensions (PerMessage & PerFrame)
+    fn setup_extensions(&mut self, header: String) {
+        self.setup_deflate(header);
+    }
 }
 
 impl Codec for Twist {
@@ -50,11 +81,11 @@ impl Codec for Twist {
             if self.handshake_codec.is_none() {
                 self.handshake_codec = Some(Default::default());
             }
+
             if let Some(ref mut hc) = self.handshake_codec {
                 match hc.decode(buf) {
                     Ok(Some(hand)) => {
-                        let extensions = hand.extensions();
-                        self.deflate = extensions.contains("permessage-deflate");
+                        self.origin = Some(hand.origin());
                         ws_frame.set_handshake(hand);
                     }
                     Ok(None) => return Ok(None),
@@ -71,13 +102,16 @@ impl Codec for Twist {
             if let Some(base) = msg.base() {
                 let mut fc: base::FrameCodec = Default::default();
                 try!(fc.encode(base.clone(), buf));
+            } else {
+                return Err(util::other("unable to extract base frame to encode"));
             }
         } else if let Some(handshake) = msg.handshake() {
             let mut hc: handshake::FrameCodec = Default::default();
             try!(hc.encode(handshake.clone(), buf));
+            self.setup_extensions(handshake.extensions());
             self.shaken = true;
         } else {
-            // TODO: This is probably an error condition.
+            return Err(util::other("unable to extract handshake frame to encode"));
         }
         Ok(())
     }

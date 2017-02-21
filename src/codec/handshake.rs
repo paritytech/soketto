@@ -103,13 +103,13 @@ impl FrameCodec {
 
     #[cfg(feature = "pmd")]
     /// Add the `Sec-WebSocket-Extensions: permessage-deflate` header to the response.
-    fn ext_header(&self, buf: &mut String) {
-        if let Some(ref extensions) = self.extensions {
-            if extensions.contains("permessage-deflate") {
-                buf.push_str("Sec-WebSocket-Extensions: permessage-deflate; \
-                server_no_context_takeover\r\n");
-            }
-        }
+    fn ext_header(&self, _buf: &mut String) {
+        // if let Some(ref extensions) = self.extensions {
+        //     if extensions.contains("permessage-deflate") {
+        //         buf.push_str("Sec-WebSocket-Extensions: permessage-deflate; \
+        //         server_no_context_takeover\r\n");
+        //     }
+        // }
     }
 
     #[cfg(not(feature = "pmd"))]

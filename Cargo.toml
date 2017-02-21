@@ -1,6 +1,9 @@
 [package]
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
-description = "An implementation of the RFC6455 websocket protocol as a set\nof tokio Codec anda tokio-proto pipeline ServerProto"
+description = """
+An implementation of the RFC6455 websocket protocol as a tokio
+Codec and a tokio-proto pipeline ServerProto
+"""
 documentation = "https://docs.rs/twist"
 homepage = "https://rustyhorde.github.io/twist/"
 keywords = ["tokio", "websocket", "codec", "serverproto"]
@@ -26,9 +29,13 @@ tokio-proto = "0.1.0"
 features = ["max_level_trace", "release_max_level_trace"]
 version = "1.4.1"
 
+[dependencies.libz-sys]
+optional = true
+version = "1.0.13"
+
 [features]
-default = []
-pmd = []
+pmd = ["libz-sys"]
+default = ["pmd"]
 
 [lib]
 name = "twist"

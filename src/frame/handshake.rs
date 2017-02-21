@@ -8,6 +8,10 @@ pub struct Frame {
     extensions: Option<String>,
     /// Handshake Key
     key: Option<String>,
+    /// The supplied `Origin` header
+    origin: Option<String>,
+    /// The `Sec-WebSocket-Protocol` header
+    protocol: Option<String>,
 }
 
 impl Frame {
@@ -41,6 +45,26 @@ impl Frame {
     pub fn set_key(&mut self, key: Option<String>) -> &mut Frame {
         self.key = key;
         self
+    }
+
+    /// Get the `origin`
+    pub fn origin(&self) -> String {
+        let mut res = String::new();
+
+        if let Some(ref origin) = self.origin {
+            res.push_str(origin);
+        }
+        res
+    }
+
+    /// Get the `protocol`
+    pub fn protocol(&self) -> String {
+        let mut res = String::new();
+
+        if let Some(ref protocol) = self.protocol {
+            res.push_str(protocol);
+        }
+        res
     }
 }
 

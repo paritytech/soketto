@@ -42,6 +42,7 @@ extern crate slog;
 mod macros;
 
 mod codec;
+mod ext;
 mod frame;
 mod proto;
 mod util;
