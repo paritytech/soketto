@@ -8,13 +8,13 @@ Note: Even though this is implemented as a pipeline protocol, fragmented websock
 ## Usage
 Include the following in your `Cargo.toml` dependencies section
 
-    twist = "0.1.1"
+    twist = "0.1.3"
 
 ## TODO
 Support extensions and subprotocol negotiation.
 
 ## Documentation
-[Documentation](https://docs.rs/twist/0.1.1/twist/)
+[Documentation](https://docs.rs/twist/)
 
 
 ## Example Usage
