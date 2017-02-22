@@ -62,9 +62,17 @@ pub struct FrameCodec {
     state: DecodeState,
     /// Minimum length required to parse the next part of the frame.
     min_len: u64,
+    /// Bits reserved by extensions.
+    reserved_bits: u8,
 }
 
 impl FrameCodec {
+    /// Set the bits reserved by extensions (0-8 are valid values).
+    pub fn set_reserved_bits(&mut self, reserved_bits: u8) -> &mut FrameCodec {
+        self.reserved_bits = reserved_bits;
+        self
+    }
+
     /// Apply the unmasking to the application data.
     fn apply_mask(&mut self, buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
         let mut mask_buf = Vec::with_capacity(4);
@@ -107,17 +115,17 @@ impl Codec for FrameCodec {
                     // Extract the details
                     self.fin = first & 0x80 != 0;
                     self.rsv1 = first & 0x40 != 0;
-                    if self.rsv1 {
+                    if self.rsv1 && (self.reserved_bits & 0x4 == 0) {
                         return Err(util::other("invalid rsv1 bit set"));
                     }
 
                     self.rsv2 = first & 0x20 != 0;
-                    if self.rsv2 {
+                    if self.rsv2 && (self.reserved_bits & 0x2 == 0) {
                         return Err(util::other("invalid rsv2 bit set"));
                     }
 
                     self.rsv3 = first & 0x10 != 0;
-                    if self.rsv3 {
+                    if self.rsv3 && (self.reserved_bits & 0x1 == 0) {
                         return Err(util::other("invalid rsv3 bit set"));
                     }
 
@@ -239,13 +247,6 @@ impl Codec for FrameCodec {
                     }
                 }
                 DecodeState::FULL => break,
-            }
-        }
-
-        if self.opcode == OpCode::Text && self.fin {
-            if let Some(ref app_data) = self.application_data {
-                try!(String::from_utf8(app_data.to_vec())
-                    .map_err(|_| util::other("invalid UTF-8 in text frame")));
             }
         }
 

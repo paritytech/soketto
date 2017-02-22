@@ -2,6 +2,7 @@
 //! handshakes and websocket base frames.
 use ext::{PerFrame, PerMessage};
 use frame::WebSocket;
+use frame::base::OpCode;
 use std::io;
 use std::sync::{Arc, Mutex};
 use tokio_core::io::{Codec, EasyBuf};
@@ -30,6 +31,8 @@ pub struct Twist {
     pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
     /// Per-frame extensions
     pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>,
+    /// RSVx bits reserved by extensions (must be less than 16)
+    reserved_bits: u8,
 }
 
 impl Twist {
@@ -61,8 +64,16 @@ impl Codec for Twist {
             }
 
             if let Some(ref mut fc) = self.frame_codec {
+                fc.set_reserved_bits(self.reserved_bits);
                 match fc.decode(buf) {
                     Ok(Some(frame)) => {
+                        // Validate utf-8 here to allow pre-processing of appdata.
+                        if frame.opcode() == OpCode::Text && frame.fin() {
+                            if let Some(app_data) = frame.application_data() {
+                                try!(String::from_utf8(app_data.to_vec())
+                                    .map_err(|_| util::other("invalid UTF-8 in text frame")));
+                            }
+                        }
                         ws_frame.set_base(frame);
                     }
                     Ok(None) => return Ok(None),
@@ -102,11 +113,22 @@ impl Codec for Twist {
             let mut hc: handshake::FrameCodec = Default::default();
             let ext_header = handshake.extensions();
             let pmlock = self.pm_ext.clone();
+            let mut ext_resp = String::new();
+            let mut rb = self.reserved_bits;
             if let Ok(mut vec_exts) = pmlock.lock() {
                 for ext in vec_exts.iter_mut() {
                     ext.init(&ext_header);
+                    match ext.reserve_rsv(rb) {
+                        Ok(r) => rb = r,
+                        Err(e) => return Err(e),
+                    }
+                    ext_resp.push_str(&ext.response());
+                    ext_resp.push_str(", ");
                 }
             }
+            self.reserved_bits = rb;
+            stdout_trace!("codec" => "twist"; "reserved bits: {:03b}", self.reserved_bits);
+            hc.set_ext_resp(ext_resp.trim_right_matches(", "));
 
             let pflock = self.pf_ext.clone();
             if let Ok(mut vec_exts) = pflock.lock() {

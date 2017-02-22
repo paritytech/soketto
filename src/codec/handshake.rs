@@ -39,9 +39,17 @@ pub struct FrameCodec {
     extensions: Option<String>,
     /// Any other remaining headers.
     others: HashMap<String, String>,
+    /// Extension Negotiation Response.
+    ext_resp: Option<String>,
 }
 
 impl FrameCodec {
+    /// Set the extension negotiation response.
+    pub fn set_ext_resp(&mut self, response: &str) -> &mut FrameCodec {
+        self.ext_resp = Some(String::from(response));
+        self
+    }
+
     /// Validate the client handshake request.
     fn validate(&mut self) -> bool {
         if self.method != "GET" {
@@ -100,9 +108,6 @@ impl FrameCodec {
             Ok(encode(&m.digest().bytes()))
         }
     }
-
-    /// Does nothing when `pmd` feature is disabled.
-    fn ext_header(&self, _buf: &mut String) {}
 }
 
 impl Codec for FrameCodec {
@@ -188,7 +193,13 @@ impl Codec for FrameCodec {
                                    try!(self.accept_val(msg.key()))));
 
         // TODO: Add support for 400 response, subprotocols.
-        self.ext_header(&mut response);
+        if let Some(ref ext_resp) = self.ext_resp {
+            stdout_trace!("codec" => "handshake"; "SWE Header: '{}'", ext_resp);
+            if !ext_resp.is_empty() {
+                response.push_str(ext_resp);
+                response.push_str("\r\n");
+            }
+        }
 
         response.push_str("\r\n");
         buf.extend(response.as_bytes());
