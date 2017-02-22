@@ -50,7 +50,45 @@ mod util;
 pub use codec::Twist as TwistCodec;
 pub use codec::base::FrameCodec as BaseFrameCodec;
 pub use codec::handshake::FrameCodec as HanshakeCodec;
+pub use ext::{FromHeader, IntoResponse, PerMessage, PerFrame};
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;
 pub use frame::base::OpCode;
 pub use proto::{set_stdout_level, WebSocketProtocol};
+
+use std::io;
+use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "ext")]
+lazy_static! {
+    static ref PM_EXTS: Arc<Mutex<Vec<Box<PerMessage>>>> = Arc::new(Mutex::new(Vec::new()));
+    static ref PF_EXTS: Arc<Mutex<Vec<Box<PerFrame>>>> = Arc::new(Mutex::new(Vec::new()));
+}
+
+/// Register a per-message extension with this codec.
+#[cfg(feature = "ext")]
+pub fn register_pm_extension<T>(extension: T) -> Result<(), io::Error>
+    where T: PerMessage + 'static
+{
+    let lock = PM_EXTS.clone();
+    let mut vec = match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    vec.push(Box::new(extension));
+    Ok(())
+}
+
+/// Register a per-frame extension with this codec.
+#[cfg(feature = "ext")]
+pub fn register_pf_extension<T>(extension: T) -> Result<(), io::Error>
+    where T: PerFrame + 'static
+{
+    let lock = PF_EXTS.clone();
+    let mut vec = match lock.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    vec.push(Box::new(extension));
+    Ok(())
+}

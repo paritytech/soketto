@@ -1,14 +1,12 @@
 //! Per-message Compression Extensions (pmce)
 //!
 //! Currently, only per-message deflate is supported, if enabled.
-#[cfg(feature = "pmd")]
-pub mod pmd;
 
 /// Extensions are built from the `Sec-WebSocket-Extensions` headers.  Build your extension based on
 /// that header.
 pub trait FromHeader {
-    /// Build your extension from the given `Sec-WebSocket-Extensions` header string.
-    fn build(&self, header: &str) -> Self;
+    /// Initialize your extension from the given `Sec-WebSocket-Extensions` header string.
+    fn init(&mut self, header: &str);
 }
 
 /// Server-side extensions should implement this to
@@ -18,7 +16,7 @@ pub trait IntoResponse {
 }
 
 /// A per-message extension.
-pub trait PerMessage: IntoResponse {
+pub trait PerMessage: FromHeader + IntoResponse + Send {
     /// Transform the given application data/extension data bytes as necessary.
     fn decode(&self, message: Vec<u8>) -> Vec<u8>;
     /// Transform the given bytes into application/extension data bytes as necessary.
@@ -26,7 +24,7 @@ pub trait PerMessage: IntoResponse {
 }
 
 /// A per-frame extension.
-pub trait PerFrame: IntoResponse {
+pub trait PerFrame: FromHeader + IntoResponse + Send {
     /// Transform the given application data/extension data bytes as necessary.
     fn decode(&self, message: Vec<u8>) -> Vec<u8>;
     /// Transform the given bytes into application/extension data bytes as necessary.

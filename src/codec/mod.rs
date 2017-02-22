@@ -1,9 +1,7 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames.
+use {PM_EXTS, PF_EXTS};
 use frame::WebSocket;
-use ext::{FromHeader, PerFrame, PerMessage};
-#[cfg(feature = "pmd")]
-use ext::pmd::Deflate;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
 use util;
@@ -27,29 +25,6 @@ pub struct Twist {
     handshake_codec: Option<handshake::FrameCodec>,
     /// The `Origin` header, if present.
     origin: Option<String>,
-    /// Per-message extensions (applied after fragmented messages are consolidated, and before any
-    /// fragmentation on the way out).
-    pmext: Vec<Box<PerMessage>>,
-    /// Per-frame extensions (applied after every inbound frame, and befer every outbound frame).
-    _pfext: Vec<Box<PerFrame>>,
-}
-
-impl Twist {
-    #[cfg(not(feature = "pmd"))]
-    /// Disabled when the `pmd` feature is disabled.
-    fn setup_deflate(&mut self, header: String) {}
-
-    #[cfg(feature = "pmd")]
-    /// Setup the `Deflate` extension.
-    fn setup_deflate(&mut self, header: String) {
-        let deflate = <Deflate as Default>::default().build(&header);
-        self.pmext.push(Box::new(deflate));
-    }
-
-    /// Setup the codec extensions (PerMessage & PerFrame)
-    fn setup_extensions(&mut self, header: String) {
-        self.setup_deflate(header);
-    }
 }
 
 impl Codec for Twist {
@@ -107,8 +82,21 @@ impl Codec for Twist {
             }
         } else if let Some(handshake) = msg.handshake() {
             let mut hc: handshake::FrameCodec = Default::default();
+            let ext_header = handshake.extensions();
+            let pmlock = PM_EXTS.clone();
+            if let Ok(mut vec_exts) = pmlock.lock() {
+                for ext in vec_exts.iter_mut() {
+                    ext.init(&ext_header);
+                }
+            }
+
+            let pflock = PF_EXTS.clone();
+            if let Ok(mut vec_exts) = pflock.lock() {
+                for ext in vec_exts.iter_mut() {
+                    ext.init(&ext_header);
+                }
+            }
             try!(hc.encode(handshake.clone(), buf));
-            self.setup_extensions(handshake.extensions());
             self.shaken = true;
         } else {
             return Err(util::other("unable to extract handshake frame to encode"));
