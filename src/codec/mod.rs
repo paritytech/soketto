@@ -1,8 +1,9 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames.
-use {PM_EXTS, PF_EXTS};
+use ext::{PerFrame, PerMessage};
 use frame::WebSocket;
 use std::io;
+use std::sync::{Arc, Mutex};
 use tokio_core::io::{Codec, EasyBuf};
 use util;
 
@@ -25,6 +26,23 @@ pub struct Twist {
     handshake_codec: Option<handshake::FrameCodec>,
     /// The `Origin` header, if present.
     origin: Option<String>,
+    /// Per-message extensions
+    pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
+    /// Per-frame extensions
+    pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>,
+}
+
+impl Twist {
+    /// Create a new `Twist` codec with the given extensions.
+    pub fn new(pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
+               pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>)
+               -> Twist {
+        Twist {
+            pm_ext: pm_ext,
+            pf_ext: pf_ext,
+            ..Default::default()
+        }
+    }
 }
 
 impl Codec for Twist {
@@ -83,14 +101,14 @@ impl Codec for Twist {
         } else if let Some(handshake) = msg.handshake() {
             let mut hc: handshake::FrameCodec = Default::default();
             let ext_header = handshake.extensions();
-            let pmlock = PM_EXTS.clone();
+            let pmlock = self.pm_ext.clone();
             if let Ok(mut vec_exts) = pmlock.lock() {
                 for ext in vec_exts.iter_mut() {
                     ext.init(&ext_header);
                 }
             }
 
-            let pflock = PF_EXTS.clone();
+            let pflock = self.pf_ext.clone();
             if let Ok(mut vec_exts) = pflock.lock() {
                 for ext in vec_exts.iter_mut() {
                     ext.init(&ext_header);
