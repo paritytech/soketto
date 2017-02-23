@@ -83,7 +83,9 @@ impl<T> Fragmented<T> {
             };
             let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pm_exts.iter_mut() {
-                ext.decode(frame)?;
+                if ext.enabled() {
+                    ext.decode(frame)?;
+                }
             }
         }
         Ok(())

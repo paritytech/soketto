@@ -82,7 +82,9 @@ impl Twist {
             };
             let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pm_exts.iter_mut() {
-                ext.decode(frame)?;
+                if ext.enabled() {
+                    ext.decode(frame)?;
+                }
             }
         }
         Ok(())
@@ -162,7 +164,9 @@ impl Codec for Twist {
                 };
                 let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
                 for ext in vec_pm_exts.iter_mut() {
-                    ext.encode(&mut mut_base)?;
+                    if ext.enabled() {
+                        ext.encode(&mut mut_base)?;
+                    }
                 }
 
                 fc.encode(mut_base, buf)?;
@@ -181,13 +185,17 @@ impl Codec for Twist {
             };
             let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pm_exts.iter_mut() {
-                ext.init(&ext_header);
-                match ext.reserve_rsv(rb) {
-                    Ok(r) => rb = r,
-                    Err(e) => return Err(e),
+                ext.init(&ext_header)?;
+                if ext.enabled() {
+                    match ext.reserve_rsv(rb) {
+                        Ok(r) => rb = r,
+                        Err(e) => return Err(e),
+                    }
+                    if let Some(response) = ext.response() {
+                        ext_resp.push_str(&response);
+                        ext_resp.push_str(", ");
+                    }
                 }
-                ext_resp.push_str(&ext.response());
-                ext_resp.push_str(", ");
             }
 
             self.reserved_bits = rb;
@@ -201,7 +209,7 @@ impl Codec for Twist {
             };
             let vec_pf_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pf_exts.iter_mut() {
-                ext.init(&ext_header);
+                ext.init(&ext_header)?;
             }
             hc.encode(handshake.clone(), buf)?;
             self.shaken = true;
