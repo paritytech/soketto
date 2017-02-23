@@ -119,11 +119,11 @@ impl Codec for Twist {
 
             self.ext_chain_decode(&mut frame)?;
 
-            // Validate utf-8 here to allow pre-processing of appdata.
+            // Validate utf-8 here to allow pre-processing of appdata by extension chain.
             if frame.opcode() == OpCode::Text && frame.fin() {
                 if let Some(app_data) = frame.application_data() {
-                    try!(String::from_utf8(app_data.to_vec())
-                        .map_err(|_| util::other("invalid UTF-8 in text frame")));
+                    String::from_utf8(app_data.to_vec())
+                        .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
                 }
             }
             ws_frame.set_base(frame);
@@ -152,7 +152,20 @@ impl Codec for Twist {
         if self.shaken {
             if let Some(base) = msg.base() {
                 let mut fc: base::FrameCodec = Default::default();
-                try!(fc.encode(base.clone(), buf));
+                let mut mut_base = base.clone();
+
+                /// Run the frame through the extension chain before final encoding.
+                let pm_lock = self.permessage_extensions.clone();
+                let mut map = match pm_lock.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+                for ext in vec_pm_exts.iter_mut() {
+                    ext.encode(&mut mut_base)?;
+                }
+
+                fc.encode(mut_base, buf)?;
             } else {
                 return Err(util::other("unable to extract base frame to encode"));
             }
@@ -179,7 +192,7 @@ impl Codec for Twist {
 
             self.reserved_bits = rb;
             try_trace!(
-                self.stdout, "codec" => "twist"; "reserved bits: {:03b}", self.reserved_bits
+                self.stdout, "reserved bits: {:03b}", self.reserved_bits
             );
             hc.set_ext_resp(ext_resp.trim_right_matches(", "));
 
@@ -192,7 +205,7 @@ impl Codec for Twist {
             for ext in vec_pf_exts.iter_mut() {
                 ext.init(&ext_header);
             }
-            try!(hc.encode(handshake.clone(), buf));
+            hc.encode(handshake.clone(), buf)?;
             self.shaken = true;
         } else {
             return Err(util::other("unable to extract handshake frame to encode"));

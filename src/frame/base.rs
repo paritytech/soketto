@@ -229,32 +229,32 @@ impl Default for Frame {
 
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "Frame {{"));
-        try!(write!(f, "\n\tfin: {}", self.fin));
-        try!(write!(f, "\n\trsv1: {}", self.rsv1));
-        try!(write!(f, "\n\trsv2: {}", self.rsv2));
-        try!(write!(f, "\n\trsv3 {}", self.rsv3));
-        try!(write!(f, "\n\trsv3 {}", self.rsv3));
-        try!(write!(f, "\n\topcode {}", self.opcode));
-        try!(write!(f, "\n\tpayload_length {}", self.payload_length));
+        write!(f, "Frame {{")?;
+        write!(f, "\n\tfin: {}", self.fin)?;
+        write!(f, "\n\trsv1: {}", self.rsv1)?;
+        write!(f, "\n\trsv2: {}", self.rsv2)?;
+        write!(f, "\n\trsv3 {}", self.rsv3)?;
+        write!(f, "\n\trsv3 {}", self.rsv3)?;
+        write!(f, "\n\topcode {}", self.opcode)?;
+        write!(f, "\n\tpayload_length {}", self.payload_length)?;
         if let Some(ref ext_data) = self.extension_data {
             let len = ext_data.len();
             if len <= 256 {
-                try!(write!(f, "\n\textension_data:\n"));
-                try!(write!(f, "{}\n", util::hex_header()));
-                try!(write!(f, "{}", util::as_hex(ext_data)));
+                write!(f, "\n\textension_data:\n")?;
+                write!(f, "{}\n", util::hex_header())?;
+                write!(f, "{}", util::as_hex(ext_data))?;
             } else {
-                try!(write!(f, "\n\textension_data: [ {} bytes ]", len));
+                write!(f, "\n\textension_data: [ {} bytes ]", len)?;
             }
         }
         if let Some(ref app_data) = self.application_data {
             let len = app_data.len();
             if len <= 256 {
-                try!(write!(f, "\n\tapplication_data:\n"));
-                try!(write!(f, "{}\n", util::hex_header()));
-                try!(write!(f, "{}", util::as_hex(app_data)));
+                write!(f, "\n\tapplication_data:\n")?;
+                write!(f, "{}\n", util::hex_header())?;
+                write!(f, "{}", util::as_hex(app_data))?;
             } else {
-                try!(write!(f, "\n\tapplication_data: [ {} bytes ]", len));
+                write!(f, "\n\tapplication_data: [ {} bytes ]", len)?;
             }
         }
         writeln!(f, "}}")

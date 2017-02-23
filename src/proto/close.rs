@@ -184,7 +184,7 @@ impl<T> Stream for Close<T>
                                 return Err(util::other("couldn't extract base frame"));
                             }
 
-                            try!(self.poll_complete());
+                            self.poll_complete()?;
                         }
                         m => return Ok(Async::Ready(m)),
                     }
@@ -261,7 +261,7 @@ impl<T> Sink for Close<T>
             let mut close = WebSocket::close(Some(data));
 
             loop {
-                let res = try!(self.upstream.start_send(close));
+                let res = self.upstream.start_send(close)?;
                 match res {
                     AsyncSink::Ready => {
                         loop {

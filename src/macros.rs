@@ -1,5 +1,5 @@
 //! slog logging macros
-
+#[macro_export]
 macro_rules! try_trace(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {
@@ -13,6 +13,7 @@ macro_rules! try_trace(
     }
 );
 
+#[macro_export]
 macro_rules! try_debug(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {
@@ -26,6 +27,7 @@ macro_rules! try_debug(
     }
 );
 
+#[macro_export]
 macro_rules! try_info(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {
@@ -39,6 +41,7 @@ macro_rules! try_info(
     }
 );
 
+#[macro_export]
 macro_rules! try_warn(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {
@@ -52,6 +55,7 @@ macro_rules! try_warn(
     }
 );
 
+#[macro_export]
 macro_rules! try_error(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {
@@ -65,6 +69,7 @@ macro_rules! try_error(
     }
 );
 
+#[macro_export]
 macro_rules! try_crit(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
         if let Some(ref log) = $l {

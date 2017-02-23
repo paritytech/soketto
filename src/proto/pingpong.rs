@@ -56,7 +56,7 @@ impl<T> Stream for PingPong<T>
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_pong() => {
                     // Eat pongs
-                    try!(self.poll_complete());
+                    self.poll_complete()?;
                 }
                 Some(ref msg) if msg.is_ping() => {
                     if let Some(base) = msg.base() {
@@ -65,7 +65,7 @@ impl<T> Stream for PingPong<T>
                         return Err(util::other("couldn't extract base frame"));
                     }
 
-                    try!(self.poll_complete());
+                    self.poll_complete()?;
                 }
                 m => return Ok(Async::Ready(m)),
             }
@@ -92,7 +92,7 @@ impl<T> Sink for PingPong<T>
         let mut cur = self.app_datas.pop_front();
         while let Some(app_data) = cur {
             let pong = WebSocket::pong(app_data);
-            let res = try!(self.upstream.start_send(pong));
+            let res = self.upstream.start_send(pong)?;
 
             if res.is_ready() {
                 try_trace!(self.stdout, "pong message sent");

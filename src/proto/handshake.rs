@@ -70,7 +70,7 @@ impl<T> Stream for Handshake<T>
                         return Err(util::other("couldn't extract handshake frame"));
                     }
 
-                    try!(self.poll_complete());
+                    self.poll_complete()?;
                 }
                 m => return Ok(Async::Ready(m)),
             }
@@ -99,7 +99,7 @@ impl<T> Sink for Handshake<T>
         if self.client_received && !self.server_sent {
             let mut handshake_resp = WebSocket::handshake_resp(self.client_handshake.clone());
             loop {
-                let res = try!(self.upstream.start_send(handshake_resp));
+                let res = self.upstream.start_send(handshake_resp)?;
                 match res {
                     AsyncSink::Ready => {
                         loop {

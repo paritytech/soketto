@@ -76,7 +76,7 @@ impl FrameCodec {
     /// Apply the unmasking to the application data.
     fn apply_mask(&mut self, buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
         let mut mask_buf = Vec::with_capacity(4);
-        try!(mask_buf.write_u32::<BigEndian>(mask));
+        mask_buf.write_u32::<BigEndian>(mask)?;
         let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
         for (byte, &key) in iter {
             *byte ^= key
@@ -215,7 +215,7 @@ impl Codec for FrameCodec {
                         if self.opcode == OpCode::Text {
                             let mut test_buf = buf.as_slice().to_vec();
                             if let Some(mask_key) = self.mask_key {
-                                try!(self.apply_mask(&mut test_buf, mask_key));
+                                self.apply_mask(&mut test_buf, mask_key)?;
                                 match utf8::validate(&test_buf) {
                                     Ok(Some(_)) => {}
                                     Ok(None) => return Ok(None),
@@ -236,7 +236,7 @@ impl Codec for FrameCodec {
                         let mut app_data_bytes = buf.drain_to(self.payload_length as usize);
                         let mut adb = app_data_bytes.get_mut();
                         if let Some(mask_key) = self.mask_key {
-                            try!(self.apply_mask(&mut adb, mask_key));
+                            self.apply_mask(&mut adb, mask_key)?;
                             self.application_data = Some(adb.to_vec());
                             self.state = DecodeState::FULL;
                         } else {
@@ -286,13 +286,15 @@ impl Codec for FrameCodec {
         } else if len < 65536 {
             second_byte |= TWO_EXT;
             let mut len_buf = Vec::with_capacity(2);
-            try!(len_buf.write_u16::<BigEndian>(len as u16));
+            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+            let cast_len = len as u16;
+            len_buf.write_u16::<BigEndian>(cast_len)?;
             buf.push(second_byte);
             buf.extend(len_buf);
         } else {
             second_byte |= EIGHT_EXT;
             let mut len_buf = Vec::with_capacity(8);
-            try!(len_buf.write_u64::<BigEndian>(len));
+            len_buf.write_u64::<BigEndian>(len)?;
             buf.push(second_byte);
             buf.extend(len_buf);
         }

@@ -110,7 +110,7 @@ impl<T> Stream for Fragmented<T>
                             self.buf.extend(app_data);
                         }
 
-                        try!(self.poll_complete());
+                        self.poll_complete()?;
                     } else {
                         return Err(util::other("invalid fragment start frame received"));
                     }
@@ -130,13 +130,10 @@ impl<T> Stream for Fragmented<T>
                         if self.opcode == OpCode::Text && self.total_length < 8096 {
                             match utf8::validate(&self.buf) {
                                 Ok(_) => {}
-                                Err(_e) => {
-                                    return Err(util::other("error during UTF-8 \
-                                    validation"))
-                                }
+                                Err(_e) => return Err(util::other("error during UTF-8 validation")),
                             }
                         }
-                        try!(self.poll_complete());
+                        self.poll_complete()?;
                     } else {
                         return Err(util::other("invalid fragment frame received"));
                     }
@@ -153,7 +150,7 @@ impl<T> Stream for Fragmented<T>
                             self.buf.extend(app_data);
                         }
 
-                        try!(self.poll_complete());
+                        self.poll_complete()?;
                     } else {
                         return Err(util::other("invalid fragment complete frame received"));
                     }
@@ -182,27 +179,36 @@ impl<T> Sink for Fragmented<T>
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
         if self.started && self.complete {
-            let mut coalesced: WebSocket = Default::default();
+            let mut message: WebSocket = Default::default();
+
+            // Setup the `Frame` to pass upstream.
             let mut base: Frame = Default::default();
             base.set_fin(true).set_opcode(self.opcode);
             base.set_application_data(Some(self.buf.clone()));
             base.set_payload_length(self.total_length);
+
+            // Run the `Frame` through the extension decode chain.
             self.ext_chain_decode(&mut base)?;
-            // Validate utf-8 here to allow pre-processing of appdata.
+
+            // Validate utf-8 here to allow pre-processing of appdata by extension chain.
             if base.opcode() == OpCode::Text && base.fin() {
                 if let Some(app_data) = base.application_data() {
-                    try!(String::from_utf8(app_data.to_vec())
-                        .map_err(|_| util::other("invalid UTF-8 in text frame")));
+                    String::from_utf8(app_data.to_vec())
+                        .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
                 }
             }
-            coalesced.set_base(base);
-            let _ = try!(self.upstream.start_send(coalesced));
+            message.set_base(base);
+
+            // Send it upstream
+            self.upstream.start_send(message)?;
+
+            // Reset my state.
             self.started = false;
             self.complete = false;
             self.opcode = OpCode::Close;
             self.buf.clear();
-            // stdout_trace!("proto" => "fragmented"; "fragment complete sending coalesced");
-            return self.upstream.poll_complete();
+
+            try_trace!(self.stdout, "fragment completed sending result upstream");
         }
         self.upstream.poll_complete()
     }

@@ -208,8 +208,7 @@ impl Codec for FrameCodec {
         let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
         response.push_str("Upgrade: websocket\r\n");
         response.push_str("Connection: upgrade\r\n");
-        response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n",
-                                   try!(self.accept_val(msg.key()))));
+        response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", self.accept_val(msg.key())?));
 
         // TODO: Add support for 400 response, subprotocols.
         if let Some(ref ext_resp) = self.ext_resp {
