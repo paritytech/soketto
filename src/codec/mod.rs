@@ -191,9 +191,7 @@ impl Codec for Twist {
             }
 
             self.reserved_bits = rb;
-            try_trace!(
-                self.stdout, "reserved bits: {:03b}", self.reserved_bits
-            );
+            try_trace!(self.stdout, "reserved bits: {:03b}", self.reserved_bits);
             hc.set_ext_resp(ext_resp.trim_right_matches(", "));
 
             let pf_lock = self.perframe_extensions.clone();
