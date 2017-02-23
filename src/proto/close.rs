@@ -2,6 +2,7 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use frame::WebSocket;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
+use slog::Logger;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Cursor, ErrorKind};
@@ -127,6 +128,10 @@ pub struct Close<T> {
     /// The appdata associated with the close request.  This is sent back in the close response
     /// frame.
     app_data: Option<Vec<u8>>,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 
@@ -137,7 +142,23 @@ impl<T> Close<T> {
             upstream: upstream,
             received: false,
             app_data: None,
+            stdout: None,
+            stderr: None,
         }
+    }
+
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut Close<T> {
+        let stdout = logger.new(o!("proto" => "close"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut Close<T> {
+        let stderr = logger.new(o!("proto" => "close"));
+        self.stderr = Some(stderr);
+        self
     }
 }
 
@@ -154,7 +175,7 @@ impl<T> Stream for Close<T>
                 Ok(Async::Ready(t)) => {
                     match t {
                         Some(ref msg) if msg.is_close() => {
-                            stdout_trace!("proto" => "close"; "close message received");
+                            try_trace!(self.stdout, "close message received");
 
                             if let Some(base) = msg.base() {
                                 self.app_data = base.application_data().cloned();
@@ -171,7 +192,7 @@ impl<T> Stream for Close<T>
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Err(e) => {
                     if let ErrorKind::Other = e.kind() {
-                        stderr_error!("proto" => "close"; "{}", e.description());
+                        try_error!(self.stderr, "{}", e.description());
                         return Err(e);
                     } else {
                         return Err(e);
@@ -245,10 +266,8 @@ impl<T> Sink for Close<T>
                     AsyncSink::Ready => {
                         loop {
                             if let Ok(Async::Ready(_)) = self.upstream.poll_complete() {
-                                stdout_trace!(
-                                    "proto" => "close";
-                                    "received close, sending close, terminating"
-                                );
+                                try_trace!(self.stdout,
+                                           "received close, sending close, terminating");
                                 return Err(util::other("Sent and closed"));
                             }
                         }

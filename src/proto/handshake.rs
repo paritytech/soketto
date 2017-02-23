@@ -2,6 +2,7 @@
 use frame::WebSocket;
 use frame::handshake::Frame;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
+use slog::Logger;
 use std::io;
 use util;
 
@@ -15,6 +16,10 @@ pub struct Handshake<T> {
     server_sent: bool,
     /// The client handshake frame.  Used to generate the proper response.
     client_handshake: Frame,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 impl<T> Handshake<T> {
@@ -25,7 +30,23 @@ impl<T> Handshake<T> {
             client_received: false,
             server_sent: false,
             client_handshake: Default::default(),
+            stdout: None,
+            stderr: None,
         }
+    }
+
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut Handshake<T> {
+        let stdout = logger.new(o!("proto" => "handshake"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut Handshake<T> {
+        let stderr = logger.new(o!("proto" => "handshake"));
+        self.stderr = Some(stderr);
+        self
     }
 }
 
@@ -40,7 +61,7 @@ impl<T> Stream for Handshake<T>
         loop {
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_handshake() && !self.client_received => {
-                    stdout_trace!("proto" => "handshake"; "client handshake message received");
+                    try_trace!(self.stdout, "client handshake message received");
 
                     if let Some(handshake) = msg.handshake() {
                         self.client_received = true;
@@ -64,14 +85,10 @@ impl<T> Sink for Handshake<T>
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: WebSocket) -> StartSend<WebSocket, io::Error> {
-        stdout_trace!("proto" => "handshake"; "start_send");
-        if !self.client_received {
-            stdout_warn!("proto" => "handshake";
-                "sink has not received client handshake request");
-            return Ok(AsyncSink::NotReady(item));
-        } else if self.client_received && !self.server_sent {
-            stdout_warn!("proto" => "handshake";
-                "sink has not sent server handshake response");
+        try_trace!(self.stdout, "start_send");
+        if !self.server_sent || !self.client_received {
+            try_warn!(self.stdout,
+                      "sink has not received client handshake request");
             return Ok(AsyncSink::NotReady(item));
         }
 
@@ -87,11 +104,9 @@ impl<T> Sink for Handshake<T>
                     AsyncSink::Ready => {
                         loop {
                             if let Ok(Async::Ready(_)) = self.upstream.poll_complete() {
-                                stdout_trace!(
-                                    "proto" => "handshake";
-                                    "received client handshake request, \
-                                    sent server handshake response"
-                                );
+                                try_trace!(self.stdout,
+                                           "received client handshake request, \
+                                    sending server handshake response");
                                 self.server_sent = true;
                                 return Ok(Async::Ready(()));
                             }

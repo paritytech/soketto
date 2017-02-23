@@ -1,35 +1,9 @@
 //! General Utilities
-use slog::{DrainExt, Level, level_filter, Logger};
-use slog_atomic::{AtomicSwitch, AtomicSwitchCtrl};
-use slog_term;
 use std::io;
 #[cfg(test)]
 use std::io::Write;
 
 pub mod utf8;
-
-lazy_static! {
-    /// stdout Drain switch
-    pub static ref STDOUT_SW: AtomicSwitchCtrl<io::Error> = AtomicSwitch::new(
-        level_filter(Level::Info, slog_term::streamer().async().compact().build())
-    ).ctrl();
-
-    /// stdout
-    pub static ref STDOUT: Logger = Logger::root(STDOUT_SW.drain().fuse(), o!());
-
-    /// stdout Drain switch
-    pub static ref STDERR_SW: AtomicSwitchCtrl<io::Error> = AtomicSwitch::new(
-        level_filter(Level::Error, slog_term::streamer().stderr().async().compact().build())
-    ).ctrl();
-
-    /// stderr
-    pub static ref STDERR: Logger = Logger::root(STDERR_SW.drain().fuse(), o!());
-}
-
-/// Set the stdout logging `Level`.
-pub fn set_stdout_level(level: Level) {
-    STDOUT_SW.set(level_filter(level, slog_term::streamer().async().compact().build()))
-}
 
 #[cfg(test)]
 pub fn stdo(msg: &str) {

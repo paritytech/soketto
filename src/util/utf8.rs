@@ -28,11 +28,11 @@ fn doesnt_start_with_10(byte: u8) -> bool {
 }
 
 /// Print out the validation duration.
-fn perf(len: usize, dur: Duration) {
-    stdout_trace!("Validate buf of len {} in {}.{}s",
-                  len,
-                  dur.as_secs(),
-                  dur.subsec_nanos());
+fn perf(_len: usize, _dur: Duration) {
+    // stdout_trace!("Validate buf of len {} in {}.{}s",
+    //               len,
+    //               dur.as_secs(),
+    //               dur.subsec_nanos());
 }
 
 /// Validate that the given buffer is valid UTF-8.   If we reach the end of the buffer, and it is

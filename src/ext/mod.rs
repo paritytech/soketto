@@ -1,7 +1,16 @@
 //! Per-message Compression Extensions (pmce)
 //!
 //! Currently, only per-message deflate is supported, if enabled.
+use frame::base;
+use std::collections::HashMap;
 use std::io;
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
+
+/// Thread safe ref counted storage for user supplied per-message extensions.
+pub type PerMessageExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerMessage>>>>>;
+/// Thread safe ref counted storage for user supplied per-frameextensions.
+pub type PerFrameExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerFrame>>>>>;
 
 /// Extensions are built from the `Sec-WebSocket-Extensions` headers.  Build your extension based on
 /// that header.
@@ -26,9 +35,9 @@ pub trait PerMessage: FromHeader + IntoResponse + Send {
     /// return true.
     fn uses_extension_data(&self) -> bool;
     /// Transform the given application data/extension data bytes as necessary.
-    fn decode(&self, message: Vec<u8>) -> Vec<u8>;
+    fn decode(&self, message: &mut base::Frame) -> Result<(), io::Error>;
     /// Transform the given bytes into application/extension data bytes as necessary.
-    fn encode(&self, message: Vec<u8>) -> Vec<u8>;
+    fn encode(&self, message: &mut base::Frame) -> Result<(), io::Error>;
 }
 
 /// A per-frame extension.
@@ -41,7 +50,7 @@ pub trait PerFrame: FromHeader + IntoResponse + Send {
     /// return true.
     fn uses_extension_data(&self) -> bool;
     /// Transform the given application data/extension data bytes as necessary.
-    fn decode(&self, message: Vec<u8>) -> Vec<u8>;
+    fn decode(&self, message: &mut base::Frame) -> Result<(), io::Error>;
     /// Transform the given bytes into application/extension data bytes as necessary.
-    fn encode(&self, message: Vec<u8>) -> Vec<u8>;
+    fn encode(&self, message: &mut base::Frame) -> Result<(), io::Error>;
 }

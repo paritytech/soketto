@@ -15,12 +15,12 @@ base64 = "0.3.0"
 byteorder = "1.0.0"
 futures = "0.1.10"
 httparse = "1.2.1"
-lazy_static = "0.2.2"
 sha1 = "0.2.0"
 slog-atomic = "0.4.3"
 slog-term = "1.5.0"
 tokio-core = "0.1.4"
 tokio-proto = "0.1.0"
+uuid = { version = "0.4.0", features = ["v4"] }
 
 [dependencies.slog]
 features = ["max_level_trace", "release_max_level_trace"]

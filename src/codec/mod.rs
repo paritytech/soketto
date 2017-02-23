@@ -1,12 +1,13 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames.
-use ext::{PerFrame, PerMessage};
+use ext::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
-use frame::base::OpCode;
+use frame::base::{Frame, OpCode};
+use slog::Logger;
 use std::io;
-use std::sync::{Arc, Mutex};
 use tokio_core::io::{Codec, EasyBuf};
 use util;
+use uuid::Uuid;
 
 pub mod base;
 pub mod handshake;
@@ -15,6 +16,8 @@ pub mod handshake;
 /// decoding/encoding of both websocket handshakes and websocket base frames.
 #[derive(Default)]
 pub struct Twist {
+    /// The Uuid of the parent protocol.  Used for extension lookup.
+    uuid: Uuid,
     /// The handshake indicator.  If this is false, the handshake is not complete.
     shaken: bool,
     /// The `Codec` to use to decode the buffer into a `base::Frame`.  Due to the reentrant nature
@@ -28,25 +31,65 @@ pub struct Twist {
     /// The `Origin` header, if present.
     origin: Option<String>,
     /// Per-message extensions
-    pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
+    permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
-    pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>,
+    perframe_extensions: PerFrameExtensions,
     /// RSVx bits reserved by extensions (must be less than 16)
     reserved_bits: u8,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 impl Twist {
     /// Create a new `Twist` codec with the given extensions.
-    pub fn new(pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
-               pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>)
+    pub fn new(uuid: Uuid,
+               permessage_extensions: PerMessageExtensions,
+               perframe_extensions: PerFrameExtensions)
                -> Twist {
         Twist {
-            pm_ext: pm_ext,
-            pf_ext: pf_ext,
+            uuid: uuid,
+            permessage_extensions: permessage_extensions,
+            perframe_extensions: perframe_extensions,
             ..Default::default()
         }
     }
+
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut Twist {
+        let stdout = logger.new(o!("codec" => "twist"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut Twist {
+        let stderr = logger.new(o!("codec" => "twist"));
+        self.stderr = Some(stderr);
+        self
+    }
+
+    /// Run the extension chain decode on the given `base::Frame`.
+    fn ext_chain_decode(&self, frame: &mut Frame) -> Result<(), io::Error> {
+        let opcode = frame.opcode();
+        // Only run the chain if this is a Text/Binary finish frame.
+        if frame.fin() && (opcode == OpCode::Text || opcode == OpCode::Binary) {
+            let pm_lock = self.permessage_extensions.clone();
+            let mut map = match pm_lock.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pm_exts.iter_mut() {
+                ext.decode(frame)?;
+            }
+        }
+        Ok(())
+    }
 }
+
+
 
 impl Codec for Twist {
     type In = WebSocket;
@@ -63,23 +106,27 @@ impl Codec for Twist {
                 self.frame_codec = Some(Default::default());
             }
 
-            if let Some(ref mut fc) = self.frame_codec {
+            let mut frame = if let Some(ref mut fc) = self.frame_codec {
                 fc.set_reserved_bits(self.reserved_bits);
                 match fc.decode(buf) {
-                    Ok(Some(frame)) => {
-                        // Validate utf-8 here to allow pre-processing of appdata.
-                        if frame.opcode() == OpCode::Text && frame.fin() {
-                            if let Some(app_data) = frame.application_data() {
-                                try!(String::from_utf8(app_data.to_vec())
-                                    .map_err(|_| util::other("invalid UTF-8 in text frame")));
-                            }
-                        }
-                        ws_frame.set_base(frame);
-                    }
+                    Ok(Some(frame)) => frame,
                     Ok(None) => return Ok(None),
                     Err(e) => return Err(e),
                 }
+            } else {
+                return Err(util::other("unable to extract frame codec"));
+            };
+
+            self.ext_chain_decode(&mut frame)?;
+
+            // Validate utf-8 here to allow pre-processing of appdata.
+            if frame.opcode() == OpCode::Text && frame.fin() {
+                if let Some(app_data) = frame.application_data() {
+                    try!(String::from_utf8(app_data.to_vec())
+                        .map_err(|_| util::other("invalid UTF-8 in text frame")));
+                }
             }
+            ws_frame.set_base(frame);
             self.frame_codec = None;
         } else {
             if self.handshake_codec.is_none() {
@@ -112,29 +159,38 @@ impl Codec for Twist {
         } else if let Some(handshake) = msg.handshake() {
             let mut hc: handshake::FrameCodec = Default::default();
             let ext_header = handshake.extensions();
-            let pmlock = self.pm_ext.clone();
             let mut ext_resp = String::new();
             let mut rb = self.reserved_bits;
-            if let Ok(mut vec_exts) = pmlock.lock() {
-                for ext in vec_exts.iter_mut() {
-                    ext.init(&ext_header);
-                    match ext.reserve_rsv(rb) {
-                        Ok(r) => rb = r,
-                        Err(e) => return Err(e),
-                    }
-                    ext_resp.push_str(&ext.response());
-                    ext_resp.push_str(", ");
+            let pm_lock = self.permessage_extensions.clone();
+            let mut map = match pm_lock.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pm_exts.iter_mut() {
+                ext.init(&ext_header);
+                match ext.reserve_rsv(rb) {
+                    Ok(r) => rb = r,
+                    Err(e) => return Err(e),
                 }
+                ext_resp.push_str(&ext.response());
+                ext_resp.push_str(", ");
             }
+
             self.reserved_bits = rb;
-            stdout_trace!("codec" => "twist"; "reserved bits: {:03b}", self.reserved_bits);
+            try_trace!(
+                self.stdout, "codec" => "twist"; "reserved bits: {:03b}", self.reserved_bits
+            );
             hc.set_ext_resp(ext_resp.trim_right_matches(", "));
 
-            let pflock = self.pf_ext.clone();
-            if let Ok(mut vec_exts) = pflock.lock() {
-                for ext in vec_exts.iter_mut() {
-                    ext.init(&ext_header);
-                }
+            let pf_lock = self.perframe_extensions.clone();
+            let mut map = match pf_lock.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let vec_pf_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pf_exts.iter_mut() {
+                ext.init(&ext_header);
             }
             try!(hc.encode(handshake.clone(), buf));
             self.shaken = true;

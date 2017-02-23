@@ -1,45 +1,79 @@
 //! slog logging macros
-macro_rules! stdout_trace(
-    ($($k:expr => $v:expr),+; $($args:tt)+) => {
-        trace!($crate::util::STDOUT, $($k => $v),+; $($args)+)
+
+macro_rules! try_trace(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            trace!(log, $($k => $v),+; $($args)+);
+        }
     };
-    ($($args:tt)+) => {
-        trace!($crate::util::STDOUT, $($args)+)
-    };
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            trace!(log, $($args)+);
+        }
+    }
 );
 
-macro_rules! stderr_trace(
-    ($($k:expr => $v:expr),+; $($args:tt)+) => {
-        trace!($crate::util::STDERR, $($k => $v),+; $($args)+)
+macro_rules! try_debug(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            debug!(log, $($k => $v),+; $($args)+);
+        }
     };
-    ($($args:tt)+) => {
-        trace!($crate::util::STDERR, $($args)+)
-    };
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            debug!(log, $($args)+);
+        }
+    }
 );
 
-macro_rules! stdout_warn(
-    ($($k:expr => $v:expr),+; $($args:tt)+) => {
-        warn!($crate::util::STDOUT, $($k => $v),+; $($args)+)
+macro_rules! try_info(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            info!(log, $($k => $v),+; $($args)+);
+        }
     };
-    ($($args:tt)+) => {
-        warn!($crate::util::STDOUT, $($args)+)
-    };
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            info!(log, $($args)+);
+        }
+    }
 );
 
-macro_rules! stdout_error(
-    ($($k:expr => $v:expr),+; $($args:tt)+) => {
-        error!($crate::util::STDOUT, $($k => $v),+; $($args)+)
+macro_rules! try_warn(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            warn!(log, $($k => $v),+; $($args)+);
+        }
     };
-    ($($args:tt)+) => {
-        error!($crate::util::STDOUT, $($args)+)
-    };
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            warn!(log, $($args)+);
+        }
+    }
 );
 
-macro_rules! stderr_error(
-    ($($k:expr => $v:expr),+; $($args:tt)+) => {
-        error!($crate::util::STDERR, $($k => $v),+; $($args)+)
+macro_rules! try_error(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            error!(log, $($k => $v),+; $($args)+);
+        }
     };
-    ($($args:tt)+) => {
-        error!($crate::util::STDERR, $($args)+)
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            error!(log, $($args)+);
+        }
+    }
+);
+
+macro_rules! try_crit(
+    ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            crit!(log, $($k => $v),+; $($args)+);
+        }
     };
+    ($l:expr, $($args:tt)+) => {
+        if let Some(ref log) = $l {
+            crit!(log, $($args)+);
+        }
+    }
 );

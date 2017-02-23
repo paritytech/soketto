@@ -27,15 +27,12 @@ extern crate base64;
 extern crate byteorder;
 extern crate httparse;
 extern crate sha1;
-extern crate slog_atomic;
-extern crate slog_term;
 extern crate tokio_core;
 extern crate tokio_proto;
+extern crate uuid;
 
 #[macro_use]
 extern crate futures;
-#[macro_use]
-extern crate lazy_static;
 #[macro_use]
 extern crate slog;
 #[macro_use]

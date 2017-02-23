@@ -3,6 +3,7 @@ use base64::encode;
 use frame::handshake::Frame;
 use httparse::{EMPTY_HEADER, Request};
 use sha1::Sha1;
+use slog::Logger;
 use std::collections::HashMap;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
@@ -41,9 +42,27 @@ pub struct FrameCodec {
     others: HashMap<String, String>,
     /// Extension Negotiation Response.
     ext_resp: Option<String>,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 impl FrameCodec {
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut FrameCodec {
+        let stdout = logger.new(o!("codec" => "handshake"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut FrameCodec {
+        let stderr = logger.new(o!("codec" => "handshake"));
+        self.stderr = Some(stderr);
+        self
+    }
+
     /// Set the extension negotiation response.
     pub fn set_ext_resp(&mut self, response: &str) -> &mut FrameCodec {
         self.ext_resp = Some(String::from(response));
@@ -194,7 +213,7 @@ impl Codec for FrameCodec {
 
         // TODO: Add support for 400 response, subprotocols.
         if let Some(ref ext_resp) = self.ext_resp {
-            stdout_trace!("codec" => "handshake"; "SWE Header: '{}'", ext_resp);
+            try_trace!(self.stdout, "codec" => "handshake"; "SWE Header: '{}'", ext_resp);
             if !ext_resp.is_empty() {
                 response.push_str(ext_resp);
                 response.push_str("\r\n");

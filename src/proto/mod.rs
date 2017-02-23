@@ -17,18 +17,19 @@
 //! [open]: https://tools.ietf.org/html/rfc6455#section-4.2.1
 //! [resp]: https://tools.ietf.org/html/rfc6455#section-4.2.2
 use codec::Twist;
-use ext::{PerFrame, PerMessage};
+use ext::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
 use frame::WebSocket;
 use proto::close::Close;
 use proto::fragmented::Fragmented;
 use proto::handshake::Handshake;
 use proto::pingpong::PingPong;
-use slog::Level;
+use slog::Logger;
+use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 use tokio_core::io::{Framed, Io};
 use tokio_proto::pipeline::ServerProto;
-use util;
+use uuid::Uuid;
 
 mod close;
 mod handshake;
@@ -38,45 +39,72 @@ mod pingpong;
 /// The protocol that you should run a tokio-proto
 /// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) with to
 /// handle websocket handshake and base frames.
-#[derive(Default)]
 pub struct WebSocketProtocol {
+    /// The UUID of this `WebSocketProtocol`
+    uuid: Uuid,
     /// Per-message extensions
-    pm_ext: Arc<Mutex<Vec<Box<PerMessage>>>>,
+    permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
-    pf_ext: Arc<Mutex<Vec<Box<PerFrame>>>>,
+    perframe_extensions: PerFrameExtensions,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 impl WebSocketProtocol {
-    /// Set the slog `Logger` level.
-    pub fn set_stdout_level(&mut self, level: Level) -> &mut WebSocketProtocol {
-        util::set_stdout_level(level);
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut WebSocketProtocol {
+        let stdout = logger.new(o!("proto" => "websocketprotocol"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut WebSocketProtocol {
+        let stderr = logger.new(o!("proto" => "websocketprotocol"));
+        self.stderr = Some(stderr);
         self
     }
 
     /// Register a per-message extension.
-    pub fn register_pm<T>(&mut self, extension: T) -> &mut WebSocketProtocol
+    pub fn per_message<T>(&mut self, extension: T) -> &mut WebSocketProtocol
         where T: PerMessage + 'static
     {
-        let lock = self.pm_ext.clone();
-        let mut vec = match lock.lock() {
+        let pm_lock = self.permessage_extensions.clone();
+        let mut map = match pm_lock.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
+        let mut vec = map.entry(self.uuid).or_insert_with(Vec::new);
         vec.push(Box::new(extension));
         self
     }
 
     /// Register a per-frame extension.
-    pub fn register_pf<T>(&mut self, extension: T) -> &mut WebSocketProtocol
+    pub fn per_frame<T>(&mut self, extension: T) -> &mut WebSocketProtocol
         where T: PerFrame + 'static
     {
-        let lock = self.pf_ext.clone();
-        let mut vec = match lock.lock() {
+        let pf_lock = self.perframe_extensions.clone();
+        let mut map = match pf_lock.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
+        let mut vec = map.entry(self.uuid).or_insert_with(Vec::new);
         vec.push(Box::new(extension));
         self
+    }
+}
+
+impl Default for WebSocketProtocol {
+    fn default() -> WebSocketProtocol {
+        WebSocketProtocol {
+            uuid: Uuid::new_v4(),
+            permessage_extensions: Arc::new(Mutex::new(HashMap::new())),
+            perframe_extensions: Arc::new(Mutex::new(HashMap::new())),
+            stdout: None,
+            stderr: None,
+        }
     }
 }
 
@@ -93,8 +121,59 @@ impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        stdout_trace!("proto" => "server"; "bind_transport");
-        let twist: Twist = Twist::new(self.pm_ext.clone(), self.pf_ext.clone());
-        Ok(Handshake::new(Close::new(PingPong::new(Fragmented::new(io.framed(twist))))))
+        try_trace!(self.stdout, "bind_transport");
+
+        // Setup the twist codec.
+        let mut twist: Twist = Twist::new(self.uuid,
+                                          self.permessage_extensions.clone(),
+                                          self.perframe_extensions.clone());
+        if let Some(ref stdout) = self.stdout {
+            twist.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            twist.stderr(stderr.clone());
+        }
+
+        // Setup the fragmented middleware.
+        let mut fragmented = Fragmented::new(io.framed(twist),
+                                             self.uuid,
+                                             self.permessage_extensions.clone(),
+                                             self.perframe_extensions.clone());
+        if let Some(ref stdout) = self.stdout {
+            fragmented.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            fragmented.stderr(stderr.clone());
+        }
+
+        // Setup the pingpong middleware.
+        let mut pingpong = PingPong::new(fragmented);
+        if let Some(ref stdout) = self.stdout {
+            pingpong.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            pingpong.stderr(stderr.clone());
+        }
+
+        // Setup the close middleware.
+        let mut close = Close::new(pingpong);
+        if let Some(ref stdout) = self.stdout {
+            close.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            close.stderr(stderr.clone());
+        }
+
+        // Setup the handshake middleware.
+        let mut handshake = Handshake::new(close);
+        if let Some(ref stdout) = self.stdout {
+            handshake.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            handshake.stderr(stderr.clone());
+        }
+
+        /// Setup the protocol middleware chain.
+        Ok(handshake)
     }
 }
