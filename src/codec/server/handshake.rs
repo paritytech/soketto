@@ -14,7 +14,7 @@ use util;
 static KEY: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 #[derive(Default)]
-/// Codec for decoding/encoding websocket handshake frames.
+/// Codec for decoding/encoding websocket server handshake frames.
 pub struct FrameCodec {
     /// The request method (must be 'GET').
     method: String,

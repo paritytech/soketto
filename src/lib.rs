@@ -7,16 +7,89 @@
 // modified, or distributed except according to those terms.
 
 //! An implementation of the [RFC6455][rfc6455] websocket protocol as
-//! a set of tokio [`Codec`][codec] anda tokio-proto pipeline [`ServerProto`][proto]
+//! a set of tokio [`Codecs`][codec] and a tokio-proto pipeline [`ServerProto`][proto]
 //!
-//! # Basic Usage
+//! # Decode Client Base Frame
 //!
-//! ```ignore
-//! use twist::proto::Frame;
-//! use tokio_proto::TcpServer;
+//! ```
+//! # extern crate tokio_core;
+//! # extern crate twist;
 //!
-//! let ws_proto: Frame = Default::default();
-//! let server = TcpServer::new(ws_proto, unenc_socket_addr);
+//! use twist::{BaseFrameCodec, OpCode};
+//! use tokio_core::io::{Codec, EasyBuf};
+//!
+//! const PING: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
+//!
+//! fn main() {
+//!     let ping_vec = PING.to_vec();
+//!     let mut eb = EasyBuf::from(ping_vec);
+//!     let mut fc: BaseFrameCodec = Default::default();
+//!     fc.set_client(true);
+//!     let mut encoded = Vec::new();
+//!
+//!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
+//!         assert!(frame.fin());
+//!         assert!(!frame.rsv1());
+//!         assert!(!frame.rsv2());
+//!         assert!(!frame.rsv3());
+//!         // All client frames must be masked.
+//!         assert!(frame.masked());
+//!         assert!(frame.opcode() == OpCode::Ping);
+//!         assert!(frame.mask() == 1);
+//!         assert!(frame.payload_length() == 0);
+//!         assert!(frame.extension_data().is_none());
+//!         assert!(frame.application_data().is_none());
+//!
+//!         if fc.encode(frame, &mut encoded).is_ok() {
+//!             for (a, b) in encoded.iter().zip(PING.to_vec().iter()) {
+//!                 assert!(a == b);
+//!             }
+//!         }
+//!     } else {
+//!         assert!(false);
+//!     }
+//! }
+//! ```
+//!
+//! # Decode Server Base Frame
+//!
+//! ```
+//! # extern crate tokio_core;
+//! # extern crate twist;
+//!
+//! use twist::{BaseFrameCodec, OpCode};
+//! use tokio_core::io::{Codec, EasyBuf};
+//!
+//! const PONG: [u8; 2] = [0x8a, 0x00];
+//!
+//! fn main() {
+//!     let ping_vec = PONG.to_vec();
+//!     let mut eb = EasyBuf::from(ping_vec);
+//!     let mut fc: BaseFrameCodec = Default::default();
+//!     let mut encoded = Vec::new();
+//!
+//!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
+//!         assert!(frame.fin());
+//!         assert!(!frame.rsv1());
+//!         assert!(!frame.rsv2());
+//!         assert!(!frame.rsv3());
+//!         // All server frames must not be masked.
+//!         assert!(!frame.masked());
+//!         assert!(frame.opcode() == OpCode::Pong);
+//!         assert!(frame.mask() == 0);
+//!         assert!(frame.payload_length() == 0);
+//!         assert!(frame.extension_data().is_none());
+//!         assert!(frame.application_data().is_none());
+//!
+//!         if fc.encode(frame, &mut encoded).is_ok() {
+//!             for (a, b) in encoded.iter().zip(PONG.to_vec().iter()) {
+//!                 assert!(a == b);
+//!             }
+//!         }
+//!     } else {
+//!         assert!(false);
+//!     }
+//! }
 //! ```
 //!
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
@@ -45,8 +118,9 @@ mod proto;
 mod util;
 
 pub use codec::base::FrameCodec as BaseFrameCodec;
-pub use codec::server::Twist as TwistServerCodec;
-pub use codec::server::handshake::FrameCodec as HanshakeServerCodec;
+pub use codec::Twist as TwistCodec;
+pub use codec::client::handshake::FrameCodec as ClientHanshakeCodec;
+pub use codec::server::handshake::FrameCodec as ServerHandshakeCodec;
 pub use ext::{FromHeader, IntoResponse, PerMessage, PerFrame};
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;

@@ -8,8 +8,8 @@ pub mod base;
 pub mod client;
 pub mod server;
 
-/// A `twist` websocket server frame.  Note a websocket frame is either a handshake frame or
-/// a base frame.  They are mutually exclusive.
+/// A `twist` websocket frame.  Note a websocket frame is either a client handshake frame, a
+/// server handshake frame,  or a base frame.  They are mutually exclusive.
 #[derive(Debug, Default, Clone)]
 pub struct WebSocket {
     /// The client hanshake portion of a websocket frame.
@@ -88,6 +88,11 @@ impl WebSocket {
     /// Is this frame a server handshake frame?
     pub fn is_server_handshake(&self) -> bool {
         self.server_handshake.is_some()
+    }
+
+    /// Is this frame a client handshake frame?
+    pub fn is_client_handshake(&self) -> bool {
+        self.client_handshake.is_some()
     }
 
     /// Is this frame the start of a fragmented set of frames?

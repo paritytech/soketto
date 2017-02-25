@@ -16,7 +16,7 @@
 //!
 //! [open]: https://tools.ietf.org/html/rfc6455#section-4.2.1
 //! [resp]: https://tools.ietf.org/html/rfc6455#section-4.2.2
-use codec::server::Twist;
+use codec::Twist;
 use ext::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
 use frame::WebSocket;
 use proto::close::Close;
@@ -36,12 +36,14 @@ mod handshake;
 mod fragmented;
 mod pingpong;
 
-/// The protocol that you should run a tokio-proto
-/// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) with to
+/// The protocol that can bu use to run on a tokio-proto
+/// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) to
 /// handle websocket handshake and base frames.
 pub struct WebSocketProtocol {
     /// The UUID of this `WebSocketProtocol`
     uuid: Uuid,
+    /// Client/Server flag.
+    client: bool,
     /// Per-message extensions
     permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
@@ -53,6 +55,12 @@ pub struct WebSocketProtocol {
 }
 
 impl WebSocketProtocol {
+    /// Set the `client` flag.
+    pub fn client(&mut self, client: bool) -> &mut WebSocketProtocol {
+        self.client = client;
+        self
+    }
+
     /// Add a stdout slog `Logger` to this protocol.
     pub fn stdout(&mut self, logger: Logger) -> &mut WebSocketProtocol {
         let stdout = logger.new(o!("proto" => "websocketprotocol"));
@@ -100,6 +108,7 @@ impl Default for WebSocketProtocol {
     fn default() -> WebSocketProtocol {
         WebSocketProtocol {
             uuid: Uuid::new_v4(),
+            client: false,
             permessage_extensions: Arc::new(Mutex::new(HashMap::new())),
             perframe_extensions: Arc::new(Mutex::new(HashMap::new())),
             stdout: None,
@@ -125,6 +134,7 @@ impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
 
         // Setup the twist codec.
         let mut twist: Twist = Twist::new(self.uuid,
+                                          self.client,
                                           self.permessage_extensions.clone(),
                                           self.perframe_extensions.clone());
         if let Some(ref stdout) = self.stdout {

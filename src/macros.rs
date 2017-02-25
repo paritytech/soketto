@@ -1,4 +1,5 @@
 //! slog logging macros
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_trace(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
@@ -13,6 +14,7 @@ macro_rules! try_trace(
     }
 );
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_debug(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
@@ -27,6 +29,7 @@ macro_rules! try_debug(
     }
 );
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_info(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
@@ -41,6 +44,7 @@ macro_rules! try_info(
     }
 );
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_warn(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
@@ -55,6 +59,7 @@ macro_rules! try_warn(
     }
 );
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_error(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {
@@ -69,6 +74,7 @@ macro_rules! try_error(
     }
 );
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! try_crit(
     ($l:expr, $($k:expr => $v:expr),+; $($args:tt)+) => {

@@ -36,6 +36,8 @@ impl Default for DecodeState {
 #[derive(Clone, Debug, Default)]
 /// Codec for dedoding/encoding websocket base frames.
 pub struct FrameCodec {
+    /// Is this a client frame?
+    client: bool,
     /// The `fin` flag.
     fin: bool,
     /// The `rsv1` flag.
@@ -53,7 +55,7 @@ pub struct FrameCodec {
     /// The `payload_length`
     payload_length: u64,
     /// The optional `mask`
-    mask_key: Option<u32>,
+    mask_key: u32,
     /// The optional `extension_data`
     extension_data: Option<Vec<u8>>,
     /// The optional `application_data`
@@ -67,6 +69,12 @@ pub struct FrameCodec {
 }
 
 impl FrameCodec {
+    /// Set the `client` flag.
+    pub fn set_client(&mut self, client: bool) -> &mut FrameCodec {
+        self.client = client;
+        self
+    }
+
     /// Set the bits reserved by extensions (0-8 are valid values).
     pub fn set_reserved_bits(&mut self, reserved_bits: u8) -> &mut FrameCodec {
         self.reserved_bits = reserved_bits;
@@ -138,7 +146,7 @@ impl Codec for FrameCodec {
                     }
 
                     self.masked = second & 0x80 != 0;
-                    if !self.masked {
+                    if !self.masked && self.client {
                         return Err(util::other("all client frames must have a mask"));
                     }
 
@@ -196,13 +204,13 @@ impl Codec for FrameCodec {
                         }
                         let mut rdr = Cursor::new(buf.drain_to(4));
                         if let Ok(mask) = rdr.read_u32::<BigEndian>() {
-                            self.mask_key = Some(mask);
+                            self.mask_key = mask;
                             self.state = DecodeState::MASK;
                         } else {
                             return Err(util::other("invalid mask value"));
                         }
                     } else {
-                        self.mask_key = None;
+                        self.mask_key = 0;
                         self.state = DecodeState::MASK;
                     }
                 }
@@ -210,12 +218,13 @@ impl Codec for FrameCodec {
                     self.min_len += self.payload_length;
                     #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                     let size = self.min_len as usize;
+                    let mask = self.mask_key;
                     if buf_len < size {
                         self.min_len -= self.payload_length;
                         if self.opcode == OpCode::Text {
                             let mut test_buf = buf.as_slice().to_vec();
-                            if let Some(mask_key) = self.mask_key {
-                                self.apply_mask(&mut test_buf, mask_key)?;
+                            if self.masked {
+                                self.apply_mask(&mut test_buf, mask)?;
                                 match utf8::validate(&test_buf) {
                                     Ok(Some(_)) => {}
                                     Ok(None) => return Ok(None),
@@ -235,8 +244,8 @@ impl Codec for FrameCodec {
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                         let mut app_data_bytes = buf.drain_to(self.payload_length as usize);
                         let mut adb = app_data_bytes.get_mut();
-                        if let Some(mask_key) = self.mask_key {
-                            self.apply_mask(&mut adb, mask_key)?;
+                        if self.masked {
+                            self.apply_mask(&mut adb, mask)?;
                             self.application_data = Some(adb.to_vec());
                             self.state = DecodeState::FULL;
                         } else {
@@ -277,6 +286,11 @@ impl Codec for FrameCodec {
         buf.push(first_byte);
 
         let mut second_byte = 0_u8;
+
+        if msg.masked() {
+            second_byte |= 0x80;
+        }
+
         let len = msg.payload_length();
         if len < TWO_EXT as u64 {
             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
@@ -299,6 +313,12 @@ impl Codec for FrameCodec {
             buf.extend(len_buf);
         }
 
+        if msg.masked() {
+            let mut mask_buf = Vec::with_capacity(4);
+            mask_buf.write_u32::<BigEndian>(msg.mask())?;
+            buf.extend(mask_buf);
+        }
+
         if let Some(app_data) = msg.application_data() {
             buf.extend(app_data);
         }
@@ -314,7 +334,9 @@ impl From<FrameCodec> for Frame {
         frame.set_rsv1(frame_codec.rsv1);
         frame.set_rsv2(frame_codec.rsv2);
         frame.set_rsv3(frame_codec.rsv3);
+        frame.set_masked(frame_codec.masked);
         frame.set_opcode(frame_codec.opcode);
+        frame.set_mask(frame_codec.mask_key);
         frame.set_payload_length(frame_codec.payload_length);
         frame.set_application_data(frame_codec.application_data);
         frame.set_extension_data(frame_codec.extension_data);
@@ -362,6 +384,7 @@ mod test {
     fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
         let mut eb = EasyBuf::from(buf.to_vec());
         let mut fc: FrameCodec = Default::default();
+        fc.set_client(true);
         fc.decode(&mut eb)
     }
 

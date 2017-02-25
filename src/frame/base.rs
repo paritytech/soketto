@@ -1,10 +1,8 @@
-//! A websocket base frame
+//! A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame
 use std::fmt;
 use util;
 
-/// Operation codes defined in [RFC6455](//! [rfc6455]: https://tools.ietf.org/html/rfc6455).
-///
-/// Taken from [ws-rs](https://github.com/housleyjk/ws-rs)
+/// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpCode {
     /// Indicates a continuation frame of a fragmented message.
@@ -93,7 +91,7 @@ impl From<OpCode> for u8 {
     }
 }
 
-/// A websocket base frame.
+/// Represents the parts of a [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
 #[derive(Debug, Clone)]
 pub struct Frame {
     /// The `fin` flag.
@@ -104,8 +102,12 @@ pub struct Frame {
     rsv2: bool,
     /// The `rsv3` flag.
     rsv3: bool,
+    /// The 'mask' flag.
+    masked: bool,
     /// The `opcode`
     opcode: OpCode,
+    /// The `mask`.
+    mask: u32,
     /// The `payload_length`
     payload_length: u64,
     /// The optional `extension_data`
@@ -159,6 +161,17 @@ impl Frame {
         self
     }
 
+    /// Get the `masked` flag.
+    pub fn masked(&self) -> bool {
+        self.masked
+    }
+
+    /// Set the `masked` flag.
+    pub fn set_masked(&mut self, masked: bool) -> &mut Frame {
+        self.masked = masked;
+        self
+    }
+
     /// Get the `opcode`.
     pub fn opcode(&self) -> OpCode {
         self.opcode
@@ -167,6 +180,17 @@ impl Frame {
     /// Set the `opcode`
     pub fn set_opcode(&mut self, opcode: OpCode) -> &mut Frame {
         self.opcode = opcode;
+        self
+    }
+
+    /// Get the `mask`.
+    pub fn mask(&self) -> u32 {
+        self.mask
+    }
+
+    /// Set the `mask`
+    pub fn set_mask(&mut self, mask: u32) -> &mut Frame {
+        self.mask = mask;
         self
     }
 
@@ -219,7 +243,9 @@ impl Default for Frame {
             rsv1: false,
             rsv2: false,
             rsv3: false,
+            masked: false,
             opcode: OpCode::Close,
+            mask: 0,
             payload_length: 0,
             extension_data: None,
             application_data: None,
