@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send text Message fragmented into 2 fragments, one ping with payload in-between. Octets are sent in frame-wise chops.",
    "droppedByMe": false,
-   "duration": 3,
+   "duration": 1,
    "expectation": "A pong is received, then the message is echo'ed back to us.",
    "expected": {
       "OK": [
@@ -31,8 +31,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: jO2rhzOdDdNuiTba2VU0bQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: dSdYnxkCcSU2NSwsR/OdosB1Cx0=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: ktNq6BGQnyL48QxHYkTQDA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: E071qjCyRj+JeG6MBl46t/NVfB8=\r\n\r\n",
    "id": "5.7",
    "isServer": false,
    "localCloseCode": 1000,
@@ -65,7 +65,7 @@
       "20": 1,
       "129": 1
    },
-   "started": "2017-02-20T15:04:40.253Z",
+   "started": "2017-02-25T21:29:31.587Z",
    "trafficStats": null,
    "txFrameStats": {
       "0": 1,
@@ -109,7 +109,7 @@
          1,
          false,
          0,
-         "b8255a43",
+         "604b54ff",
          null,
          null,
          true
@@ -118,7 +118,7 @@
          "TO",
          [
             15,
-            "0189b8255a43de573b24d540343789"
+            "0189604b54ff063935980d2e3a8b51"
          ],
          true
       ],
@@ -131,7 +131,7 @@
          9,
          true,
          0,
-         "253bc9f1",
+         "5b97cb6c",
          null,
          null,
          true
@@ -145,7 +145,7 @@
          0,
          true,
          0,
-         "b97de4a6",
+         "4fedac48",
          null,
          null,
          true
@@ -158,7 +158,7 @@
          "TO",
          [
             18,
-            "898c253bc9f15552a796054ba8884954a895"
+            "898c5b97cb6c2bfea50b7be7aa1537f8aa08"
          ],
          true
       ],
@@ -166,7 +166,7 @@
          "TO",
          [
             15,
-            "8089b97de4a6df0f85c1d4188ad28b"
+            "80894fedac48299fcd2f2288c23c7d"
          ],
          true
       ],
@@ -217,7 +217,7 @@
          8,
          true,
          0,
-         "5bf4f958",
+         "25ee628d",
          null,
          null,
          false
@@ -226,7 +226,7 @@
          "TO",
          [
             8,
-            "88825bf4f958581c"
+            "888225ee628d2606"
          ],
          false
       ],

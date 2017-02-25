@@ -8,7 +8,7 @@
    "createWirelog": true,
    "description": "Send fragmented binary message message with message payload of length 4 * 2**20 (4M). Sent out in fragments of 4k.",
    "droppedByMe": false,
-   "duration": 71,
+   "duration": 57,
    "expectation": "Receive echo'ed binary message (with payload as sent).",
    "expected": {},
    "expectedClose": {
@@ -19,8 +19,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: MNY3lvQDee+QB6/hhmxTGA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 0N9HWEacxfgc1lwCd6h22CVDaKY=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: AWOcnxVXx5oVeFaZ6vPARw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 8EMqDwxjgtQeP9xwxBuDgsaYy10=\r\n\r\n",
    "id": "9.4.4",
    "isServer": false,
    "localCloseCode": 1000,
@@ -38,11 +38,14 @@
    },
    "rxOctetStats": {
       "4": 1,
-      "10": 1,
       "129": 1,
-      "65536": 64
+      "22400": 1,
+      "45743": 1,
+      "63363": 1,
+      "65483": 8,
+      "65536": 54
    },
-   "started": "2017-02-20T15:04:51.481Z",
+   "started": "2017-02-25T21:29:42.422Z",
    "trafficStats": null,
    "txFrameStats": {
       "0": 1024,
@@ -89,7 +92,7 @@
          8,
          true,
          0,
-         "512cc21e",
+         "41b5c9a1",
          null,
          null,
          false
@@ -98,7 +101,7 @@
          "TO",
          [
             8,
-            "8882512cc21e52c4"
+            "888241b5c9a1425d"
          ],
          false
       ],

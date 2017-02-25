@@ -26,8 +26,8 @@
       "requireClean": true
    },
    "failedByMe": false,
-   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: ArgfpOKZWGPERKd9RGXWGw==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: g/yQLMfVAVT/YFhXMOyRNNYk1BA=\r\n\r\n",
+   "httpRequest": "GET / HTTP/1.1\r\nUser-Agent: AutobahnTestSuite/0.7.5-0.10.9\r\nHost: 10.0.0.200:11579\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nSec-WebSocket-Key: ejbu5Bw8JYpN6DA5dOFSgQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+   "httpResponse": "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: upgrade\r\nSec-WebSocket-Accept: 8b/RtSIFEcoJXrXqOeQiwB+KnI8=\r\n\r\n",
    "id": "2.4",
    "isServer": false,
    "localCloseCode": 1000,
@@ -53,7 +53,7 @@
       "127": 1,
       "129": 1
    },
-   "started": "2017-02-20T15:04:40.026Z",
+   "started": "2017-02-25T21:29:31.349Z",
    "trafficStats": null,
    "txFrameStats": {
       "8": 1,
@@ -94,7 +94,7 @@
          9,
          true,
          0,
-         "63413fcc",
+         "16c7615c",
          null,
          null,
          false
@@ -103,7 +103,7 @@
          "TO",
          [
             131,
-            "89fd63413fcc9dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbfc1329dbf ..."
+            "89fd16c7615ce8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e8399fa2e839 ..."
          ],
          false
       ],
@@ -139,7 +139,7 @@
          8,
          true,
          0,
-         "decb5d06",
+         "8d2520d9",
          null,
          null,
          false
@@ -148,7 +148,7 @@
          "TO",
          [
             8,
-            "8882decb5d06dd23"
+            "88828d2520d98ecd"
          ],
          false
       ],
