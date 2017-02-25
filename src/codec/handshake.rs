@@ -212,7 +212,6 @@ impl Codec for FrameCodec {
 
         // TODO: Add support for 400 response, subprotocols.
         if let Some(ref ext_resp) = self.ext_resp {
-            try_trace!(self.stdout, "codec" => "handshake"; "SWE Header: '{}'", ext_resp);
             if !ext_resp.is_empty() {
                 response.push_str(ext_resp);
                 response.push_str("\r\n");
@@ -220,6 +219,8 @@ impl Codec for FrameCodec {
         }
 
         response.push_str("\r\n");
+
+        try_trace!(self.stdout, "handshake response\n{}", response);
         buf.extend(response.as_bytes());
         Ok(())
     }

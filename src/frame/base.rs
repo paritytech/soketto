@@ -257,6 +257,6 @@ impl fmt::Display for Frame {
                 write!(f, "\n\tapplication_data: [ {} bytes ]", len)?;
             }
         }
-        writeln!(f, "}}")
+        writeln!(f, "\n}}")
     }
 }

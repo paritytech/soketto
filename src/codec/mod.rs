@@ -119,6 +119,9 @@ impl Codec for Twist {
                 return Err(util::other("unable to extract frame codec"));
             };
 
+            if frame.rsv1() {
+                try_trace!(self.stdout, "Recv:\n{}", frame);
+            }
             self.ext_chain_decode(&mut frame)?;
 
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.
@@ -169,12 +172,21 @@ impl Codec for Twist {
                     }
                 }
 
+                if mut_base.rsv1() {
+                    try_trace!(self.stdout, "encoding frame:\n{}", mut_base);
+                }
                 fc.encode(mut_base, buf)?;
             } else {
                 return Err(util::other("unable to extract base frame to encode"));
             }
         } else if let Some(handshake) = msg.handshake() {
             let mut hc: handshake::FrameCodec = Default::default();
+            if let Some(ref stdout) = self.stdout {
+                hc.stdout(stdout.clone());
+            }
+            if let Some(ref stderr) = self.stderr {
+                hc.stderr(stderr.clone());
+            }
             let ext_header = handshake.extensions();
             let mut ext_resp = String::new();
             let mut rb = self.reserved_bits;
@@ -192,6 +204,7 @@ impl Codec for Twist {
                         Err(e) => return Err(e),
                     }
                     if let Some(response) = ext.response() {
+                        try_trace!(self.stdout, "RESP: {}", response);
                         ext_resp.push_str(&response);
                         ext_resp.push_str(", ");
                     }
