@@ -44,9 +44,9 @@ mod frame;
 mod proto;
 mod util;
 
-pub use codec::Twist as TwistCodec;
 pub use codec::base::FrameCodec as BaseFrameCodec;
-pub use codec::handshake::FrameCodec as HanshakeCodec;
+pub use codec::server::Twist as TwistServerCodec;
+pub use codec::server::handshake::FrameCodec as HanshakeServerCodec;
 pub use ext::{FromHeader, IntoResponse, PerMessage, PerFrame};
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;

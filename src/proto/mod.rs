@@ -16,7 +16,7 @@
 //!
 //! [open]: https://tools.ietf.org/html/rfc6455#section-4.2.1
 //! [resp]: https://tools.ietf.org/html/rfc6455#section-4.2.2
-use codec::Twist;
+use codec::server::Twist;
 use ext::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
 use frame::WebSocket;
 use proto::close::Close;

@@ -1,8 +1,8 @@
-//! websocket handshake frame
+//! websocket handshake server-side frame
 use std::fmt;
 
 #[derive(Clone, Debug, Default)]
-/// A websocket handshake frame.
+/// A websocket handshake server-side frame.
 pub struct Frame {
     /// The enabled extensions.
     extensions: Option<String>,

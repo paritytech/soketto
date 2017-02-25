@@ -1,6 +1,6 @@
 //! The `Handshake` protocol middleware.
 use frame::WebSocket;
-use frame::handshake::Frame;
+use frame::server::handshake::Frame;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
@@ -60,10 +60,10 @@ impl<T> Stream for Handshake<T>
     fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
         loop {
             match try_ready!(self.upstream.poll()) {
-                Some(ref msg) if msg.is_handshake() && !self.client_received => {
+                Some(ref msg) if msg.is_server_handshake() && !self.client_received => {
                     try_trace!(self.stdout, "client handshake message received");
 
-                    if let Some(handshake) = msg.handshake() {
+                    if let Some(handshake) = msg.server_handshake() {
                         self.client_received = true;
                         self.client_handshake = handshake.clone();
                     } else {
@@ -97,7 +97,8 @@ impl<T> Sink for Handshake<T>
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
         if self.client_received && !self.server_sent {
-            let mut handshake_resp = WebSocket::handshake_resp(self.client_handshake.clone());
+            let mut handshake_resp = WebSocket::server_handshake_resp(self.client_handshake
+                                                                          .clone());
             loop {
                 let res = self.upstream.start_send(handshake_resp)?;
                 match res {

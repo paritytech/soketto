@@ -1,6 +1,6 @@
-//! Codec for dedoding/encoding websocket handshake frames.
+//! Codec for dedoding/encoding websocket server handshake frames.
 use base64::encode;
-use frame::handshake::Frame;
+use frame::server::handshake::Frame;
 use httparse::{EMPTY_HEADER, Request};
 use sha1::Sha1;
 use slog::Logger;
