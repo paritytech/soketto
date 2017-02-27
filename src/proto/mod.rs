@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
 use tokio_core::io::{Framed, Io};
-use tokio_proto::pipeline::ServerProto;
+use tokio_proto::pipeline::{ClientProto, ServerProto};
 use uuid::Uuid;
 
 mod close;
@@ -121,6 +121,31 @@ impl Default for WebSocketProtocol {
 type BaseCodec<T> = Framed<T, Twist>;
 /// The websocket protocol middleware chain type.
 type ProtoChain<T> = Handshake<Close<PingPong<Fragmented<BaseCodec<T>>>>>;
+
+impl<T: Io + 'static> ClientProto<T> for WebSocketProtocol {
+    type Request = WebSocket;
+    type Response = WebSocket;
+
+    type Transport = Framed<T, Twist>;
+    type BindTransport = Result<Self::Transport, io::Error>;
+
+    fn bind_transport(&self, io: T) -> Self::BindTransport {
+        // Setup the twist codec.
+        let mut twist: Twist = Twist::new(self.uuid,
+                                          self.client,
+                                          self.permessage_extensions.clone(),
+                                          self.perframe_extensions.clone());
+        if let Some(ref stdout) = self.stdout {
+            twist.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            twist.stderr(stderr.clone());
+        }
+
+        /// Setup the protocol middleware chain.
+        Ok(io.framed(twist))
+    }
+}
 
 impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
     type Request = WebSocket;
