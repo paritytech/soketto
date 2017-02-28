@@ -1,4 +1,49 @@
 //! websocket handshake client-side frame
+use std::fmt;
+
 #[derive(Clone, Debug, Default)]
 /// A websocket handshake client-side frame.
-pub struct Frame;
+pub struct Frame {
+    /// The `user_agent` header value.
+    user_agent: String,
+    /// The `host` header value.
+    host: String,
+    /// The `sec_websocket_key` header value.
+    sec_websocket_key: String,
+}
+
+impl Frame {
+    /// Set the `user_agent` value.
+    pub fn set_user_agent(&mut self, user_agent: String) -> &mut Frame {
+        self.user_agent = user_agent;
+        self
+    }
+
+    /// Set the `host` value.
+    pub fn set_host(&mut self, host: String) -> &mut Frame {
+        self.host = host;
+        self
+    }
+
+    /// Set the `sec_websocket_key` value.
+    pub fn set_sec_websocket_key(&mut self, sec_websocket_key: String) -> &mut Frame {
+        self.sec_websocket_key = sec_websocket_key;
+        self
+    }
+}
+
+// GET / HTTP/1.1
+// User-Agent: AutobahnTestSuite/0.7.5-0.10.9
+// Host: jasonozias.com:32276
+// Upgrade: WebSocket
+// Connection: Upgrade
+// Pragma: no-cache
+// Cache-Control: no-cache
+// Sec-WebSocket-Key: OhrMRiZK65LaH6kcDbomHg==
+// Sec-WebSocket-Version: 13
+
+impl fmt::Display for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Client Handshake Frame")
+    }
+}

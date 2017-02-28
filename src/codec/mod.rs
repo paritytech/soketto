@@ -115,6 +115,7 @@ impl Codec for Twist {
     type Out = WebSocket;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+        try_trace!(self.stdout, "decode");
         if buf.len() == 0 {
             return Ok(None);
         }
@@ -178,6 +179,7 @@ impl Codec for Twist {
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+        try_trace!(self.stdout, "encode");
         if self.shaken {
             if let Some(base) = msg.base() {
                 let mut fc: FrameCodec = Default::default();

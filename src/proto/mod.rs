@@ -19,6 +19,7 @@
 use codec::Twist;
 use ext::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
 use frame::WebSocket;
+use proto::client::handshake::Handshake as ClientHandshake;
 use proto::close::Close;
 use proto::fragmented::Fragmented;
 use proto::handshake::Handshake;
@@ -31,6 +32,7 @@ use tokio_core::io::{Framed, Io};
 use tokio_proto::pipeline::{ClientProto, ServerProto};
 use uuid::Uuid;
 
+pub mod client;
 mod close;
 mod handshake;
 mod fragmented;
@@ -126,10 +128,11 @@ impl<T: Io + 'static> ClientProto<T> for WebSocketProtocol {
     type Request = WebSocket;
     type Response = WebSocket;
 
-    type Transport = Framed<T, Twist>;
+    type Transport = ClientHandshake<Framed<T, Twist>>;
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
+        try_trace!(self.stdout, "client bind_transport");
         // Setup the twist codec.
         let mut twist: Twist = Twist::new(self.uuid,
                                           self.client,
@@ -142,8 +145,16 @@ impl<T: Io + 'static> ClientProto<T> for WebSocketProtocol {
             twist.stderr(stderr.clone());
         }
 
+        // Setup the client handshake middleware.
+        let mut handshake = ClientHandshake::new(io.framed(twist));
+        if let Some(ref stdout) = self.stdout {
+            handshake.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            handshake.stderr(stderr.clone());
+        }
         /// Setup the protocol middleware chain.
-        Ok(io.framed(twist))
+        Ok(handshake)
     }
 }
 
@@ -155,7 +166,7 @@ impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
     type BindTransport = Result<Self::Transport, io::Error>;
 
     fn bind_transport(&self, io: T) -> Self::BindTransport {
-        try_trace!(self.stdout, "bind_transport");
+        try_trace!(self.stdout, "server bind_transport");
 
         // Setup the twist codec.
         let mut twist: Twist = Twist::new(self.uuid,

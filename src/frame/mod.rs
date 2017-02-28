@@ -187,7 +187,13 @@ impl WebSocket {
 
 impl fmt::Display for WebSocket {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let hstr = if let Some(ref handshake) = self.server_handshake {
+        let chstr = if let Some(ref handshake) = self.client_handshake {
+            format!("{}", handshake)
+        } else {
+            "None".to_string()
+        };
+
+        let shstr = if let Some(ref handshake) = self.server_handshake {
             format!("{}", handshake)
         } else {
             "None".to_string()
@@ -200,8 +206,9 @@ impl fmt::Display for WebSocket {
         };
 
         write!(f,
-               "WebSocket {{\n\thandshake: {}\n\tbase: {}\n}}",
-               hstr,
+               "WebSocket {{\n\tclient_handshake: {}\n\tserver_handshake: {}\n\tbase: {}\n}}",
+               chstr,
+               shstr,
                bstr)
     }
 }

@@ -125,4 +125,5 @@ pub use ext::{FromHeader, IntoResponse, PerMessage, PerFrame};
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;
 pub use frame::base::OpCode;
+pub use frame::client::handshake::Frame as ClientHandshakeFrame;
 pub use proto::WebSocketProtocol;
