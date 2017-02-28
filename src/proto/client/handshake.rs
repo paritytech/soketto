@@ -73,11 +73,12 @@ impl<T> Sink for Handshake<T>
         if !self.client_sent {
             self.client_sent = true;
             self.upstream.start_send(item)
-        } else if !self.server_received {
-            try_warn!(self.stdout, "sink has not received server handshake response");
-            return Ok(AsyncSink::NotReady(item));
-        } else {
+        } else if self.server_received {
             self.upstream.start_send(item)
+        } else {
+            try_warn!(self.stdout,
+                      "sink has not received server handshake response");
+            Ok(AsyncSink::NotReady(item))
         }
     }
 
