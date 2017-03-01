@@ -146,7 +146,7 @@ impl Codec for FrameCodec {
                     }
 
                     self.masked = second & 0x80 != 0;
-                    if !self.masked && self.client {
+                    if !self.masked && !self.client {
                         return Err(util::other("all client frames must have a mask"));
                     }
 
@@ -233,8 +233,6 @@ impl Codec for FrameCodec {
                                         validation"))
                                     }
                                 }
-                            } else {
-                                return Err(util::other("cannot unmask data"));
                             }
                         }
                         return Ok(None);
@@ -248,8 +246,9 @@ impl Codec for FrameCodec {
                             self.apply_mask(&mut adb, mask)?;
                             self.application_data = Some(adb.to_vec());
                             self.state = DecodeState::FULL;
-                        } else {
-                            return Err(util::other("cannot unmask data"));
+                        } else if self.client {
+                            self.application_data = Some(adb.to_vec());
+                            self.state = DecodeState::FULL
                         }
                     } else {
                         self.state = DecodeState::FULL;

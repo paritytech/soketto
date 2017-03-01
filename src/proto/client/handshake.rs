@@ -1,9 +1,10 @@
 //! client to server handshake protocol.
 use frame::WebSocket;
 use frame::client::handshake::Frame;
-use futures::{AsyncSink, Poll, Sink, StartSend, Stream};
+use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
+use util;
 
 /// The `Handshake` struct.
 pub struct Handshake<T> {
@@ -57,8 +58,22 @@ impl<T> Stream for Handshake<T>
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
-        try_trace!(self.stdout, "poll");
-        self.upstream.poll()
+        try_trace!(self.stdout, "client handshake poll");
+        loop {
+            match try_ready!(self.upstream.poll()) {
+                Some(ref msg) if msg.is_client_handshake() && !self.server_received => {
+                    try_trace!(self.stdout, "server handshake message received");
+
+                    if let Some(_handshake) = msg.client_handshake() {
+                        self.server_received = true;
+                        return Ok(Async::Ready(Some(msg.clone())))
+                    } else {
+                        return Err(util::other("couldn't extract handshake frame"));
+                    }
+                }
+                m => return Ok(Async::Ready(m)),
+            }
+        }
     }
 }
 
@@ -69,7 +84,7 @@ impl<T> Sink for Handshake<T>
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: WebSocket) -> StartSend<WebSocket, io::Error> {
-        try_trace!(self.stdout, "start_send");
+        try_trace!(self.stdout, "client::handshake start_send");
         if !self.client_sent {
             self.client_sent = true;
             self.upstream.start_send(item)
@@ -83,7 +98,7 @@ impl<T> Sink for Handshake<T>
     }
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
-        try_trace!(self.stdout, "poll_complete");
+        try_trace!(self.stdout, "client::handshake poll complete");
         self.upstream.poll_complete()
     }
 }

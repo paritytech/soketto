@@ -47,16 +47,6 @@ impl Frame {
     }
 }
 
-// GET / HTTP/1.1
-// User-Agent: AutobahnTestSuite/0.7.5-0.10.9
-// Host: jasonozias.com:32276
-// Upgrade: WebSocket
-// Connection: Upgrade
-// Pragma: no-cache
-// Cache-Control: no-cache
-// Sec-WebSocket-Key: OhrMRiZK65LaH6kcDbomHg==
-// Sec-WebSocket-Version: 13
-
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Client Handshake Frame")

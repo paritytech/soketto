@@ -115,6 +115,7 @@ impl Codec for Twist {
     type Out = WebSocket;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+        try_trace!(self.stdout, "decode: {}", self.client);
         if buf.len() == 0 {
             return Ok(None);
         }
@@ -127,12 +128,21 @@ impl Codec for Twist {
             }
 
             let mut frame = if let Some(ref mut fc) = self.frame_codec {
-                fc.set_client(true);
+                fc.set_client(self.client);
                 fc.set_reserved_bits(self.reserved_bits);
                 match fc.decode(buf) {
-                    Ok(Some(frame)) => frame,
-                    Ok(None) => return Ok(None),
-                    Err(e) => return Err(e),
+                    Ok(Some(frame)) => {
+                        try_trace!(self.stdout, "decoded base frame");
+                        frame
+                    },
+                    Ok(None) => {
+                        try_trace!(self.stdout, "need more data");
+                        return Ok(None)
+                    },
+                    Err(e) => {
+                        try_error!(self.stderr, "error decoding base frame: {}", e);
+                        return Err(e)
+                    },
                 }
             } else {
                 return Err(util::other("unable to extract frame codec"));
@@ -150,6 +160,7 @@ impl Codec for Twist {
                         .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
                 }
             }
+
             ws_frame.set_base(frame);
             self.frame_codec = None;
         } else if self.client {
@@ -174,6 +185,7 @@ impl Codec for Twist {
                 match hc.decode(buf) {
                     Ok(Some(hand)) => {
                         ws_frame.set_client_handshake(hand);
+                        self.shaken = true;
                     }
                     Ok(None) => return Ok(None),
                     Err(e) => return Err(e),
@@ -202,11 +214,11 @@ impl Codec for Twist {
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
-        try_trace!(self.stdout, "encode");
+        try_trace!(self.stdout, "encode: {}", self.client);
         if self.shaken {
             if let Some(base) = msg.base() {
                 let mut fc: FrameCodec = Default::default();
-                fc.set_client(true);
+                fc.set_client(self.client);
                 let mut mut_base = base.clone();
 
                 /// Run the frame through the extension chain before final encoding.
