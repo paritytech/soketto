@@ -35,11 +35,15 @@ impl Codec for FrameCodec {
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
         let len = buf.len();
-        try_trace!(self.stdout, "server handshake response length: {}", buf.len());
+        try_trace!(self.stdout,
+                   "server handshake response length: {}",
+                   buf.len());
         if buf.len() == 0 {
             return Ok(None);
         }
-        try_trace!(self.stdout, "server handshake response\n{}", String::from_utf8_lossy(buf.as_slice()));
+        try_trace!(self.stdout,
+                   "server handshake response\n{}",
+                   String::from_utf8_lossy(buf.as_slice()));
         buf.drain_to(len);
         let frame: Frame = Default::default();
         Ok(Some(frame))
