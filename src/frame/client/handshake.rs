@@ -13,16 +13,31 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Get the `user_agent` value.
+    pub fn user_agent(&self) -> &str {
+        &self.user_agent
+    }
+
     /// Set the `user_agent` value.
     pub fn set_user_agent(&mut self, user_agent: String) -> &mut Frame {
         self.user_agent = user_agent;
         self
     }
 
+    /// Get the `host` value.
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     /// Set the `host` value.
     pub fn set_host(&mut self, host: String) -> &mut Frame {
         self.host = host;
         self
+    }
+
+    /// Get the `sec_websocket_key` value.
+    pub fn sec_websocket_key(&self) -> &str {
+        &self.sec_websocket_key
     }
 
     /// Set the `sec_websocket_key` value.

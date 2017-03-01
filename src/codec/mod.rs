@@ -115,13 +115,13 @@ impl Codec for Twist {
     type Out = WebSocket;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
-        try_trace!(self.stdout, "decode");
         if buf.len() == 0 {
             return Ok(None);
         }
 
         let mut ws_frame: WebSocket = Default::default();
         if self.shaken {
+            try_trace!(self.stdout, "decoding into base frame");
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
             }
@@ -153,12 +153,35 @@ impl Codec for Twist {
             ws_frame.set_base(frame);
             self.frame_codec = None;
         } else if self.client {
+            try_trace!(self.stdout, "decoding into client handshake frame");
             if self.client_handshake_codec.is_none() {
-                self.client_handshake_codec = Some(Default::default());
+                let mut hc: client::handshake::FrameCodec = Default::default();
+                if let Some(ref stdout) = self.stdout {
+                    hc.stdout(stdout.clone());
+                }
+                if let Some(ref stderr) = self.stderr {
+                    hc.stderr(stderr.clone());
+                }
+                self.client_handshake_codec = Some(hc);
+            }
+            if let Some(ref mut hc) = self.client_handshake_codec {
+                if let Some(ref stdout) = self.stdout {
+                    hc.stdout(stdout.clone());
+                }
+                if let Some(ref stderr) = self.stderr {
+                    hc.stderr(stderr.clone());
+                }
+                match hc.decode(buf) {
+                    Ok(Some(hand)) => {
+                        ws_frame.set_client_handshake(hand);
+                    }
+                    Ok(None) => return Ok(None),
+                    Err(e) => return Err(e),
+                }
             }
             self.client_handshake_codec = None;
-            return Err(util::other("not implemented"));
         } else {
+            try_trace!(self.stdout, "decoding into server handshake frame");
             if self.server_handshake_codec.is_none() {
                 self.server_handshake_codec = Some(Default::default());
             }
@@ -253,8 +276,15 @@ impl Codec for Twist {
             }
             hc.encode(server_handshake.clone(), buf)?;
             self.shaken = true;
-        } else if let Some(_client_handshake) = msg.client_handshake() {
-            return Err(util::other("not implemented"));
+        } else if let Some(client_handshake) = msg.client_handshake() {
+            let mut hc: client::handshake::FrameCodec = Default::default();
+            if let Some(ref stdout) = self.stdout {
+                hc.stdout(stdout.clone());
+            }
+            if let Some(ref stderr) = self.stderr {
+                hc.stderr(stderr.clone());
+            }
+            hc.encode(client_handshake.clone(), buf)?;
         } else {
             return Err(util::other("unable to extract handshake frame to encode"));
         }
