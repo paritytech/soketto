@@ -9,7 +9,7 @@
 //! An implementation of the [RFC6455][rfc6455] websocket protocol as
 //! a set of tokio [`Codecs`][codec] and a tokio-proto pipeline [`ServerProto`][proto]
 //!
-//! # Decode Client Base Frame
+//! # Decode Base Frames from client
 //!
 //! ```
 //! # extern crate tokio_core;
@@ -24,7 +24,6 @@
 //!     let ping_vec = PING.to_vec();
 //!     let mut eb = EasyBuf::from(ping_vec);
 //!     let mut fc: BaseFrameCodec = Default::default();
-//!     fc.set_client(true);
 //!     let mut encoded = Vec::new();
 //!
 //!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
@@ -32,7 +31,7 @@
 //!         assert!(!frame.rsv1());
 //!         assert!(!frame.rsv2());
 //!         assert!(!frame.rsv3());
-//!         // All client frames must be masked.
+//!         // All frames from client must be masked.
 //!         assert!(frame.masked());
 //!         assert!(frame.opcode() == OpCode::Ping);
 //!         assert!(frame.mask() == 1);
@@ -51,7 +50,7 @@
 //! }
 //! ```
 //!
-//! # Decode Server Base Frame
+//! # Decode Base Frames from server
 //!
 //! ```
 //! # extern crate tokio_core;
@@ -66,6 +65,7 @@
 //!     let ping_vec = PONG.to_vec();
 //!     let mut eb = EasyBuf::from(ping_vec);
 //!     let mut fc: BaseFrameCodec = Default::default();
+//!     fc.set_client(true);
 //!     let mut encoded = Vec::new();
 //!
 //!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
@@ -73,7 +73,7 @@
 //!         assert!(!frame.rsv1());
 //!         assert!(!frame.rsv2());
 //!         assert!(!frame.rsv3());
-//!         // All server frames must not be masked.
+//!         // All frames from server must not be masked.
 //!         assert!(!frame.masked());
 //!         assert!(frame.opcode() == OpCode::Pong);
 //!         assert!(frame.mask() == 0);

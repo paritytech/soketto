@@ -66,7 +66,7 @@ impl<T> Stream for Handshake<T>
 
                     if let Some(_handshake) = msg.client_handshake() {
                         self.server_received = true;
-                        return Ok(Async::Ready(Some(msg.clone())))
+                        return Ok(Async::Ready(Some(msg.clone())));
                     } else {
                         return Err(util::other("couldn't extract handshake frame"));
                     }

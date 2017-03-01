@@ -134,15 +134,15 @@ impl Codec for Twist {
                     Ok(Some(frame)) => {
                         try_trace!(self.stdout, "decoded base frame");
                         frame
-                    },
+                    }
                     Ok(None) => {
                         try_trace!(self.stdout, "need more data");
-                        return Ok(None)
-                    },
+                        return Ok(None);
+                    }
                     Err(e) => {
                         try_error!(self.stderr, "error decoding base frame: {}", e);
-                        return Err(e)
-                    },
+                        return Err(e);
+                    }
                 }
             } else {
                 return Err(util::other("unable to extract frame codec"));

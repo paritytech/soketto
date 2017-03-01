@@ -383,7 +383,7 @@ mod test {
     fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
         let mut eb = EasyBuf::from(buf.to_vec());
         let mut fc: FrameCodec = Default::default();
-        fc.set_client(true);
+        fc.set_client(false);
         fc.decode(&mut eb)
     }
 
