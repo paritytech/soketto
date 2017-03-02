@@ -115,14 +115,12 @@ impl Codec for Twist {
     type Out = WebSocket;
 
     fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
-        try_trace!(self.stdout, "decode: {}", self.client);
         if buf.len() == 0 {
             return Ok(None);
         }
 
         let mut ws_frame: WebSocket = Default::default();
         if self.shaken {
-            try_trace!(self.stdout, "decoding into base frame");
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
             }
@@ -131,26 +129,14 @@ impl Codec for Twist {
                 fc.set_client(self.client);
                 fc.set_reserved_bits(self.reserved_bits);
                 match fc.decode(buf) {
-                    Ok(Some(frame)) => {
-                        try_trace!(self.stdout, "decoded base frame");
-                        frame
-                    }
-                    Ok(None) => {
-                        try_trace!(self.stdout, "need more data");
-                        return Ok(None);
-                    }
-                    Err(e) => {
-                        try_error!(self.stderr, "error decoding base frame: {}", e);
-                        return Err(e);
-                    }
+                    Ok(Some(frame)) => frame,
+                    Ok(None) => return Ok(None),
+                    Err(e) => return Err(e),
                 }
             } else {
                 return Err(util::other("unable to extract frame codec"));
             };
 
-            if frame.rsv1() {
-                try_trace!(self.stdout, "Recv:\n{}", frame);
-            }
             self.ext_chain_decode(&mut frame)?;
 
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.

@@ -1,6 +1,5 @@
 //! client to server handshake protocol.
 use frame::WebSocket;
-use frame::client::handshake::Frame;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
@@ -14,8 +13,6 @@ pub struct Handshake<T> {
     client_sent: bool,
     /// Has the server handshake response been received?
     server_received: bool,
-    /// The client handshake frame.  Used to generate the proper response.
-    _handshake: Frame,
     /// slog stdout `Logger`
     stdout: Option<Logger>,
     /// slog stderr `Logger`
@@ -29,7 +26,6 @@ impl<T> Handshake<T> {
             upstream: upstream,
             client_sent: false,
             server_received: false,
-            _handshake: Default::default(),
             stdout: None,
             stderr: None,
         }

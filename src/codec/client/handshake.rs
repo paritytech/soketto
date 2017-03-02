@@ -45,7 +45,7 @@ impl Codec for FrameCodec {
                    "server handshake response\n{}",
                    String::from_utf8_lossy(buf.as_slice()));
         buf.drain_to(len);
-        let frame: Frame = Default::default();
+        let frame = Frame::new()?;
         Ok(Some(frame))
     }
 
