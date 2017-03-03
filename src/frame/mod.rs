@@ -1,6 +1,7 @@
 //! A websocket server frame.
 use frame::base::{Frame, OpCode};
-use frame::client::handshake::Frame as ClientHandshakeFrame;
+use frame::client::request::Frame as ClientHandshakeRequestFrame;
+use frame::client::response::Frame as ServerHandshakeResponseFrame;
 use frame::server::handshake::Frame as ServerHandshakeFrame;
 use std::fmt;
 
@@ -13,7 +14,9 @@ pub mod server;
 #[derive(Debug, Default, Clone)]
 pub struct WebSocket {
     /// The client hanshake portion of a websocket frame.
-    client_handshake: Option<ClientHandshakeFrame>,
+    ch_req: Option<ClientHandshakeRequestFrame>,
+    /// The server handshake response portion of a websoket frame.
+    serh_resp: Option<ServerHandshakeResponseFrame>,
     /// The server hanshake portion of a websocket frame.
     server_handshake: Option<ServerHandshakeFrame>,
     /// The base portion of a websocket frame.
@@ -25,7 +28,8 @@ impl WebSocket {
     pub fn server_handshake_resp(handshake_frame: ServerHandshakeFrame) -> WebSocket {
         WebSocket {
             base: None,
-            client_handshake: None,
+            ch_req: None,
+            serh_resp: None,
             server_handshake: Some(handshake_frame),
         }
     }
@@ -40,7 +44,8 @@ impl WebSocket {
 
         WebSocket {
             base: Some(base),
-            client_handshake: None,
+            ch_req: None,
+            serh_resp: None,
             server_handshake: None,
         }
     }
@@ -56,7 +61,8 @@ impl WebSocket {
 
         WebSocket {
             base: Some(base),
-            client_handshake: None,
+            ch_req: None,
+            serh_resp: None,
             server_handshake: None,
         }
     }
@@ -90,9 +96,14 @@ impl WebSocket {
         self.server_handshake.is_some()
     }
 
-    /// Is this frame a client handshake frame?
-    pub fn is_client_handshake(&self) -> bool {
-        self.client_handshake.is_some()
+    /// Is this frame a client handshake reqeust frame?
+    pub fn is_client_handshake_request(&self) -> bool {
+        self.ch_req.is_some()
+    }
+
+    /// Is this frame a server handshake response frame?
+    pub fn is_server_handshake_response(&self) -> bool {
+        self.serh_resp.is_some()
     }
 
     /// Is this frame the start of a fragmented set of frames?
@@ -128,8 +139,8 @@ impl WebSocket {
     }
 
     /// Pull the `Frame` out.
-    pub fn client_handshake(&self) -> Option<&ClientHandshakeFrame> {
-        if let Some(ref handshake) = self.client_handshake {
+    pub fn server_handshake_response(&self) -> Option<&ServerHandshakeResponseFrame> {
+        if let Some(ref handshake) = self.serh_resp {
             Some(handshake)
         } else {
             None
@@ -138,10 +149,35 @@ impl WebSocket {
 
     /// Set the `Frame`. Note that this will set the handshake to `None`, as they are
     /// mutually exclusive.
-    pub fn set_client_handshake(&mut self, handshake: ClientHandshakeFrame) -> &mut WebSocket {
-        self.client_handshake = Some(handshake);
+    pub fn set_server_handshake_response(&mut self,
+                                         handshake: ServerHandshakeResponseFrame)
+                                         -> &mut WebSocket {
+        self.serh_resp = Some(handshake);
+        // Ensure mutually exculsive.
+        self.ch_req = None;
+        self.base = None;
+        self.server_handshake = None;
+        self
+    }
+
+    /// Pull the `Frame` out.
+    pub fn client_handshake_request(&self) -> Option<&ClientHandshakeRequestFrame> {
+        if let Some(ref handshake) = self.ch_req {
+            Some(handshake)
+        } else {
+            None
+        }
+    }
+
+    /// Set the `Frame`. Note that this will set the handshake to `None`, as they are
+    /// mutually exclusive.
+    pub fn set_client_handshake_request(&mut self,
+                                        handshake: ClientHandshakeRequestFrame)
+                                        -> &mut WebSocket {
+        self.ch_req = Some(handshake);
         // Ensure mutually exculsive.
         self.base = None;
+        self.serh_resp = None;
         self.server_handshake = None;
         self
     }
@@ -161,7 +197,8 @@ impl WebSocket {
         self.server_handshake = Some(handshake);
         // Ensure mutually exculsive.
         self.base = None;
-        self.client_handshake = None;
+        self.ch_req = None;
+        self.serh_resp = None;
         self
     }
 
@@ -179,15 +216,16 @@ impl WebSocket {
     pub fn set_base(&mut self, base: Frame) -> &mut WebSocket {
         self.base = Some(base);
         // Ensure mutually exclusive.
+        self.ch_req = None;
+        self.serh_resp = None;
         self.server_handshake = None;
-        self.client_handshake = None;
         self
     }
 }
 
 impl fmt::Display for WebSocket {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let chstr = if let Some(ref handshake) = self.client_handshake {
+        let chstr = if let Some(ref handshake) = self.ch_req {
             format!("{}", handshake)
         } else {
             "None".to_string()

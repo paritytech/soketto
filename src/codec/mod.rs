@@ -4,6 +4,8 @@ use codec::base::FrameCodec;
 use ext::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
+use frame::client::request::Frame as ClientHandshakeRequestFrame;
+use frame::server::handshake::Frame as ServerHandshakeFrame;
 use slog::Logger;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
@@ -41,7 +43,7 @@ pub struct Twist {
     /// Per-message extensions
     permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
-    perframe_extensions: PerFrameExtensions,
+    _perframe_extensions: PerFrameExtensions,
     /// RSVx bits reserved by extensions (must be less than 16)
     reserved_bits: u8,
     /// slog stdout `Logger`
@@ -66,7 +68,7 @@ impl Twist {
             server_handshake_codec: None,
             origin: None,
             permessage_extensions: permessage_extensions,
-            perframe_extensions: perframe_extensions,
+            _perframe_extensions: perframe_extensions,
             reserved_bits: 0,
             stdout: None,
             stderr: None,
@@ -106,9 +108,109 @@ impl Twist {
         }
         Ok(())
     }
+
+    /// Encode a base frame.
+    fn encode_base(&mut self, base: &Frame, buf: &mut Vec<u8>) -> io::Result<()> {
+        let mut fc: FrameCodec = Default::default();
+        fc.set_client(self.client);
+        let mut mut_base = base.clone();
+
+        // Run the frame through the permessage extension chain before final encoding.
+        let pm_lock = self.permessage_extensions.clone();
+        let mut map = match pm_lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+        for ext in vec_pm_exts.iter_mut() {
+            if ext.enabled() {
+                ext.encode(&mut mut_base)?;
+            }
+        }
+
+        fc.encode(mut_base, buf)?;
+        Ok(())
+    }
+
+    /// Encode a client handshake frame
+    fn encode_client_handshake(&mut self,
+                               handshake: &ClientHandshakeRequestFrame,
+                               buf: &mut Vec<u8>)
+                               -> io::Result<()> {
+        let mut hc: client::handshake::FrameCodec = Default::default();
+        if let Some(ref stdout) = self.stdout {
+            hc.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            hc.stderr(stderr.clone());
+        }
+
+        // Run the frame through the permessage extension chain before final encoding.
+        let pm_lock = self.permessage_extensions.clone();
+        let mut map = match pm_lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+        for ext in vec_pm_exts.iter_mut() {
+            if ext.enabled() {
+                if let Ok(Some(header)) = ext.into_header() {
+                    hc.add_header(header);
+                }
+            }
+        }
+
+        hc.encode(handshake.clone(), buf)?;
+        Ok(())
+    }
+
+    /// Encode a server handshake frame.
+    fn encode_server_handshake(&mut self,
+                               handshake: &ServerHandshakeFrame,
+                               buf: &mut Vec<u8>)
+                               -> io::Result<()> {
+        let mut hc: server::handshake::FrameCodec = Default::default();
+        if let Some(ref stdout) = self.stdout {
+            hc.stdout(stdout.clone());
+        }
+        if let Some(ref stderr) = self.stderr {
+            hc.stderr(stderr.clone());
+        }
+        let ext_header = handshake.extensions();
+        let mut ext_resp = String::new();
+        let mut rb = self.reserved_bits;
+
+        // Run the frame through the permessage extension chain before final encoding.
+        let pm_lock = self.permessage_extensions.clone();
+        let mut map = match pm_lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+        for ext in vec_pm_exts.iter_mut() {
+            ext.from_header(&ext_header)?;
+            if ext.enabled() {
+                match ext.reserve_rsv(rb) {
+                    Ok(r) => rb = r,
+                    Err(e) => return Err(e),
+                }
+                if let Ok(Some(response)) = ext.into_header() {
+                    ext_resp.push_str(&response);
+                    ext_resp.push_str(", ");
+                }
+            }
+        }
+
+        self.reserved_bits = rb;
+        hc.set_ext_resp(ext_resp.trim_right_matches(", "));
+
+        // TODO: Run through perframe extensions here.
+
+        hc.encode(handshake.clone(), buf)?;
+        self.shaken = true;
+        Ok(())
+    }
 }
-
-
 
 impl Codec for Twist {
     type In = WebSocket;
@@ -150,7 +252,7 @@ impl Codec for Twist {
             ws_frame.set_base(frame);
             self.frame_codec = None;
         } else if self.client {
-            try_trace!(self.stdout, "decoding into client handshake frame");
+            try_trace!(self.stdout, "decoding into server handshake response frame");
             if self.client_handshake_codec.is_none() {
                 let mut hc: client::handshake::FrameCodec = Default::default();
                 if let Some(ref stdout) = self.stdout {
@@ -170,7 +272,31 @@ impl Codec for Twist {
                 }
                 match hc.decode(buf) {
                     Ok(Some(hand)) => {
-                        ws_frame.set_client_handshake(hand);
+                        let ext_header = hand.extensions();
+                        let mut rb = self.reserved_bits;
+
+                        // Run the frame through the permessage extension chain..
+                        let pm_lock = self.permessage_extensions.clone();
+                        let mut map = match pm_lock.lock() {
+                            Ok(guard) => guard,
+                            Err(poisoned) => poisoned.into_inner(),
+                        };
+                        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+                        for ext in vec_pm_exts.iter_mut() {
+                            // Reconfigure based on response
+                            ext.from_header(&ext_header)?;
+
+                            // If ext is still enabled set the reserved bits.
+                            if ext.enabled() {
+                                match ext.reserve_rsv(rb) {
+                                    Ok(r) => rb = r,
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                        }
+
+                        ws_frame.set_server_handshake_response(hand);
+                        self.reserved_bits = rb;
                         self.shaken = true;
                     }
                     Ok(None) => return Ok(None),
@@ -201,90 +327,18 @@ impl Codec for Twist {
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
         try_trace!(self.stdout, "encode: {}", self.client);
-        if self.shaken {
-            if let Some(base) = msg.base() {
-                let mut fc: FrameCodec = Default::default();
-                fc.set_client(self.client);
-                let mut mut_base = base.clone();
-
-                /// Run the frame through the extension chain before final encoding.
-                let pm_lock = self.permessage_extensions.clone();
-                let mut map = match pm_lock.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-                for ext in vec_pm_exts.iter_mut() {
-                    if ext.enabled() {
-                        ext.encode(&mut mut_base)?;
-                    }
-                }
-
-                if mut_base.rsv1() {
-                    try_trace!(self.stdout, "encoding frame:\n{}", mut_base);
-                }
-                fc.encode(mut_base, buf)?;
+        if let Some(base) = msg.base() {
+            if self.shaken {
+                self.encode_base(base, buf)?;
             } else {
-                return Err(util::other("unable to extract base frame to encode"));
+                return Err(util::other("handshake request not complete"));
             }
         } else if let Some(server_handshake) = msg.server_handshake() {
-            let mut hc: server::handshake::FrameCodec = Default::default();
-            if let Some(ref stdout) = self.stdout {
-                hc.stdout(stdout.clone());
-            }
-            if let Some(ref stderr) = self.stderr {
-                hc.stderr(stderr.clone());
-            }
-            let ext_header = server_handshake.extensions();
-            let mut ext_resp = String::new();
-            let mut rb = self.reserved_bits;
-            let pm_lock = self.permessage_extensions.clone();
-            let mut map = match pm_lock.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pm_exts.iter_mut() {
-                ext.init(&ext_header)?;
-                if ext.enabled() {
-                    match ext.reserve_rsv(rb) {
-                        Ok(r) => rb = r,
-                        Err(e) => return Err(e),
-                    }
-                    if let Some(response) = ext.response() {
-                        try_trace!(self.stdout, "RESP: {}", response);
-                        ext_resp.push_str(&response);
-                        ext_resp.push_str(", ");
-                    }
-                }
-            }
-
-            self.reserved_bits = rb;
-            try_trace!(self.stdout, "reserved bits: {:03b}", self.reserved_bits);
-            hc.set_ext_resp(ext_resp.trim_right_matches(", "));
-
-            let pf_lock = self.perframe_extensions.clone();
-            let mut map = match pf_lock.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            let vec_pf_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pf_exts.iter_mut() {
-                ext.init(&ext_header)?;
-            }
-            hc.encode(server_handshake.clone(), buf)?;
-            self.shaken = true;
-        } else if let Some(client_handshake) = msg.client_handshake() {
-            let mut hc: client::handshake::FrameCodec = Default::default();
-            if let Some(ref stdout) = self.stdout {
-                hc.stdout(stdout.clone());
-            }
-            if let Some(ref stderr) = self.stderr {
-                hc.stderr(stderr.clone());
-            }
-            hc.encode(client_handshake.clone(), buf)?;
+            self.encode_server_handshake(server_handshake, buf)?;
+        } else if let Some(client_handshake) = msg.client_handshake_request() {
+            self.encode_client_handshake(client_handshake, buf)?;
         } else {
-            return Err(util::other("unable to extract handshake frame to encode"));
+            return Err(util::other("unable to extract frame to encode"));
         }
         Ok(())
     }

@@ -57,10 +57,10 @@ impl<T> Stream for Handshake<T>
         try_trace!(self.stdout, "client handshake poll");
         loop {
             match try_ready!(self.upstream.poll()) {
-                Some(ref msg) if msg.is_client_handshake() && !self.server_received => {
+                Some(ref msg) if msg.is_server_handshake_response() && !self.server_received => {
                     try_trace!(self.stdout, "server handshake message received");
 
-                    if let Some(_handshake) = msg.client_handshake() {
+                    if let Some(_handshake) = msg.server_handshake_response() {
                         self.server_received = true;
                         return Ok(Async::Ready(Some(msg.clone())));
                     } else {

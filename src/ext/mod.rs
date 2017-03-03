@@ -12,23 +12,27 @@ pub type PerMessageExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerMessage>>>>>;
 /// Thread safe ref counted storage for user supplied per-frameextensions.
 pub type PerFrameExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerFrame>>>>>;
 
-/// Extensions are built from the `Sec-WebSocket-Extensions` headers.  Build your extension based on
-/// that header.
-pub trait FromHeader {
-    /// Initialize your extension from the given `Sec-WebSocket-Extensions` header string.  If your
-    /// extension parameters exist, but are invalid, you should return an error here.  If they don't
-    /// exist you should mark yourself disabled (see enabled below), and return Ok.
-    fn init(&mut self, header: &str) -> Result<(), io::Error>;
-}
-
-/// Server-side extensions should implement this to
-pub trait IntoResponse {
-    /// Generate the `Sec-WebSocket-Extensions` portion of your response.
-    fn response(&self) -> Option<String>;
+/// Extensions are configured from the `Sec-WebSocket-Extensions` headers.  Configure your
+/// extension based on that header.
+pub trait Header {
+    /// Initialize your extension from the given `Sec-WebSocket-Extensions` header
+    /// string.  If your extension parameters exist, but are invalid, you should return an error
+    /// here.  If they don't exist you should mark yourself disabled (see enabled below), and
+    /// return Ok.  For a server-side extension, this will be called first, and should be used to
+    /// generate the value that will be returned by `into_header`.   For a client-side extension,
+    /// this will be called after the server response is received, and should be use to
+    /// re-configure your extension based on the value.
+    fn from_header(&mut self, header: &str) -> io::Result<()>;
+    /// This should return your extensions `Sec-WebSocket-Extensions` header to be used in a
+    /// request or response.   For a server-side extension, this will be called after `from_header`
+    /// has been called and the extension is configures.   This result should represent your
+    /// negotiation response.   For a client-side extension, this will be called to ge the header
+    /// for an extension negotiation request.
+    fn into_header(&mut self) -> io::Result<Option<String>>;
 }
 
 /// A per-message extension.
-pub trait PerMessage: FromHeader + IntoResponse + Send {
+pub trait PerMessage: Header + Send {
     /// Is this extension enabled?  This should return true if you are able to support the given
     /// `Sec-WebSocket-Extensions` header parameters.  It should return false otherwise.
     fn enabled(&self) -> bool;
@@ -43,7 +47,7 @@ pub trait PerMessage: FromHeader + IntoResponse + Send {
 }
 
 /// A per-frame extension.
-pub trait PerFrame: FromHeader + IntoResponse + Send {
+pub trait PerFrame: Header + Send {
     /// Is this extension enabled?  This should return true if you are able to support the given
     /// `Sec-WebSocket-Extensions` header parameters.  It should return false otherwise.
     fn enabled(&self) -> bool;

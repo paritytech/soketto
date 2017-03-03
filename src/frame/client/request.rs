@@ -1,11 +1,7 @@
 //! websocket handshake client-side frame
-use base64::encode;
-use byteorder::{BigEndian, WriteBytesExt};
-use rand::{self, Rng};
 use std::fmt;
-use std::io;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 /// A websocket handshake client-side frame.
 pub struct Frame {
     /// The `user_agent` header value.
@@ -17,21 +13,6 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// Create a new client handshake frame.
-    pub fn new() -> io::Result<Frame> {
-        let mut rng = rand::thread_rng();
-        let mut nonce_vec = Vec::with_capacity(2);
-        let nonce = rng.gen::<u16>();
-        nonce_vec.write_u16::<BigEndian>(nonce)?;
-
-        let sec_websocket_key = encode(&nonce_vec);
-        Ok(Frame {
-               user_agent: String::new(),
-               host: String::new(),
-               sec_websocket_key: sec_websocket_key,
-           })
-    }
-
     /// Get the `user_agent` value.
     pub fn user_agent(&self) -> &str {
         &self.user_agent
@@ -57,6 +38,12 @@ impl Frame {
     /// Get the `sec_websocket_key` value.
     pub fn sec_websocket_key(&self) -> &str {
         &self.sec_websocket_key
+    }
+
+    /// Set the `sec_websocket_key` value.
+    pub fn set_sec_websocket_key(&mut self, sec_websocket_key: String) -> &mut Frame {
+        self.sec_websocket_key = sec_websocket_key;
+        self
     }
 }
 

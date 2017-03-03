@@ -118,13 +118,21 @@ mod frame;
 mod proto;
 mod util;
 
-pub use codec::base::FrameCodec as BaseFrameCodec;
+/// Codec Exports
 pub use codec::Twist as TwistCodec;
+pub use codec::base::FrameCodec as BaseFrameCodec;
 pub use codec::client::handshake::FrameCodec as ClientHanshakeCodec;
 pub use codec::server::handshake::FrameCodec as ServerHandshakeCodec;
-pub use ext::{FromHeader, IntoResponse, PerMessage, PerFrame};
+
+// Extension Traits Exports
+pub use ext::{Header, PerMessage, PerFrame};
+
+// Frame Exports
 pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;
 pub use frame::base::OpCode;
-pub use frame::client::handshake::Frame as ClientHandshakeFrame;
+pub use frame::client::request::Frame as ClientHandshakeRequestFrame;
+pub use frame::client::response::Frame as ServerHandshakeResponseFrame;
+
+// Protocol Exports
 pub use proto::WebSocketProtocol;
