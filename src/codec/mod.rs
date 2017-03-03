@@ -5,7 +5,7 @@ use ext::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use frame::client::request::Frame as ClientHandshakeRequestFrame;
-use frame::server::handshake::Frame as ServerHandshakeFrame;
+use frame::server::response::Frame as ServerHandshakeResponseFrame;
 use slog::Logger;
 use std::io;
 use tokio_core::io::{Codec, EasyBuf};
@@ -39,7 +39,7 @@ pub struct Twist {
     /// None after every successful decode.
     server_handshake_codec: Option<server::handshake::FrameCodec>,
     /// The `Origin` header, if present.
-    origin: Option<String>,
+    // origin: Option<String>,
     /// Per-message extensions
     permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
@@ -66,7 +66,7 @@ impl Twist {
             frame_codec: None,
             client_handshake_codec: None,
             server_handshake_codec: None,
-            origin: None,
+            // origin: None,
             permessage_extensions: permessage_extensions,
             _perframe_extensions: perframe_extensions,
             reserved_bits: 0,
@@ -166,7 +166,7 @@ impl Twist {
 
     /// Encode a server handshake frame.
     fn encode_server_handshake(&mut self,
-                               handshake: &ServerHandshakeFrame,
+                               handshake: &ServerHandshakeResponseFrame,
                                buf: &mut Vec<u8>)
                                -> io::Result<()> {
         let mut hc: server::handshake::FrameCodec = Default::default();
@@ -188,7 +188,7 @@ impl Twist {
         };
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         for ext in vec_pm_exts.iter_mut() {
-            ext.from_header(&ext_header)?;
+            ext.from_header(ext_header)?;
             if ext.enabled() {
                 match ext.reserve_rsv(rb) {
                     Ok(r) => rb = r,
@@ -295,7 +295,7 @@ impl Codec for Twist {
                             }
                         }
 
-                        ws_frame.set_server_handshake_response(hand);
+                        ws_frame.set_clientside_handshake_response(hand);
                         self.reserved_bits = rb;
                         self.shaken = true;
                     }
@@ -313,8 +313,7 @@ impl Codec for Twist {
             if let Some(ref mut hc) = self.server_handshake_codec {
                 match hc.decode(buf) {
                     Ok(Some(hand)) => {
-                        self.origin = Some(hand.origin());
-                        ws_frame.set_server_handshake(hand);
+                        ws_frame.set_serverside_handshake_request(hand);
                     }
                     Ok(None) => return Ok(None),
                     Err(e) => return Err(e),
@@ -333,9 +332,9 @@ impl Codec for Twist {
             } else {
                 return Err(util::other("handshake request not complete"));
             }
-        } else if let Some(server_handshake) = msg.server_handshake() {
+        } else if let Some(server_handshake) = msg.serverside_handshake_response() {
             self.encode_server_handshake(server_handshake, buf)?;
-        } else if let Some(client_handshake) = msg.client_handshake_request() {
+        } else if let Some(client_handshake) = msg.clientside_handshake_request() {
             self.encode_client_handshake(client_handshake, buf)?;
         } else {
             return Err(util::other("unable to extract frame to encode"));

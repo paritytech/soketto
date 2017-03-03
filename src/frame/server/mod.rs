@@ -1,2 +1,3 @@
 //! websocket frame server-side.
-pub mod handshake;
+pub mod request;
+pub mod response;

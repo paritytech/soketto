@@ -132,7 +132,9 @@ pub use frame::WebSocket as WebSocketFrame;
 pub use frame::base::Frame as BaseFrame;
 pub use frame::base::OpCode;
 pub use frame::client::request::Frame as ClientHandshakeRequestFrame;
-pub use frame::client::response::Frame as ServerHandshakeResponseFrame;
+pub use frame::client::response::Frame as ClientHandshakeResponseFrame;
+pub use frame::server::request::Frame as ServerHandshakeRequestFrame;
+pub use frame::server::response::Frame as ServerHandshakeResponseFrame;
 
 // Protocol Exports
 pub use proto::WebSocketProtocol;

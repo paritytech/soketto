@@ -1,6 +1,6 @@
 //! The `Handshake` protocol middleware.
 use frame::WebSocket;
-use frame::server::handshake::Frame;
+// use frame::server::response::Frame as ServerSideHandshakeResponse;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
@@ -14,8 +14,10 @@ pub struct Handshake<T> {
     client_received: bool,
     /// Has the server handshake response been sent?
     server_sent: bool,
-    /// The client handshake frame.  Used to generate the proper response.
-    client_handshake: Frame,
+    /// `Sec-WebSocket-Key` from request.
+    ws_key: String,
+    /// Extensions from request.
+    extensions: String,
     /// slog stdout `Logger`
     stdout: Option<Logger>,
     /// slog stderr `Logger`
@@ -29,7 +31,8 @@ impl<T> Handshake<T> {
             upstream: upstream,
             client_received: false,
             server_sent: false,
-            client_handshake: Default::default(),
+            ws_key: String::new(),
+            extensions: String::new(),
             stdout: None,
             stderr: None,
         }
@@ -60,17 +63,26 @@ impl<T> Stream for Handshake<T>
     fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
         loop {
             match try_ready!(self.upstream.poll()) {
-                Some(ref msg) if msg.is_server_handshake() && !self.client_received => {
-                    try_trace!(self.stdout, "client handshake message received");
+                Some(ref msg) if msg.is_server_handshake_request() && !self.client_received => {
+                    try_trace!(self.stdout, "client handshake request received");
 
-                    if let Some(handshake) = msg.server_handshake() {
+                    if let Some(handshake) = msg.serverside_handshake_request() {
                         self.client_received = true;
-                        self.client_handshake = handshake.clone();
+                        self.ws_key = handshake.ws_key().into();
+                        self.extensions = handshake.extensions().into();
                     } else {
                         return Err(util::other("couldn't extract handshake frame"));
                     }
 
+                    // Send the repsonse upstream, and send the request to the service.
                     self.poll_complete()?;
+                    return Ok(Async::Ready(Some(msg.clone())));
+                }
+                Some(ref msg) if msg.is_server_handshake_response() && self.client_received => {
+                    try_trace!(self.stdout, "server handshake response received");
+                    try_trace!(self.stdout, "{}", msg);
+                    self.server_sent = true;
+                    return Ok(Async::Ready(Some(msg.clone())));
                 }
                 m => return Ok(Async::Ready(m)),
             }
@@ -96,27 +108,30 @@ impl<T> Sink for Handshake<T>
     }
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
-        if self.client_received && !self.server_sent {
-            let mut handshake_resp = WebSocket::server_handshake_resp(self.client_handshake
-                                                                          .clone());
-            loop {
-                let res = self.upstream.start_send(handshake_resp)?;
-                match res {
-                    AsyncSink::Ready => {
-                        loop {
-                            if let Ok(Async::Ready(_)) = self.upstream.poll_complete() {
-                                try_trace!(self.stdout,
-                                           "received client handshake request, \
-                                    sending server handshake response");
-                                self.server_sent = true;
-                                return Ok(Async::Ready(()));
-                            }
-                        }
-                    }
-                    AsyncSink::NotReady(v) => handshake_resp = v,
-                }
-            }
-        }
+        // if self.client_received && !self.server_sent {
+        //     let mut frame: WebSocket = Default::default();
+        //     let mut resp: ServerSideHandshakeResponse = Default::default();
+        //     resp.set_ws_key(self.ws_key.clone());
+        //     resp.set_extensions(self.extensions.clone());
+        //     frame.set_serverside_handshake_response(resp);
+        //     loop {
+        //         let res = self.upstream.start_send(frame)?;
+        //         match res {
+        //             AsyncSink::Ready => {
+        //                 loop {
+        //                     if let Ok(Async::Ready(_)) = self.upstream.poll_complete() {
+        //                         try_trace!(self.stdout,
+        //                                    "received client handshake request,
+        //                             sending server handshake response");
+        //                         self.server_sent = true;
+        //                         return Ok(Async::Ready(()));
+        //                     }
+        //                 }
+        //             }
+        //             AsyncSink::NotReady(v) => frame = v,
+        //         }
+        //     }
+        // }
         self.upstream.poll_complete()
     }
 }
