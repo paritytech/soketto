@@ -11,7 +11,7 @@ repository = "https://github.com/rustyhorde/twist"
 version = "0.4.0"
 
 [dependencies]
-base64 = "0.3.0"
+base64 = "0.4.0"
 byteorder = "1.0.0"
 futures = "0.1.10"
 httparse = "1.2.1"
