@@ -1,7 +1,7 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames on the server side.
 use codec::base::FrameCodec;
-use ext::{PerFrameExtensions, PerMessageExtensions};
+use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use frame::client::request::Frame as ClientHandshakeRequestFrame;

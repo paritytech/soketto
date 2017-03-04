@@ -1,4 +1,6 @@
-//! Codec for dedoding/encoding websocket base frames.
+//! Codec for encoding/decoding websocket [base] frames.
+//!
+//! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
@@ -12,8 +14,8 @@ const TWO_EXT: u8 = 126;
 /// length.
 const EIGHT_EXT: u8 = 127;
 
-#[derive(Debug, Clone)]
 /// Indicates the state of the decoding process for this frame.
+#[derive(Debug, Clone)]
 pub enum DecodeState {
     /// None of the frame has been decoded.
     NONE,
@@ -33,8 +35,10 @@ impl Default for DecodeState {
     }
 }
 
+/// Codec for encoding/decoding websocket [base] frames.
+///
+/// [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 #[derive(Clone, Debug, Default)]
-/// Codec for dedoding/encoding websocket base frames.
 pub struct FrameCodec {
     /// Is this a client frame?
     client: bool,
@@ -107,9 +111,8 @@ impl Codec for FrameCodec {
         loop {
             match self.state {
                 DecodeState::NONE => {
-                    // println!("buf at state NONE\n{}", util::as_hex(buf.as_slice()));
                     self.min_len += 2;
-                    // Split of the 2 'header' bytes.
+                    // Split off the 2 'header' bytes.
                     #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                     let size = self.min_len as usize;
                     if buf_len < size {
@@ -154,7 +157,6 @@ impl Codec for FrameCodec {
                     self.state = DecodeState::HEADER;
                 }
                 DecodeState::HEADER => {
-                    // println!("buf at state HEADER\n{}", util::as_hex(buf.as_slice()));
                     if self.length_code == TWO_EXT {
                         self.min_len += 2;
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]

@@ -16,27 +16,14 @@
 //!
 //! [open]: https://tools.ietf.org/html/rfc6455#section-4.2.1
 //! [resp]: https://tools.ietf.org/html/rfc6455#section-4.2.2
-use codec::Twist;
-use ext::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
-use frame::WebSocket;
-use proto::client::handshake::Handshake as ClientHandshake;
-use proto::close::Close;
-use proto::fragmented::Fragmented;
-use proto::handshake::Handshake;
-use proto::pingpong::PingPong;
+use extension::{PerFrame, PerFrameExtensions, PerMessage, PerMessageExtensions};
 use slog::Logger;
 use std::collections::HashMap;
-use std::io;
 use std::sync::{Arc, Mutex};
-use tokio_core::io::{Framed, Io};
-use tokio_proto::pipeline::{ClientProto, ServerProto};
 use uuid::Uuid;
 
 pub mod client;
-mod close;
-mod handshake;
-mod fragmented;
-mod pingpong;
+pub mod server;
 
 /// The protocol that can bu use to run on a tokio-proto
 /// [`TcpServer`](https://docs.rs/tokio-proto/0.1.0/tokio_proto/struct.TcpServer.html) to
@@ -116,110 +103,5 @@ impl Default for WebSocketProtocol {
             stdout: None,
             stderr: None,
         }
-    }
-}
-
-/// The base codec type.
-type BaseCodec<T> = Framed<T, Twist>;
-/// The websocket protocol middleware chain type.
-type ProtoChain<T> = Handshake<Close<PingPong<Fragmented<BaseCodec<T>>>>>;
-
-impl<T: Io + 'static> ClientProto<T> for WebSocketProtocol {
-    type Request = WebSocket;
-    type Response = WebSocket;
-
-    type Transport = ClientHandshake<Framed<T, Twist>>;
-    type BindTransport = Result<Self::Transport, io::Error>;
-
-    fn bind_transport(&self, io: T) -> Self::BindTransport {
-        try_trace!(self.stdout, "client bind_transport");
-        // Setup the twist codec.
-        let mut twist: Twist = Twist::new(self.uuid,
-                                          self.client,
-                                          self.permessage_extensions.clone(),
-                                          self.perframe_extensions.clone());
-        if let Some(ref stdout) = self.stdout {
-            twist.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            twist.stderr(stderr.clone());
-        }
-
-        // Setup the client handshake middleware.
-        let mut handshake = ClientHandshake::new(io.framed(twist));
-        if let Some(ref stdout) = self.stdout {
-            handshake.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            handshake.stderr(stderr.clone());
-        }
-        /// Setup the protocol middleware chain.
-        Ok(handshake)
-    }
-}
-
-impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
-    type Request = WebSocket;
-    type Response = WebSocket;
-
-    type Transport = ProtoChain<T>;
-    type BindTransport = Result<Self::Transport, io::Error>;
-
-    fn bind_transport(&self, io: T) -> Self::BindTransport {
-        try_trace!(self.stdout, "server bind_transport");
-
-        // Setup the twist codec.
-        let mut twist: Twist = Twist::new(self.uuid,
-                                          self.client,
-                                          self.permessage_extensions.clone(),
-                                          self.perframe_extensions.clone());
-        if let Some(ref stdout) = self.stdout {
-            twist.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            twist.stderr(stderr.clone());
-        }
-
-        // Setup the fragmented middleware.
-        let mut fragmented = Fragmented::new(io.framed(twist),
-                                             self.uuid,
-                                             self.permessage_extensions.clone(),
-                                             self.perframe_extensions.clone());
-        if let Some(ref stdout) = self.stdout {
-            fragmented.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            fragmented.stderr(stderr.clone());
-        }
-
-        // Setup the pingpong middleware.
-        let mut pingpong = PingPong::new(fragmented);
-        if let Some(ref stdout) = self.stdout {
-            pingpong.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            pingpong.stderr(stderr.clone());
-        }
-
-        // Setup the close middleware.
-        let mut close = Close::new(pingpong);
-        if let Some(ref stdout) = self.stdout {
-            close.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            close.stderr(stderr.clone());
-        }
-
-        // Setup the handshake middleware.
-        let mut handshake = Handshake::new(close);
-        if let Some(ref stdout) = self.stdout {
-            handshake.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            handshake.stderr(stderr.clone());
-        }
-
-        /// Setup the protocol middleware chain.
-        Ok(handshake)
     }
 }

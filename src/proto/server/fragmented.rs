@@ -1,5 +1,5 @@
 //! The `Fragmented` protocol middleware.
-use ext::{PerFrameExtensions, PerMessageExtensions};
+use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use futures::{Async, Poll, Sink, StartSend, Stream};

@@ -87,22 +87,22 @@ impl WebSocket {
     }
 
     /// Is this frame a serverside handshake request frame?
-    pub fn is_server_handshake_request(&self) -> bool {
+    pub fn is_serverside_handshake_request(&self) -> bool {
         self.serverside_handshake_request.is_some()
     }
 
     /// Is this frame a serverside handshake response frame?
-    pub fn is_server_handshake_response(&self) -> bool {
+    pub fn is_serverside_handshake_response(&self) -> bool {
         self.serverside_handshake_response.is_some()
     }
 
     /// Is this frame a clientside handshake reqeust frame?
-    pub fn is_client_handshake_request(&self) -> bool {
+    pub fn is_clientside_handshake_request(&self) -> bool {
         self.clientside_handshake_request.is_some()
     }
 
     /// Is this frame a server handshake response frame?
-    pub fn is_client_handshake_response(&self) -> bool {
+    pub fn is_clientside_handshake_response(&self) -> bool {
         self.clientside_handshake_response.is_some()
     }
 

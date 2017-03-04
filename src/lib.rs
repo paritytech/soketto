@@ -9,89 +9,6 @@
 //! An implementation of the [RFC6455][rfc6455] websocket protocol as
 //! a set of tokio [`Codecs`][codec] and a tokio-proto pipeline [`ServerProto`][proto]
 //!
-//! # Decode Base Frames from client
-//!
-//! ```
-//! # extern crate tokio_core;
-//! # extern crate twist;
-//!
-//! use twist::{BaseFrameCodec, OpCode};
-//! use tokio_core::io::{Codec, EasyBuf};
-//!
-//! const PING: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
-//!
-//! fn main() {
-//!     let ping_vec = PING.to_vec();
-//!     let mut eb = EasyBuf::from(ping_vec);
-//!     let mut fc: BaseFrameCodec = Default::default();
-//!     let mut encoded = Vec::new();
-//!
-//!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
-//!         assert!(frame.fin());
-//!         assert!(!frame.rsv1());
-//!         assert!(!frame.rsv2());
-//!         assert!(!frame.rsv3());
-//!         // All frames from client must be masked.
-//!         assert!(frame.masked());
-//!         assert!(frame.opcode() == OpCode::Ping);
-//!         assert!(frame.mask() == 1);
-//!         assert!(frame.payload_length() == 0);
-//!         assert!(frame.extension_data().is_none());
-//!         assert!(frame.application_data().is_none());
-//!
-//!         if fc.encode(frame, &mut encoded).is_ok() {
-//!             for (a, b) in encoded.iter().zip(PING.to_vec().iter()) {
-//!                 assert!(a == b);
-//!             }
-//!         }
-//!     } else {
-//!         assert!(false);
-//!     }
-//! }
-//! ```
-//!
-//! # Decode Base Frames from server
-//!
-//! ```
-//! # extern crate tokio_core;
-//! # extern crate twist;
-//!
-//! use twist::{BaseFrameCodec, OpCode};
-//! use tokio_core::io::{Codec, EasyBuf};
-//!
-//! const PONG: [u8; 2] = [0x8a, 0x00];
-//!
-//! fn main() {
-//!     let ping_vec = PONG.to_vec();
-//!     let mut eb = EasyBuf::from(ping_vec);
-//!     let mut fc: BaseFrameCodec = Default::default();
-//!     fc.set_client(true);
-//!     let mut encoded = Vec::new();
-//!
-//!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
-//!         assert!(frame.fin());
-//!         assert!(!frame.rsv1());
-//!         assert!(!frame.rsv2());
-//!         assert!(!frame.rsv3());
-//!         // All frames from server must not be masked.
-//!         assert!(!frame.masked());
-//!         assert!(frame.opcode() == OpCode::Pong);
-//!         assert!(frame.mask() == 0);
-//!         assert!(frame.payload_length() == 0);
-//!         assert!(frame.extension_data().is_none());
-//!         assert!(frame.application_data().is_none());
-//!
-//!         if fc.encode(frame, &mut encoded).is_ok() {
-//!             for (a, b) in encoded.iter().zip(PONG.to_vec().iter()) {
-//!                 assert!(a == b);
-//!             }
-//!         }
-//!     } else {
-//!         assert!(false);
-//!     }
-//! }
-//! ```
-//!
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
 //! [codec]: https://docs.rs/tokio-core/0.1.4/tokio_core/io/trait.Codec.html
 //! [proto]: https://docs.rs/tokio-proto/0.1.0/tokio_proto/pipeline/trait.ServerProto.html
@@ -112,29 +29,11 @@ extern crate slog;
 #[macro_use]
 mod macros;
 
+pub mod client;
+pub mod server;
+pub mod extension;
+
 mod codec;
-mod ext;
 mod frame;
 mod proto;
 mod util;
-
-/// Codec Exports
-pub use codec::Twist as TwistCodec;
-pub use codec::base::FrameCodec as BaseFrameCodec;
-pub use codec::client::handshake::FrameCodec as ClientHanshakeCodec;
-pub use codec::server::handshake::FrameCodec as ServerHandshakeCodec;
-
-// Extension Traits Exports
-pub use ext::{Header, PerMessage, PerFrame};
-
-// Frame Exports
-pub use frame::WebSocket as WebSocketFrame;
-pub use frame::base::Frame as BaseFrame;
-pub use frame::base::OpCode;
-pub use frame::client::request::Frame as ClientHandshakeRequestFrame;
-pub use frame::client::response::Frame as ClientHandshakeResponseFrame;
-pub use frame::server::request::Frame as ServerHandshakeRequestFrame;
-pub use frame::server::response::Frame as ServerHandshakeResponseFrame;
-
-// Protocol Exports
-pub use proto::WebSocketProtocol;

@@ -1,6 +1,4 @@
-//! Per-message Compression Extensions (pmce)
-//!
-//! Currently, only per-message deflate is supported, if enabled.
+//! Extension Trait API
 use frame::base;
 use std::collections::HashMap;
 use std::io;
