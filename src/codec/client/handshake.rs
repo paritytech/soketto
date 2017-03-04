@@ -115,6 +115,7 @@ impl Codec for FrameCodec {
         let mut request = String::from("GET / HTTP/1.1\r\n");
         request.push_str(&format!("User-Agent: {}\r\n", msg.user_agent()));
         request.push_str(&format!("Host: {}\r\n", msg.host()));
+        request.push_str(&format!("Origin: {}\r\n", msg.origin()));
         request.push_str("Upgrade: websocket\r\n");
         request.push_str("Connection: upgrade\r\n");
         request.push_str(&format!("Sec-WebSocket-Key: {}\r\n", msg.sec_websocket_key()));

@@ -156,10 +156,6 @@ impl Frame {
             return false;
         }
 
-        if self.reason.to_lowercase() != "switching protocols" {
-            return false;
-        }
-
         if self.code != 101 {
             return false;
         }

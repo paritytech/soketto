@@ -8,6 +8,8 @@ pub struct Frame {
     user_agent: String,
     /// The `host` header value.
     host: String,
+    /// The `origin` header value.
+    origin: String,
     /// The `sec_websocket_key` header value.
     sec_websocket_key: String,
 }
@@ -32,6 +34,17 @@ impl Frame {
     /// Set the `host` value.
     pub fn set_host(&mut self, host: String) -> &mut Frame {
         self.host = host;
+        self
+    }
+
+    /// Get the `origin` value.
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
+
+    /// Set the `origin` value.
+    pub fn set_origin(&mut self, origin: String) -> &mut Frame {
+        self.origin = origin;
         self
     }
 
