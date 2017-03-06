@@ -115,17 +115,25 @@ impl Codec for FrameCodec {
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
-        let mut response = String::from("HTTP/1.1 101 Switching Protocols\r\n");
-        response.push_str("Upgrade: websocket\r\n");
-        response.push_str("Connection: upgrade\r\n");
-        response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", msg.accept_val()?));
+        let code = msg.code();
+        let mut response = format!("HTTP/1.1 {} {}\r\n", code, msg.reason());
 
-        // TODO: Add support for 400 response, subprotocols.
-        if let Some(ref ext_resp) = self.ext_resp {
-            if !ext_resp.is_empty() {
-                response.push_str(ext_resp);
-                response.push_str("\r\n");
+        if let 101 = code {
+            response.push_str("Upgrade: websocket\r\n");
+            response.push_str("Connection: upgrade\r\n");
+            response.push_str(&format!("Sec-WebSocket-Accept: {}\r\n", msg.accept_val()?));
+
+            if let Some(ref ext_resp) = self.ext_resp {
+                if !ext_resp.is_empty() {
+                    response.push_str(ext_resp);
+                    response.push_str("\r\n");
+                }
             }
+        }
+
+        /// Add the other headers to the response.
+        for (k, v) in msg.others().iter() {
+            response.push_str(&format!("{}: {}\r\n", *k, *v));
         }
 
         response.push_str("\r\n");

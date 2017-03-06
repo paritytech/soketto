@@ -4,6 +4,10 @@ use std::fmt;
 #[derive(Clone, Debug, Default)]
 /// A websocket handshake client-side frame.
 pub struct Frame {
+    /// The URL path.
+    path: String,
+    /// The URL query string.
+    query: String,
     /// The `user_agent` header value.
     user_agent: String,
     /// The `host` header value.
@@ -15,6 +19,28 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Get the `path` value.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Set the `path` value.
+    pub fn set_path(&mut self, path: String) -> &mut Frame {
+        self.path = path;
+        self
+    }
+
+    /// Get the `query` value.
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    /// Set the `query` value.
+    pub fn set_query(&mut self, query: String) -> &mut Frame {
+        self.query = query;
+        self
+    }
+
     /// Get the `user_agent` value.
     pub fn user_agent(&self) -> &str {
         &self.user_agent

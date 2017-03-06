@@ -156,29 +156,34 @@ impl Frame {
             return false;
         }
 
-        if self.code != 101 {
-            return false;
-        }
+        if self.code == 101 {
+            if let Some(ref val) = self.upgrade {
+                if val.to_lowercase() != "websocket" {
+                    return false;
+                }
+            } else {
+                return false;
+            }
 
-        if let Some(ref val) = self.upgrade {
-            if val.to_lowercase() != "websocket" {
+            if let Some(ref val) = self.conn {
+                if val.to_lowercase() != "upgrade" {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+
+            if self.ws_accept.is_none() {
+                return false;
+            }
+        } else if self.code >= 400 {
+            if self.reason.is_empty() {
                 return false;
             }
         } else {
             return false;
         }
 
-        if let Some(ref val) = self.conn {
-            if val.to_lowercase() != "upgrade" {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        if self.ws_accept.is_none() {
-            return false;
-        }
 
         true
     }

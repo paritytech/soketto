@@ -112,7 +112,13 @@ impl Codec for FrameCodec {
     }
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
-        let mut request = String::from("GET / HTTP/1.1\r\n");
+        let mut request = format!("GET {}", msg.path());
+
+        if !msg.query().is_empty() {
+            request.push_str(&format!("?{}", msg.query()));
+        }
+
+        request.push_str(" HTTP/1.1\r\n");
         request.push_str(&format!("User-Agent: {}\r\n", msg.user_agent()));
         request.push_str(&format!("Host: {}\r\n", msg.host()));
         request.push_str(&format!("Origin: {}\r\n", msg.origin()));

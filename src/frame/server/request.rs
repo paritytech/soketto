@@ -250,6 +250,47 @@ impl Frame {
 
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "server side handshake request frame")
+        writeln!(f, "Frame {{")?;
+        writeln!(f, "\tmethod: {}", self.method)?;
+        writeln!(f, "\tpath: {}", self.path)?;
+        writeln!(f, "\tversion: {}", self.version)?;
+
+        if let Some(ref host) = self.host {
+            writeln!(f, "\thost: {}", host)?;
+        }
+
+        if let Some(ref upgrade) = self.upgrade {
+            writeln!(f, "\tupgrade: {}", upgrade)?;
+        }
+
+        if let Some(ref conn) = self.conn {
+            writeln!(f, "\tconn: {}", conn)?;
+        }
+
+        if let Some(ref ws_key) = self.ws_key {
+            writeln!(f, "\tws_key: {}", ws_key)?;
+        }
+
+        if let Some(ref ws_version) = self.ws_version {
+            writeln!(f, "\tws_version: {}", ws_version)?;
+        }
+
+        if let Some(ref origin) = self.origin {
+            writeln!(f, "\torigin: {}", origin)?;
+        }
+
+        if let Some(ref protocol) = self.protocol {
+            writeln!(f, "\tprotocol: {}", protocol)?;
+        }
+
+        if let Some(ref extensions) = self.extensions {
+            writeln!(f, "\textensions: {}", extensions)?;
+        }
+
+        for (k, v) in self.others.iter() {
+            writeln!(f, "\t{}: {}", *k, *v)?;
+        }
+
+        writeln!(f, "}}")
     }
 }
