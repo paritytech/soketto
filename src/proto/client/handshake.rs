@@ -3,7 +3,6 @@ use frame::WebSocket;
 use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 use slog::Logger;
 use std::io;
-use util;
 
 /// The `Handshake` struct.
 pub struct Handshake<T> {
@@ -60,13 +59,8 @@ impl<T> Stream for Handshake<T>
                 Some(ref msg) if msg.is_clientside_handshake_response() &&
                                  !self.server_received => {
                     try_trace!(self.stdout, "server handshake message received");
-
-                    if let Some(_handshake) = msg.clientside_handshake_response() {
-                        self.server_received = true;
-                        return Ok(Async::Ready(Some(msg.clone())));
-                    } else {
-                        return Err(util::other("couldn't extract handshake frame"));
-                    }
+                    self.server_received = true;
+                    return Ok(Async::Ready(Some(msg.clone())));
                 }
                 m => return Ok(Async::Ready(m)),
             }

@@ -107,7 +107,7 @@ impl Codec for FrameCodec {
                     return Err(util::other("invalid handshake request"));
                 }
             } else {
-                return Err(util::other("partial client request received"));
+                return Ok(None);
             }
         } else {
             return Err(util::other("unable to parse client request"));

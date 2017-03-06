@@ -188,7 +188,7 @@ impl Twist {
         };
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         for ext in vec_pm_exts.iter_mut() {
-            ext.from_header(ext_header)?;
+            ext.from_header(&ext_header)?;
             if ext.enabled() {
                 match ext.reserve_rsv(rb) {
                     Ok(r) => rb = r,
