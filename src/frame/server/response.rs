@@ -195,7 +195,7 @@ impl fmt::Display for Frame {
             writeln!(f, "\textensions: {}", extensions)?;
         }
 
-        for (k, v) in self.others.iter() {
+        for (k, v) in &self.others {
             writeln!(f, "\t{}: {}", *k, *v)?;
         }
 
