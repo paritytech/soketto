@@ -1,4 +1,5 @@
 //! websocket handshake client-side frame
+use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Clone, Debug, Default)]
@@ -16,6 +17,8 @@ pub struct Frame {
     origin: String,
     /// The `sec_websocket_key` header value.
     sec_websocket_key: String,
+    /// Other headers.
+    others: HashMap<String, String>,
 }
 
 impl Frame {
@@ -82,6 +85,17 @@ impl Frame {
     /// Set the `sec_websocket_key` value.
     pub fn set_sec_websocket_key(&mut self, sec_websocket_key: String) -> &mut Frame {
         self.sec_websocket_key = sec_websocket_key;
+        self
+    }
+
+    /// Get the `others` value.
+    pub fn others(&self) -> &HashMap<String, String> {
+        &self.others
+    }
+
+    /// Set the `others` value.
+    pub fn set_others(&mut self, others: HashMap<String, String>) -> &mut Frame {
+        self.others = others;
         self
     }
 }

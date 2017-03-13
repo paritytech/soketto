@@ -132,6 +132,10 @@ impl Codec for FrameCodec {
             request.push_str("\r\n");
         }
 
+        for (k, v) in msg.others() {
+            request.push_str(&format!("{}: {}\r\n", *k, *v));
+        }
+
         request.push_str("\r\n");
 
         try_trace!(self.stdout, "client handshake request\n{}", request);
