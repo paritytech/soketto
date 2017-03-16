@@ -2,9 +2,10 @@
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use bytes::{BufMut, BytesMut};
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
-use tokio_core::io::{Codec, EasyBuf};
+use tokio_io::codec::{Decoder, Encoder};
 use util::{self, utf8};
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
@@ -97,11 +98,11 @@ impl FrameCodec {
     }
 }
 
-impl Codec for FrameCodec {
-    type In = Frame;
-    type Out = Frame;
+impl Decoder for FrameCodec {
+    type Item = Frame;
+    type Error = io::Error;
 
-    fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let buf_len = buf.len();
         if buf_len == 0 {
             return Ok(None);
@@ -118,8 +119,8 @@ impl Codec for FrameCodec {
                     if buf_len < size {
                         return Ok(None);
                     }
-                    let header_bytes = buf.drain_to(2);
-                    let header = header_bytes.as_slice();
+                    let header_bytes = buf.split_to(2);
+                    let header = &header_bytes;
                     let first = header[0];
                     let second = header[1];
 
@@ -165,7 +166,7 @@ impl Codec for FrameCodec {
                             self.min_len -= 2;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.drain_to(2));
+                        let mut rdr = Cursor::new(buf.split_to(2));
                         if let Ok(len) = rdr.read_u16::<BigEndian>() {
                             self.payload_length = len as u64;
                             self.state = DecodeState::LENGTH;
@@ -180,7 +181,7 @@ impl Codec for FrameCodec {
                             self.min_len -= 8;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.drain_to(8));
+                        let mut rdr = Cursor::new(buf.split_to(8));
                         if let Ok(len) = rdr.read_u64::<BigEndian>() {
                             self.payload_length = len as u64;
                             self.state = DecodeState::LENGTH;
@@ -204,7 +205,7 @@ impl Codec for FrameCodec {
                             self.min_len -= 4;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.drain_to(4));
+                        let mut rdr = Cursor::new(buf.split_to(4));
                         if let Ok(mask) = rdr.read_u32::<BigEndian>() {
                             self.mask_key = mask;
                             self.state = DecodeState::MASK;
@@ -224,7 +225,7 @@ impl Codec for FrameCodec {
                     if buf_len < size {
                         self.min_len -= self.payload_length;
                         if self.opcode == OpCode::Text {
-                            let mut test_buf = buf.as_slice().to_vec();
+                            let mut test_buf = buf.to_vec();
                             if self.masked {
                                 self.apply_mask(&mut test_buf, mask)?;
                                 match utf8::validate(&test_buf) {
@@ -242,8 +243,8 @@ impl Codec for FrameCodec {
 
                     if self.payload_length > 0 {
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let mut app_data_bytes = buf.drain_to(self.payload_length as usize);
-                        let mut adb = app_data_bytes.get_mut();
+                        let app_data_bytes = buf.split_to(self.payload_length as usize);
+                        let mut adb = app_data_bytes;
                         if self.masked {
                             self.apply_mask(&mut adb, mask)?;
                             self.application_data = Some(adb.to_vec());
@@ -262,8 +263,13 @@ impl Codec for FrameCodec {
 
         Ok(Some(self.clone().into()))
     }
+}
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+impl Encoder for FrameCodec {
+    type Item = Frame;
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
         let mut first_byte = 0_u8;
 
         if msg.fin() {
@@ -284,7 +290,7 @@ impl Codec for FrameCodec {
 
         let opcode: u8 = msg.opcode().into();
         first_byte |= opcode;
-        buf.push(first_byte);
+        buf.put(first_byte);
 
         let mut second_byte = 0_u8;
 
@@ -297,20 +303,20 @@ impl Codec for FrameCodec {
             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let cast_len = len as u8;
             second_byte |= cast_len;
-            buf.push(second_byte);
+            buf.put(second_byte);
         } else if len < 65536 {
             second_byte |= TWO_EXT;
             let mut len_buf = Vec::with_capacity(2);
             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let cast_len = len as u16;
             len_buf.write_u16::<BigEndian>(cast_len)?;
-            buf.push(second_byte);
+            buf.put(second_byte);
             buf.extend(len_buf);
         } else {
             second_byte |= EIGHT_EXT;
             let mut len_buf = Vec::with_capacity(8);
             len_buf.write_u64::<BigEndian>(len)?;
-            buf.push(second_byte);
+            buf.put(second_byte);
             buf.extend(len_buf);
         }
 
@@ -348,9 +354,10 @@ impl From<FrameCodec> for Frame {
 #[cfg(test)]
 mod test {
     use super::FrameCodec;
+    use bytes::BytesMut;
     use frame::base::{Frame, OpCode};
     use std::io;
-    use tokio_core::io::{Codec, EasyBuf};
+    use tokio_io::codec::Decoder;
     use util;
 
     // Bad Frames, should err
@@ -383,7 +390,8 @@ mod test {
     const PING_NO_DATA: [u8; 6]     = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
 
     fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
-        let mut eb = EasyBuf::from(buf.to_vec());
+        let mut eb = BytesMut::with_capacity(256);
+        eb.extend(buf);
         let mut fc: FrameCodec = Default::default();
         fc.set_client(false);
         fc.decode(&mut eb)

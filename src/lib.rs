@@ -15,10 +15,12 @@
 #![deny(missing_docs)]
 extern crate base64;
 extern crate byteorder;
+extern crate bytes;
 extern crate httparse;
 extern crate rand;
 extern crate sha1;
 extern crate tokio_core;
+extern crate tokio_io;
 extern crate tokio_proto;
 extern crate uuid;
 

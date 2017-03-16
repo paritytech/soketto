@@ -3,13 +3,14 @@ use codec::Twist;
 use frame::WebSocket;
 use proto::client::handshake::Handshake as ClientHandshake;
 use std::io;
-use tokio_core::io::{Framed, Io};
+use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::Framed;
 use tokio_proto::pipeline::ClientProto;
 
 pub use super::WebSocketProtocol;
 pub mod handshake;
 
-impl<T: Io + 'static> ClientProto<T> for WebSocketProtocol {
+impl<T: AsyncRead + AsyncWrite + 'static> ClientProto<T> for WebSocketProtocol {
     type Request = WebSocket;
     type Response = WebSocket;
 

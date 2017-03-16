@@ -3,19 +3,22 @@
 //! # Decode PING Base Frame from client
 //!
 //! ```
-//! # extern crate tokio_core;
+//! # extern crate bytes;
+//! # extern crate tokio_io;
 //! # extern crate twist;
-//!
-//! use twist::server::{BaseFrameCodec, OpCode};
-//! use tokio_core::io::{Codec, EasyBuf};
-//!
-//! const PING: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
-//!
-//! fn main() {
+//! #
+//! # use bytes::BytesMut;
+//! # use twist::server::{BaseFrameCodec, OpCode};
+//! # use tokio_io::codec::{Decoder, Encoder};
+//! #
+//! # const PING: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
+//! #
+//! # fn main() {
 //!     let ping_vec = PING.to_vec();
-//!     let mut eb = EasyBuf::from(ping_vec);
+//!     let mut eb = BytesMut::with_capacity(256);
+//!     eb.extend(ping_vec);
 //!     let mut fc: BaseFrameCodec = Default::default();
-//!     let mut encoded = Vec::new();
+//!     let mut encoded = BytesMut::with_capacity(256);
 //!
 //!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
 //!         assert!(frame.fin());
@@ -38,7 +41,7 @@
 //!     } else {
 //!         assert!(false);
 //!     }
-//! }
+//! # }
 //! ```
 // Common Codec Exports
 pub use codec::Twist as TwistCodec;

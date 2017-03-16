@@ -1,5 +1,6 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames on the server side.
+use bytes::BytesMut;
 use codec::base::FrameCodec;
 use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
@@ -8,7 +9,7 @@ use frame::client::request::Frame as ClientHandshakeRequestFrame;
 use frame::server::response::Frame as ServerHandshakeResponseFrame;
 use slog::Logger;
 use std::io;
-use tokio_core::io::{Codec, EasyBuf};
+use tokio_io::codec::{Decoder, Encoder};
 use util;
 use uuid::Uuid;
 
@@ -110,7 +111,7 @@ impl Twist {
     }
 
     /// Encode a base frame.
-    fn encode_base(&mut self, base: &Frame, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn encode_base(&mut self, base: &Frame, buf: &mut BytesMut) -> io::Result<()> {
         let mut fc: FrameCodec = Default::default();
         fc.set_client(self.client);
         let mut mut_base = base.clone();
@@ -135,7 +136,7 @@ impl Twist {
     /// Encode a client handshake frame
     fn encode_client_handshake(&mut self,
                                handshake: &ClientHandshakeRequestFrame,
-                               buf: &mut Vec<u8>)
+                               buf: &mut BytesMut)
                                -> io::Result<()> {
         let mut hc: client::handshake::FrameCodec = Default::default();
         if let Some(ref stdout) = self.stdout {
@@ -167,7 +168,7 @@ impl Twist {
     /// Encode a server handshake frame.
     fn encode_server_handshake(&mut self,
                                handshake: &ServerHandshakeResponseFrame,
-                               buf: &mut Vec<u8>)
+                               buf: &mut BytesMut)
                                -> io::Result<()> {
         let mut hc: server::handshake::FrameCodec = Default::default();
         if let Some(ref stdout) = self.stdout {
@@ -212,11 +213,11 @@ impl Twist {
     }
 }
 
-impl Codec for Twist {
-    type In = WebSocket;
-    type Out = WebSocket;
+impl Decoder for Twist {
+    type Item = WebSocket;
+    type Error = io::Error;
 
-    fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if buf.len() == 0 {
             return Ok(None);
         }
@@ -323,8 +324,13 @@ impl Codec for Twist {
         }
         Ok(Some(ws_frame))
     }
+}
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+impl Encoder for Twist {
+    type Item = WebSocket;
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
         try_trace!(self.stdout, "encode: {}", self.client);
         if let Some(base) = msg.base() {
             if self.shaken {
@@ -346,10 +352,11 @@ impl Codec for Twist {
 #[cfg(test)]
 mod test {
     use super::Twist;
+    use bytes::BytesMut;
     use frame::WebSocket;
     use frame::base::{Frame, OpCode};
     use std::io::{self, Write};
-    use tokio_core::io::{Codec, EasyBuf};
+    use tokio_io::codec::{Decoder, Encoder};
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     const SHORT:  [u8; 7]   = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
@@ -383,7 +390,8 @@ mod test {
     const PONG:   [u8; 7]   = [0x8A, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
 
     fn decode_test(vec: Vec<u8>, opcode: OpCode, len: u64) {
-        let mut eb = EasyBuf::from(vec);
+        let mut eb = BytesMut::with_capacity(256);
+        eb.extend(vec);
         let mut fc: Twist = Default::default();
         fc.shaken = true;
 
@@ -429,8 +437,8 @@ mod test {
         base.set_application_data(app_data);
         frame.set_base(base);
 
-        let mut buf = vec![];
-        if let Ok(()) = <Twist as Codec>::encode(&mut fc, frame, &mut buf) {
+        let mut buf = BytesMut::with_capacity(1024);
+        if let Ok(()) = <Twist as Encoder>::encode(&mut fc, frame, &mut buf) {
             if buf.len() < 1024 {
                 // println!("{}", util::as_hex(&buf));
             }

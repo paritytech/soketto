@@ -1,11 +1,12 @@
 //! Codec for dedoding/encoding websocket client handshake frames.
+use bytes::BytesMut;
 use frame::client::request::Frame as ClientRequest;
 use frame::client::response::Frame as ServerResponse;
 use httparse::{EMPTY_HEADER, Response};
 use slog::Logger;
 use std::collections::HashMap;
 use std::io;
-use tokio_core::io::{Codec, EasyBuf};
+use tokio_io::codec::{Decoder, Encoder};
 use util;
 
 /// Codec for decoding/encoding websocket client handshake frames.
@@ -41,17 +42,18 @@ impl FrameCodec {
     }
 }
 
-impl Codec for FrameCodec {
-    type In = ServerResponse;
-    type Out = ClientRequest;
+impl Decoder for FrameCodec {
+    type Item = ServerResponse;
+    type Error = io::Error;
+    // type Out = ClientRequest;
 
-    fn decode(&mut self, buf: &mut EasyBuf) -> Result<Option<Self::In>, io::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let len = buf.len();
         if len == 0 {
             return Ok(None);
         }
-        let drained = buf.drain_to(len);
-        let resp_bytes = drained.as_slice();
+        let drained = buf.split_to(len);
+        let resp_bytes = &drained;
         let mut headers = [EMPTY_HEADER; 32];
         let mut resp = Response::new(&mut headers);
         let mut handshake_frame: ServerResponse = Default::default();
@@ -110,8 +112,13 @@ impl Codec for FrameCodec {
             return Err(util::other("unable to parse client request"));
         }
     }
+}
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> io::Result<()> {
+impl Encoder for FrameCodec {
+    type Item = ClientRequest;
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
         let mut request = format!("GET {}", msg.path());
 
         if !msg.query().is_empty() {

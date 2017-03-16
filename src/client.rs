@@ -3,20 +3,23 @@
 //! # Decode PONG Base Frame from server
 //!
 //! ```
-//! # extern crate tokio_core;
+//! # extern crate bytes;
+//! # extern crate tokio_io;
 //! # extern crate twist;
-//!
-//! use twist::client::{BaseFrameCodec, OpCode};
-//! use tokio_core::io::{Codec, EasyBuf};
-//!
-//! const PONG: [u8; 2] = [0x8a, 0x00];
-//!
-//! fn main() {
+//! #
+//! # use bytes::BytesMut;
+//! # use twist::client::{BaseFrameCodec, OpCode};
+//! # use tokio_io::codec::{Decoder, Encoder};
+//! #
+//! # const PONG: [u8; 2] = [0x8a, 0x00];
+//! #
+//! # fn main() {
 //!     let ping_vec = PONG.to_vec();
-//!     let mut eb = EasyBuf::from(ping_vec);
+//!     let mut eb = BytesMut::with_capacity(256);
+//!     eb.extend(ping_vec);
 //!     let mut fc: BaseFrameCodec = Default::default();
 //!     fc.set_client(true);
-//!     let mut encoded = Vec::new();
+//!     let mut encoded = BytesMut::with_capacity(256);
 //!
 //!     if let Ok(Some(frame)) = fc.decode(&mut eb) {
 //!         assert!(frame.fin());
@@ -39,7 +42,7 @@
 //!     } else {
 //!         assert!(false);
 //!     }
-//! }
+//! # }
 //! ```
 // Common Codec Exports
 pub use codec::Twist as TwistCodec;

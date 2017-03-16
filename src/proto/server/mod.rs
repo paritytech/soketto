@@ -6,7 +6,8 @@ use proto::server::fragmented::Fragmented;
 use proto::server::handshake::Handshake;
 use proto::server::pingpong::PingPong;
 use std::io;
-use tokio_core::io::{Framed, Io};
+use tokio_io::{AsyncRead, AsyncWrite};
+use tokio_io::codec::Framed;
 use tokio_proto::pipeline::ServerProto;
 
 pub use super::WebSocketProtocol;
@@ -21,7 +22,7 @@ type BaseCodec<T> = Framed<T, Twist>;
 /// The websocket protocol middleware chain type.
 type ProtoChain<T> = Handshake<Close<PingPong<Fragmented<BaseCodec<T>>>>>;
 
-impl<T: Io + 'static> ServerProto<T> for WebSocketProtocol {
+impl<T: AsyncRead + AsyncWrite + 'static> ServerProto<T> for WebSocketProtocol {
     type Request = WebSocket;
     type Response = WebSocket;
 
