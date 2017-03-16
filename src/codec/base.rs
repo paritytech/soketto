@@ -1,8 +1,7 @@
 //! Codec for encoding/decoding websocket [base] frames.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Buf, BytesMut, BigEndian};
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
@@ -87,9 +86,9 @@ impl FrameCodec {
     }
 
     /// Apply the unmasking to the application data.
-    fn apply_mask(&mut self, buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
-        let mut mask_buf = Vec::with_capacity(4);
-        mask_buf.write_u32::<BigEndian>(mask)?;
+    fn apply_mask(&mut self, buf: &mut BytesMut, mask: u32) -> Result<(), io::Error> {
+        let mut mask_buf = BytesMut::with_capacity(4);
+        mask_buf.put_u32::<BigEndian>(mask);
         let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
         for (byte, &key) in iter {
             *byte ^= key
@@ -114,9 +113,7 @@ impl Decoder for FrameCodec {
                 DecodeState::NONE => {
                     self.min_len += 2;
                     // Split off the 2 'header' bytes.
-                    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                    let size = self.min_len as usize;
-                    if buf_len < size {
+                    if (buf_len as u64) < self.min_len {
                         return Ok(None);
                     }
                     let header_bytes = buf.split_to(2);
@@ -160,34 +157,22 @@ impl Decoder for FrameCodec {
                 DecodeState::HEADER => {
                     if self.length_code == TWO_EXT {
                         self.min_len += 2;
-                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let size = self.min_len as usize;
-                        if buf_len < size {
+                        if (buf_len as u64) < self.min_len {
                             self.min_len -= 2;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.split_to(2));
-                        if let Ok(len) = rdr.read_u16::<BigEndian>() {
-                            self.payload_length = len as u64;
-                            self.state = DecodeState::LENGTH;
-                        } else {
-                            return Err(util::other("invalid length bytes"));
-                        }
+                        let len = Cursor::new(buf.split_to(2)).get_u16::<BigEndian>();
+                        self.payload_length = len as u64;
+                        self.state = DecodeState::LENGTH;
                     } else if self.length_code == EIGHT_EXT {
                         self.min_len += 8;
-                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let size = self.min_len as usize;
-                        if buf_len < size {
+                        if (buf_len as u64) < self.min_len {
                             self.min_len -= 8;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.split_to(8));
-                        if let Ok(len) = rdr.read_u64::<BigEndian>() {
-                            self.payload_length = len as u64;
-                            self.state = DecodeState::LENGTH;
-                        } else {
-                            return Err(util::other("invalid length bytes"));
-                        }
+                        let len = Cursor::new(buf.split_to(8)).get_u64::<BigEndian>();
+                        self.payload_length = len as u64;
+                        self.state = DecodeState::LENGTH;
                     } else {
                         self.payload_length = self.length_code as u64;
                         self.state = DecodeState::LENGTH;
@@ -199,19 +184,13 @@ impl Decoder for FrameCodec {
                 DecodeState::LENGTH => {
                     if self.masked {
                         self.min_len += 4;
-                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let size = self.min_len as usize;
-                        if buf_len < size {
+                        if (buf_len as u64) < self.min_len {
                             self.min_len -= 4;
                             return Ok(None);
                         }
-                        let mut rdr = Cursor::new(buf.split_to(4));
-                        if let Ok(mask) = rdr.read_u32::<BigEndian>() {
-                            self.mask_key = mask;
-                            self.state = DecodeState::MASK;
-                        } else {
-                            return Err(util::other("invalid mask value"));
-                        }
+                        let mask = Cursor::new(buf.split_to(4)).get_u32::<BigEndian>();
+                        self.mask_key = mask;
+                        self.state = DecodeState::MASK;
                     } else {
                         self.mask_key = 0;
                         self.state = DecodeState::MASK;
@@ -219,22 +198,17 @@ impl Decoder for FrameCodec {
                 }
                 DecodeState::MASK => {
                     self.min_len += self.payload_length;
-                    #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                    let size = self.min_len as usize;
                     let mask = self.mask_key;
-                    if buf_len < size {
+                    if (buf_len as u64) < self.min_len {
                         self.min_len -= self.payload_length;
-                        if self.opcode == OpCode::Text {
-                            let mut test_buf = buf.to_vec();
-                            if self.masked {
-                                self.apply_mask(&mut test_buf, mask)?;
-                                match utf8::validate(&test_buf) {
-                                    Ok(Some(_)) => {}
-                                    Ok(None) => return Ok(None),
-                                    Err(_e) => {
-                                        return Err(util::other("error during UTF-8 \
-                                        validation"))
-                                    }
+                        if self.opcode == OpCode::Text && self.masked {
+                            self.apply_mask(buf, mask)?;
+                            match utf8::validate(buf) {
+                                Ok(Some(_)) => {}
+                                Ok(None) => return Ok(None),
+                                Err(_e) => {
+                                    return Err(util::other("error during UTF-8 \
+                                    validation"))
                                 }
                             }
                         }
@@ -243,14 +217,13 @@ impl Decoder for FrameCodec {
 
                     if self.payload_length > 0 {
                         #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let app_data_bytes = buf.split_to(self.payload_length as usize);
-                        let mut adb = app_data_bytes;
+                        let mut app_data_bytes = buf.split_to(self.payload_length as usize);
                         if self.masked {
-                            self.apply_mask(&mut adb, mask)?;
-                            self.application_data = Some(adb.to_vec());
+                            self.apply_mask(&mut app_data_bytes, mask)?;
+                            self.application_data = Some(app_data_bytes.to_vec());
                             self.state = DecodeState::FULL;
                         } else if self.client {
-                            self.application_data = Some(adb.to_vec());
+                            self.application_data = Some(app_data_bytes.to_vec());
                             self.state = DecodeState::FULL
                         }
                     } else {
@@ -306,23 +279,23 @@ impl Encoder for FrameCodec {
             buf.put(second_byte);
         } else if len < 65536 {
             second_byte |= TWO_EXT;
-            let mut len_buf = Vec::with_capacity(2);
+            let mut len_buf = BytesMut::with_capacity(2);
             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let cast_len = len as u16;
-            len_buf.write_u16::<BigEndian>(cast_len)?;
+            len_buf.put_u16::<BigEndian>(cast_len);
             buf.put(second_byte);
             buf.extend(len_buf);
         } else {
             second_byte |= EIGHT_EXT;
-            let mut len_buf = Vec::with_capacity(8);
-            len_buf.write_u64::<BigEndian>(len)?;
+            let mut len_buf = BytesMut::with_capacity(8);
+            len_buf.put_u64::<BigEndian>(len);
             buf.put(second_byte);
             buf.extend(len_buf);
         }
 
         if msg.masked() {
-            let mut mask_buf = Vec::with_capacity(4);
-            mask_buf.write_u32::<BigEndian>(msg.mask())?;
+            let mut mask_buf = BytesMut::with_capacity(4);
+            mask_buf.put_u32::<BigEndian>(msg.mask());
             buf.extend(mask_buf);
         }
 

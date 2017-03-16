@@ -218,7 +218,7 @@ impl Decoder for Twist {
     type Error = io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(None);
         }
 
