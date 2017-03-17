@@ -2,6 +2,8 @@
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 use bytes::{BufMut, Buf, BytesMut, BigEndian};
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_8;
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
@@ -204,6 +206,18 @@ impl Decoder for FrameCodec {
                             return Ok(None);
                         } else if ((buf.len() + app_data_len) as u64) < self.payload_length {
                             self.application_data.extend(buf.take());
+                            if self.opcode == OpCode::Text {
+                                apply_mask(&mut self.application_data, mask)?;
+                                match UTF_8.decode(&self.application_data, DecoderTrap::Strict) {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        if &e == "invalid sequence" {
+                                            return Err(util::other(&e));
+                                        }
+                                    }
+                                }
+                                apply_mask(&mut self.application_data, mask)?;
+                            }
                             return Ok(None);
                         } else {
                             #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]

@@ -124,19 +124,17 @@ impl<T> Stream for Fragmented<T>
 
                     if let Some(base) = msg.base() {
                         try_trace!(self.stdout, "fragment continuation frame received");
-                        self.total_length += base.payload_length();
                         self.buf.extend(base.application_data());
-                        let app_data_len = base.application_data().len();
-                        let payload_len = base.payload_length();
-                        if self.opcode == OpCode::Text && self.total_length < 8192 {
-                            match UTF_8.decode(base.application_data(), DecoderTrap::Strict) {
+
+                        if self.opcode == OpCode::Text && self.buf.len() < 8192 {
+                            match UTF_8.decode(&self.buf, DecoderTrap::Strict) {
                                 Ok(_) => {}
                                 Err(e) => {
                                     try_error!(self.stderr, "{}", &e);
-                                    if (app_data_len as u64) == payload_len {
+                                    if &e != "incomplete sequence" {
                                         return Err(util::other(&e));
                                     }
-                                },
+                                }
                             }
                         }
                         self.poll_complete()?;

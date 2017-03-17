@@ -28,6 +28,8 @@ extern crate uuid;
 #[macro_use]
 extern crate futures;
 #[macro_use]
+extern crate nom;
+#[macro_use]
 extern crate slog;
 #[macro_use]
 mod macros;

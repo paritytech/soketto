@@ -1,4 +1,5 @@
 //! UTF-8 Validation for a byte stream.
+use nom::{ErrorKind, IResult, Needed};
 use std::error::Error;
 use std::fmt;
 use std::time::{Duration, Instant};
