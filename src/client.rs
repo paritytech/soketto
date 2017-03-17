@@ -32,7 +32,7 @@
 //!         assert!(frame.mask() == 0);
 //!         assert!(frame.payload_length() == 0);
 //!         assert!(frame.extension_data().is_none());
-//!         assert!(frame.application_data().is_none());
+//!         assert!(frame.application_data().is_empty());
 //!
 //!         if fc.encode(frame, &mut encoded).is_ok() {
 //!             for (a, b) in encoded.iter().zip(PONG.to_vec().iter()) {

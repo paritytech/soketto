@@ -1,10 +1,12 @@
 //! The `Fragmented` protocol middleware.
+use bytes::BytesMut;
 use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use futures::{Async, Poll, Sink, StartSend, Stream};
 use slog::Logger;
-use std::io;
+use std::error::Error;
+use std::{io, str};
 use util::{self, utf8};
 use uuid::Uuid;
 
@@ -23,7 +25,7 @@ pub struct Fragmented<T> {
     /// A running total of the payload lengths.
     total_length: u64,
     /// The buffer used to store the fragmented data.
-    buf: Vec<u8>,
+    buf: BytesMut,
     /// Per-message extensions
     permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
@@ -49,7 +51,7 @@ impl<T> Fragmented<T> {
             complete: false,
             opcode: OpCode::Close,
             total_length: 0,
-            buf: Vec::new(),
+            buf: BytesMut::with_capacity(1024),
             permessage_extensions: permessage_extensions,
             perframe_extensions: perframe_extensions,
             stdout: None,
@@ -108,10 +110,7 @@ impl<T> Stream for Fragmented<T>
                         self.opcode = base.opcode();
                         self.started = true;
                         self.total_length += base.payload_length();
-                        if let Some(app_data) = base.application_data() {
-                            self.buf.extend(app_data);
-                        }
-
+                        self.buf.extend(base.application_data());
                         self.poll_complete()?;
                     } else {
                         return Err(util::other("invalid fragment start frame received"));
@@ -125,14 +124,12 @@ impl<T> Stream for Fragmented<T>
                     if let Some(base) = msg.base() {
                         try_trace!(self.stdout, "fragment continuation frame received");
                         self.total_length += base.payload_length();
-                        if let Some(app_data) = base.application_data() {
-                            self.buf.extend(app_data);
-                        }
+                        self.buf.extend(base.application_data());
 
-                        if self.opcode == OpCode::Text && self.total_length < 8096 {
+                        if self.opcode == OpCode::Text && self.total_length < 8192 {
                             match utf8::validate(&self.buf) {
                                 Ok(_) => {}
-                                Err(_e) => return Err(util::other("error during UTF-8 validation")),
+                                Err(e) => return Err(util::other(e.description())),
                             }
                         }
                         self.poll_complete()?;
@@ -148,10 +145,7 @@ impl<T> Stream for Fragmented<T>
                         try_trace!(self.stdout, "fragment finish frame received");
                         self.complete = true;
                         self.total_length += base.payload_length();
-                        if let Some(app_data) = base.application_data() {
-                            self.buf.extend(app_data);
-                        }
-
+                        self.buf.extend(base.application_data());
                         self.poll_complete()?;
                     } else {
                         return Err(util::other("invalid fragment complete frame received"));
@@ -186,7 +180,7 @@ impl<T> Sink for Fragmented<T>
             // Setup the `Frame` to pass upstream.
             let mut base: Frame = Default::default();
             base.set_fin(true).set_opcode(self.opcode);
-            base.set_application_data(Some(self.buf.clone()));
+            base.set_application_data(self.buf.to_vec());
             base.set_payload_length(self.total_length);
 
             // Run the `Frame` through the extension decode chain.
@@ -194,10 +188,8 @@ impl<T> Sink for Fragmented<T>
 
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.
             if base.opcode() == OpCode::Text && base.fin() {
-                if let Some(app_data) = base.application_data() {
-                    String::from_utf8(app_data.to_vec())
-                        .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
-                }
+                str::from_utf8(base.application_data())
+                    .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
             }
             message.set_base(base);
 

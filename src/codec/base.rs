@@ -5,7 +5,7 @@ use bytes::{BufMut, Buf, BytesMut, BigEndian};
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
-use util::{self, utf8};
+use util;
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
 /// length.
@@ -63,7 +63,7 @@ pub struct FrameCodec {
     /// The optional `extension_data`
     extension_data: Option<Vec<u8>>,
     /// The optional `application_data`
-    application_data: Option<Vec<u8>>,
+    application_data: Vec<u8>,
     /// Decode state
     state: DecodeState,
     /// Minimum length required to parse the next part of the frame.
@@ -84,17 +84,17 @@ impl FrameCodec {
         self.reserved_bits = reserved_bits;
         self
     }
+}
 
-    /// Apply the unmasking to the application data.
-    fn apply_mask(&mut self, buf: &mut BytesMut, mask: u32) -> Result<(), io::Error> {
-        let mut mask_buf = BytesMut::with_capacity(4);
-        mask_buf.put_u32::<BigEndian>(mask);
-        let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
-        for (byte, &key) in iter {
-            *byte ^= key
-        }
-        Ok(())
+/// Apply the unmasking to the application data.
+fn apply_mask(buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
+    let mut mask_buf = BytesMut::with_capacity(4);
+    mask_buf.put_u32::<BigEndian>(mask);
+    let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
+    for (byte, &key) in iter {
+        *byte ^= key;
     }
+    Ok(())
 }
 
 impl Decoder for FrameCodec {
@@ -197,34 +197,22 @@ impl Decoder for FrameCodec {
                     }
                 }
                 DecodeState::MASK => {
-                    self.min_len += self.payload_length;
-                    let mask = self.mask_key;
-                    if (buf_len as u64) < self.min_len {
-                        self.min_len -= self.payload_length;
-                        if self.opcode == OpCode::Text && self.masked {
-                            self.apply_mask(buf, mask)?;
-                            match utf8::validate(buf) {
-                                Ok(Some(_)) => {}
-                                Ok(None) => return Ok(None),
-                                Err(_e) => {
-                                    return Err(util::other("error during UTF-8 \
-                                    validation"))
-                                }
-                            }
-                        }
-                        return Ok(None);
-                    }
-
                     if self.payload_length > 0 {
-                        #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
-                        let mut app_data_bytes = buf.split_to(self.payload_length as usize);
-                        if self.masked {
-                            self.apply_mask(&mut app_data_bytes, mask)?;
-                            self.application_data = Some(app_data_bytes.to_vec());
+                        let mask = self.mask_key;
+                        let app_data_len = self.application_data.len();
+                        if buf.is_empty() {
+                            return Ok(None);
+                        } else if ((buf.len() + app_data_len) as u64) < self.payload_length {
+                            self.application_data.extend(buf.take());
+                            return Ok(None);
+                        } else {
+                            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
+                            let split_len = (self.payload_length as usize) - app_data_len;
+                            self.application_data.extend(buf.split_to(split_len));
+                            if self.masked {
+                                apply_mask(&mut self.application_data, mask)?;
+                            }
                             self.state = DecodeState::FULL;
-                        } else if self.client {
-                            self.application_data = Some(app_data_bytes.to_vec());
-                            self.state = DecodeState::FULL
                         }
                     } else {
                         self.state = DecodeState::FULL;
@@ -299,8 +287,8 @@ impl Encoder for FrameCodec {
             buf.extend(mask_buf);
         }
 
-        if let Some(app_data) = msg.application_data() {
-            buf.extend(app_data);
+        if !msg.application_data().is_empty() {
+            buf.extend(msg.application_data().clone());
         }
 
         Ok(())
@@ -518,7 +506,7 @@ mod test {
             assert!(frame.opcode() == OpCode::Ping);
             assert!(frame.payload_length() == 0);
             assert!(frame.extension_data().is_none());
-            assert!(frame.application_data().is_none());
+            assert!(frame.application_data().is_empty());
         } else {
             assert!(false);
         }

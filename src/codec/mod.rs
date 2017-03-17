@@ -3,12 +3,14 @@
 use bytes::BytesMut;
 use codec::base::FrameCodec;
 use extension::{PerFrameExtensions, PerMessageExtensions};
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_8;
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use frame::client::request::Frame as ClientHandshakeRequestFrame;
 use frame::server::response::Frame as ServerHandshakeResponseFrame;
 use slog::Logger;
-use std::io;
+use std::{io, str};
 use tokio_io::codec::{Decoder, Encoder};
 use util;
 use uuid::Uuid;
@@ -243,11 +245,20 @@ impl Decoder for Twist {
             self.ext_chain_decode(&mut frame)?;
 
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.
-            if frame.opcode() == OpCode::Text && frame.fin() {
-                if let Some(app_data) = frame.application_data() {
-                    String::from_utf8(app_data.to_vec())
-                        .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
+            if frame.opcode() == OpCode::Text && frame.fin() &&
+               !frame.application_data().is_empty() {
+                match UTF_8.decode(frame.application_data(), DecoderTrap::Strict) {
+                    Ok(_) => {}
+                    Err(e) => return Err(util::other(&e)),
                 }
+                //    match utf8::validate(frame.application_data()) {
+                //        Ok(Some(_)) => {}
+                //        Ok(None) => return Err(util::other("invalid utf-8 in text frame")),
+                //        Err(e) => return Err(util::other(e.description())),
+                //    }
+                // TODO: Do this better.
+                // str::from_utf8(frame.application_data())
+                //     .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
             }
 
             ws_frame.set_base(frame);
@@ -357,6 +368,7 @@ mod test {
     use frame::base::{Frame, OpCode};
     use std::io::{self, Write};
     use tokio_io::codec::{Decoder, Encoder};
+    use util;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     const SHORT:  [u8; 7]   = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
@@ -409,7 +421,7 @@ mod test {
                     assert!(base.opcode() == opcode);
                     assert!(base.payload_length() == len);
                     assert!(base.extension_data().is_none());
-                    assert!(base.application_data().is_some());
+                    assert!(!base.application_data().is_empty());
                 } else {
                     assert!(false);
                 }
@@ -424,7 +436,7 @@ mod test {
         }
     }
 
-    fn encode_test(cmp: Vec<u8>, opcode: OpCode, len: u64, app_data: Option<Vec<u8>>) {
+    fn encode_test(cmp: Vec<u8>, opcode: OpCode, len: u64, app_data: Vec<u8>) {
         let mut fc: Twist = Default::default();
         fc.shaken = true;
         let mut frame: WebSocket = Default::default();
@@ -440,9 +452,10 @@ mod test {
         let mut buf = BytesMut::with_capacity(1024);
         if let Ok(()) = <Twist as Encoder>::encode(&mut fc, frame, &mut buf) {
             if buf.len() < 1024 {
-                // println!("{}", util::as_hex(&buf));
+                println!("{}", util::as_hex(&buf));
             }
             // There is no mask in encoded frames
+            println!("b: {}, c: {}", buf.len(), cmp.len());
             assert!(buf.len() == (cmp.len() - 4));
             // TODO: Fix the comparision.  May have to just define separate encoded bufs.
             // for (a, b) in buf.iter().zip(cmp.iter()) {
@@ -469,17 +482,17 @@ mod test {
 
     #[test]
     fn encode() {
-        encode_test(SHORT.to_vec(), OpCode::Text, 1, Some(vec![0]));
-        encode_test(MID.to_vec(), OpCode::Text, 126, Some(vec![0; 126]));
+        encode_test(SHORT.to_vec(), OpCode::Text, 1, vec![0]);
+        encode_test(MID.to_vec(), OpCode::Text, 126, vec![0; 126]);
         let mut long = Vec::with_capacity(65550);
         long.extend(&[0x81, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                       0x00, 0x01]);
         long.extend([0; 65536].iter());
-        encode_test(long.to_vec(), OpCode::Close, 65536, Some(vec![0; 65536]));
-        encode_test(CONT.to_vec(), OpCode::Continue, 1, Some(vec![0]));
-        encode_test(TEXT.to_vec(), OpCode::Text, 1, Some(vec![0]));
-        encode_test(BINARY.to_vec(), OpCode::Binary, 1, Some(vec![0]));
-        encode_test(PING.to_vec(), OpCode::Ping, 1, Some(vec![0]));
-        encode_test(PONG.to_vec(), OpCode::Pong, 1, Some(vec![0]));
+        encode_test(long.to_vec(), OpCode::Close, 65536, vec![0; 65536]);
+        encode_test(CONT.to_vec(), OpCode::Continue, 1, vec![0]);
+        encode_test(TEXT.to_vec(), OpCode::Text, 1, vec![0]);
+        encode_test(BINARY.to_vec(), OpCode::Binary, 1, vec![0]);
+        encode_test(PING.to_vec(), OpCode::Ping, 1, vec![0]);
+        encode_test(PONG.to_vec(), OpCode::Pong, 1, vec![0]);
     }
 }

@@ -11,7 +11,7 @@ pub struct PingPong<T> {
     /// The upstream protocol.
     upstream: T,
     /// A vector of app datas for the given pings.  A pong is sent with the same data.
-    app_datas: VecDeque<Option<Vec<u8>>>,
+    app_datas: VecDeque<Vec<u8>>,
     /// slog stdout `Logger`
     stdout: Option<Logger>,
     /// slog stderr `Logger`
@@ -55,12 +55,14 @@ impl<T> Stream for PingPong<T>
         loop {
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_pong() => {
+                    try_trace!(self.stdout, "unsolicited pong");
                     // Eat pongs
                     self.poll_complete()?;
                 }
                 Some(ref msg) if msg.is_ping() => {
+                    try_trace!(self.stdout, "ping");
                     if let Some(base) = msg.base() {
-                        self.app_datas.push_back(base.application_data().cloned());
+                        self.app_datas.push_back(base.application_data().clone());
                     } else {
                         return Err(util::other("couldn't extract base frame"));
                     }

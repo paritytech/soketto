@@ -113,7 +113,7 @@ pub struct Frame {
     /// The optional `extension_data`
     extension_data: Option<Vec<u8>>,
     /// The optional `application_data`
-    application_data: Option<Vec<u8>>,
+    application_data: Vec<u8>,
 }
 
 impl Frame {
@@ -221,16 +221,12 @@ impl Frame {
     }
 
     /// Get the `application_data`
-    pub fn application_data(&self) -> Option<&Vec<u8>> {
-        if let Some(ref ad) = self.application_data {
-            Some(ad)
-        } else {
-            None
-        }
+    pub fn application_data(&self) -> &Vec<u8> {
+        &self.application_data
     }
 
     /// Set the `application_data`
-    pub fn set_application_data(&mut self, application_data: Option<Vec<u8>>) -> &mut Frame {
+    pub fn set_application_data(&mut self, application_data: Vec<u8>) -> &mut Frame {
         self.application_data = application_data;
         self
     }
@@ -248,7 +244,7 @@ impl Default for Frame {
             mask: 0,
             payload_length: 0,
             extension_data: None,
-            application_data: None,
+            application_data: Vec::new(),
         }
     }
 }
@@ -273,15 +269,14 @@ impl fmt::Display for Frame {
                 write!(f, "\n\textension_data: [ {} bytes ]", len)?;
             }
         }
-        if let Some(ref app_data) = self.application_data {
-            let len = app_data.len();
-            if len <= 256 {
-                write!(f, "\n\tapplication_data:\n")?;
-                write!(f, "{}\n", util::hex_header())?;
-                write!(f, "{}", util::as_hex(app_data))?;
-            } else {
-                write!(f, "\n\tapplication_data: [ {} bytes ]", len)?;
-            }
+
+        let len = self.application_data.len();
+        if len <= 256 {
+            write!(f, "\n\tapplication_data:\n")?;
+            write!(f, "{}\n", util::hex_header())?;
+            write!(f, "{}", util::as_hex(&self.application_data))?;
+        } else {
+            write!(f, "\n\tapplication_data: [ {} bytes ]", len)?;
         }
         writeln!(f, "\n}}")
     }

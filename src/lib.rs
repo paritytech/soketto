@@ -16,6 +16,7 @@
 extern crate base64;
 extern crate byteorder;
 extern crate bytes;
+extern crate encoding;
 extern crate httparse;
 extern crate rand;
 extern crate sha1;

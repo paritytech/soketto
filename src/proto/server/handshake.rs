@@ -75,8 +75,6 @@ impl<T> Sink for Handshake<T>
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: WebSocket) -> StartSend<WebSocket, io::Error> {
-        try_trace!(self.stdout, "start_send");
-
         if self.server_sent {
             self.upstream.start_send(item)
         } else if self.client_received && item.is_serverside_handshake_response() {

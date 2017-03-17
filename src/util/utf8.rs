@@ -1,7 +1,9 @@
 //! UTF-8 Validation for a byte stream.
+use std::error::Error;
+use std::fmt;
 use std::time::{Duration, Instant};
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 /// UTF-8 Validation Errors
 pub enum UTF8Error {
     /// The code point is larger thant the maximum allowed (U+10FFFF)
@@ -20,6 +22,82 @@ pub enum UTF8Error {
     FourByteOverlong,
     /// Found an invalid first byte (0x80-0xbf)
     InvalidFirstByte(u8),
+}
+
+impl fmt::Display for UTF8Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            UTF8Error::MaxiumuCodePoint => {
+                write!(f,
+                       "The code point is larger thant the maximum allowed (U+10FFFF)")
+            }
+            UTF8Error::TwoByteContinuation => {
+                write!(f,
+                       "The 2nd-byte in a 2-byte sequence in not a valid continuation sequence.")
+            }
+            UTF8Error::TwoByteOverlong => {
+                write!(f,
+                       "Found a 2-byte sequence that could be represented as 1-byte.")
+            }
+            UTF8Error::ThreeByteContinuation(ref b) => {
+                write!(f,
+                       "The {}th-byte in a 3-byte sequence is not a valid continuation sequence.",
+                       b)
+            }
+            UTF8Error::ThreeByteOverlong => {
+                write!(f,
+                       "Found a 3-byte sequence that could be represented as 2 or 1-byte.")
+            }
+            UTF8Error::FourByteContinuation(ref b) => {
+                write!(f,
+                       "The {}th-byte in a 4-byte sequence is not a valid continuation sequence.",
+                       b)
+            }
+            UTF8Error::FourByteOverlong => {
+                write!(f,
+                       "Found a 4-byte sequence that could be represented as 3, 2 or 1-byte.")
+            }
+            UTF8Error::InvalidFirstByte(ref b) => {
+                write!(f, "Found an invalid first byte (0x80-0xbf): {}", b)
+            }
+        }
+    }
+}
+
+impl Error for UTF8Error {
+    fn description(&self) -> &str {
+        match *self {
+            UTF8Error::MaxiumuCodePoint => {
+                "The code point is larger thant the maximum allowed \
+            (U+10FFFF)"
+            }
+            UTF8Error::TwoByteContinuation => {
+                "The 2nd-byte in a 2-byte sequence in not a valid \
+            continuation sequence."
+            }
+            UTF8Error::TwoByteOverlong => {
+                "Found a 2-byte sequence that could be represented as \
+            1-byte."
+            }
+            UTF8Error::ThreeByteContinuation(_) => {
+                "The xth-byte in a 3-byte sequence is not a \
+            valid continuation sequence."
+            }
+            UTF8Error::ThreeByteOverlong => {
+                "Found a 3-byte sequence that could be represented as \
+            2 or 1-byte."
+            }
+            UTF8Error::FourByteContinuation(_) => {
+                "The xth-byte in a 4-byte sequence is not a \
+            valid continuation sequence."
+            }
+            UTF8Error::FourByteOverlong => {
+                "Found a 4-byte sequence that could be represented as \
+            3, 2 or 1-byte."
+            }
+            UTF8Error::InvalidFirstByte(_) => "Found an invalid first byte (0x80-0xbf)",
+        }
+    }
 }
 
 /// Returns true if the given byte doesn't start with 10xxxxxx.

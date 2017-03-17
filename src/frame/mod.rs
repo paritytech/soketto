@@ -28,12 +28,10 @@ pub struct WebSocket {
 
 impl WebSocket {
     /// Create a pong response frame.
-    pub fn pong(app_data: Option<Vec<u8>>) -> WebSocket {
+    pub fn pong(app_data: Vec<u8>) -> WebSocket {
         let mut base: Frame = Default::default();
         base.set_fin(true).set_opcode(OpCode::Pong);
-        if let Some(app_data) = app_data {
-            base.set_payload_length(app_data.len() as u64).set_application_data(Some(app_data));
-        }
+        base.set_payload_length(app_data.len() as u64).set_application_data(app_data);
 
         WebSocket {
             base: Some(base),
@@ -45,13 +43,11 @@ impl WebSocket {
     }
 
     /// Create a close response frame.
-    pub fn close(app_data: Option<Vec<u8>>) -> WebSocket {
+    pub fn close(app_data: Vec<u8>) -> WebSocket {
         let mut base: Frame = Default::default();
         base.set_fin(true).set_opcode(OpCode::Close);
-        if let Some(app_data) = app_data {
-            base.set_payload_length(app_data.len() as u64);
-            base.set_application_data(Some(app_data));
-        }
+        base.set_payload_length(app_data.len() as u64);
+        base.set_application_data(app_data);
 
         WebSocket {
             base: Some(base),

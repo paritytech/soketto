@@ -127,7 +127,7 @@ pub struct Close<T> {
     received: bool,
     /// The appdata associated with the close request.  This is sent back in the close response
     /// frame.
-    app_data: Option<Vec<u8>>,
+    app_data: Vec<u8>,
     /// slog stdout `Logger`
     stdout: Option<Logger>,
     /// slog stderr `Logger`
@@ -141,7 +141,7 @@ impl<T> Close<T> {
         Close {
             upstream: upstream,
             received: false,
-            app_data: None,
+            app_data: Vec::new(),
             stdout: None,
             stderr: None,
         }
@@ -178,7 +178,7 @@ impl<T> Stream for Close<T>
                             try_trace!(self.stdout, "close message received");
 
                             if let Some(base) = msg.base() {
-                                self.app_data = base.application_data().cloned();
+                                self.app_data = base.application_data().clone();
                                 self.received = true;
                             } else {
                                 return Err(util::other("couldn't extract base frame"));
@@ -217,19 +217,15 @@ impl<T> Sink for Close<T>
         if self.received {
             let mut orig = Vec::<u8>::with_capacity(2);
             let mut rest = Vec::<u8>::new();
-            let close_code = if let Some(ref app_data) = self.app_data {
-                if app_data.len() > 1 {
-                    orig.extend(&app_data[0..2]);
-                    let mut rdr = Cursor::new(&app_data[0..2]);
-                    if let Ok(len) = rdr.read_u16::<BigEndian>() {
-                        if String::from_utf8(app_data[2..].to_vec()).is_err() {
-                            ReasonCode::ProtocolError
-                        } else {
-                            rest.extend(&app_data[2..]);
-                            ReasonCode::from(len)
-                        }
-                    } else {
+            let close_code = if self.app_data.len() > 1 {
+                orig.extend(&self.app_data[0..2]);
+                let mut rdr = Cursor::new(&self.app_data[0..2]);
+                if let Ok(len) = rdr.read_u16::<BigEndian>() {
+                    if String::from_utf8(self.app_data[2..].to_vec()).is_err() {
                         ReasonCode::ProtocolError
+                    } else {
+                        rest.extend(&self.app_data[2..]);
+                        ReasonCode::from(len)
                     }
                 } else {
                     ReasonCode::ProtocolError
@@ -258,7 +254,7 @@ impl<T> Sink for Close<T>
                 }
             }
 
-            let mut close = WebSocket::close(Some(data));
+            let mut close = WebSocket::close(data);
 
             loop {
                 let res = self.upstream.start_send(close)?;
