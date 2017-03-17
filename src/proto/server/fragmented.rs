@@ -1,13 +1,14 @@
 //! The `Fragmented` protocol middleware.
 use bytes::BytesMut;
+use encoding::{Encoding, DecoderTrap};
+use encoding::all::UTF_8;
 use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use futures::{Async, Poll, Sink, StartSend, Stream};
 use slog::Logger;
-use std::error::Error;
 use std::{io, str};
-use util::{self, utf8};
+use util;
 use uuid::Uuid;
 
 /// The `Fragmented` struct.
@@ -125,11 +126,17 @@ impl<T> Stream for Fragmented<T>
                         try_trace!(self.stdout, "fragment continuation frame received");
                         self.total_length += base.payload_length();
                         self.buf.extend(base.application_data());
-
+                        let app_data_len = base.application_data().len();
+                        let payload_len = base.payload_length();
                         if self.opcode == OpCode::Text && self.total_length < 8192 {
-                            match utf8::validate(&self.buf) {
+                            match UTF_8.decode(base.application_data(), DecoderTrap::Strict) {
                                 Ok(_) => {}
-                                Err(e) => return Err(util::other(e.description())),
+                                Err(e) => {
+                                    try_error!(self.stderr, "{}", &e);
+                                    if (app_data_len as u64) == payload_len {
+                                        return Err(util::other(&e));
+                                    }
+                                },
                             }
                         }
                         self.poll_complete()?;
@@ -188,8 +195,10 @@ impl<T> Sink for Fragmented<T>
 
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.
             if base.opcode() == OpCode::Text && base.fin() {
-                str::from_utf8(base.application_data())
-                    .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
+                match UTF_8.decode(base.application_data(), DecoderTrap::Strict) {
+                    Ok(_) => {}
+                    Err(e) => return Err(util::other(&e)),
+                }
             }
             message.set_base(base);
 

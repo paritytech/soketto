@@ -2,9 +2,9 @@
 //! handshakes and websocket base frames on the server side.
 use bytes::BytesMut;
 use codec::base::FrameCodec;
-use extension::{PerFrameExtensions, PerMessageExtensions};
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::UTF_8;
+use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
 use frame::client::request::Frame as ClientHandshakeRequestFrame;
@@ -251,14 +251,6 @@ impl Decoder for Twist {
                     Ok(_) => {}
                     Err(e) => return Err(util::other(&e)),
                 }
-                //    match utf8::validate(frame.application_data()) {
-                //        Ok(Some(_)) => {}
-                //        Ok(None) => return Err(util::other("invalid utf-8 in text frame")),
-                //        Err(e) => return Err(util::other(e.description())),
-                //    }
-                // TODO: Do this better.
-                // str::from_utf8(frame.application_data())
-                //     .map_err(|_| util::other("invalid UTF-8 in text frame"))?;
             }
 
             ws_frame.set_base(frame);

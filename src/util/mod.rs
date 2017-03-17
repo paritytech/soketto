@@ -3,8 +3,6 @@ use std::io;
 #[cfg(test)]
 use std::io::Write;
 
-pub mod utf8;
-
 #[cfg(test)]
 pub fn stdo(msg: &str) {
     writeln!(io::stdout(), "{}", msg).expect("Unable to write to stdout!");
