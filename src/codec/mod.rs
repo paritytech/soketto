@@ -2,8 +2,6 @@
 //! handshakes and websocket base frames on the server side.
 use bytes::BytesMut;
 use codec::base::FrameCodec;
-use encoding::{Encoding, DecoderTrap};
-use encoding::all::UTF_8;
 use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
@@ -14,6 +12,7 @@ use std::{io, str};
 use tokio_io::codec::{Decoder, Encoder};
 use util;
 use uuid::Uuid;
+use vatfluid::{Success, validate};
 
 pub mod base;
 pub mod server;
@@ -247,9 +246,18 @@ impl Decoder for Twist {
             // Validate utf-8 here to allow pre-processing of appdata by extension chain.
             if frame.opcode() == OpCode::Text && frame.fin() &&
                !frame.application_data().is_empty() {
-                match UTF_8.decode(frame.application_data(), DecoderTrap::Strict) {
-                    Ok(_) => {}
-                    Err(e) => return Err(util::other(&e)),
+                match validate(frame.application_data()) {
+                    Ok(Success::Complete(pos)) => {
+                        try_trace!(self.stdout, "complete: {}", pos);
+                    }
+                    Ok(Success::Incomplete(_, pos)) => {
+                        try_error!(self.stderr, "incomplete: {}", pos);
+                        return Err(util::other("invalid utf-8 sequence"));
+                    }
+                    Err(e) => {
+                        try_error!(self.stderr, "{}", e);
+                        return Err(util::other("invalid utf-8 sequence"));
+                    }
                 }
             }
 

@@ -16,7 +16,6 @@
 extern crate base64;
 extern crate byteorder;
 extern crate bytes;
-extern crate encoding;
 extern crate httparse;
 extern crate rand;
 extern crate sha1;
@@ -24,11 +23,10 @@ extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_proto;
 extern crate uuid;
+extern crate vatfluid;
 
 #[macro_use]
 extern crate futures;
-#[macro_use]
-extern crate nom;
 #[macro_use]
 extern crate slog;
 #[macro_use]

@@ -1,7 +1,5 @@
 //! The `Fragmented` protocol middleware.
 use bytes::BytesMut;
-use encoding::{Encoding, DecoderTrap};
-use encoding::all::UTF_8;
 use extension::{PerFrameExtensions, PerMessageExtensions};
 use frame::WebSocket;
 use frame::base::{Frame, OpCode};
@@ -10,6 +8,7 @@ use slog::Logger;
 use std::{io, str};
 use util;
 use uuid::Uuid;
+use vatfluid::{Success, validate};
 
 /// The `Fragmented` struct.
 pub struct Fragmented<T> {
@@ -23,10 +22,10 @@ pub struct Fragmented<T> {
     complete: bool,
     /// The `OpCode` from the original message.
     opcode: OpCode,
-    /// A running total of the payload lengths.
-    total_length: u64,
     /// The buffer used to store the fragmented data.
     buf: BytesMut,
+    /// The position in our buffer that we have validated in the case of a text frame.
+    pos: usize,
     /// Per-message extensions
     permessage_extensions: PerMessageExtensions,
     /// Per-frame extensions
@@ -51,8 +50,8 @@ impl<T> Fragmented<T> {
             started: false,
             complete: false,
             opcode: OpCode::Close,
-            total_length: 0,
             buf: BytesMut::with_capacity(1024),
+            pos: 0,
             permessage_extensions: permessage_extensions,
             perframe_extensions: perframe_extensions,
             stdout: None,
@@ -110,7 +109,6 @@ impl<T> Stream for Fragmented<T>
                         try_trace!(self.stdout, "fragment start frame received");
                         self.opcode = base.opcode();
                         self.started = true;
-                        self.total_length += base.payload_length();
                         self.buf.extend(base.application_data());
                         self.poll_complete()?;
                     } else {
@@ -127,13 +125,19 @@ impl<T> Stream for Fragmented<T>
                         self.buf.extend(base.application_data());
 
                         if self.opcode == OpCode::Text && self.buf.len() < 8192 {
-                            match UTF_8.decode(&self.buf, DecoderTrap::Strict) {
-                                Ok(_) => {}
+                            try_trace!(self.stdout, "validating from pos: {}", self.pos);
+                            match validate(&self.buf[self.pos..]) {
+                                Ok(Success::Complete(pos)) => {
+                                    try_trace!(self.stdout, "complete: {}", pos);
+                                    self.pos += pos;
+                                }
+                                Ok(Success::Incomplete(_, pos)) => {
+                                    try_trace!(self.stdout, "incomplete: {}", pos);
+                                    self.pos += pos;
+                                }
                                 Err(e) => {
-                                    try_error!(self.stderr, "{}", &e);
-                                    if &e != "incomplete sequence" {
-                                        return Err(util::other(&e));
-                                    }
+                                    try_error!(self.stderr, "{}", e);
+                                    return Err(util::other("invalid utf-8 sequence"));
                                 }
                             }
                         }
@@ -149,7 +153,6 @@ impl<T> Stream for Fragmented<T>
                     if let Some(base) = msg.base() {
                         try_trace!(self.stdout, "fragment finish frame received");
                         self.complete = true;
-                        self.total_length += base.payload_length();
                         self.buf.extend(base.application_data());
                         self.poll_complete()?;
                     } else {
@@ -186,18 +189,26 @@ impl<T> Sink for Fragmented<T>
             let mut base: Frame = Default::default();
             base.set_fin(true).set_opcode(self.opcode);
             base.set_application_data(self.buf.to_vec());
-            base.set_payload_length(self.total_length);
+            base.set_payload_length(self.buf.len() as u64);
+
+            // Validate utf-8 here to allow pre-processing of appdata by extension chain.
+            if base.opcode() == OpCode::Text && base.fin() {
+                match validate(&self.buf[self.pos..]) {
+                    Ok(Success::Complete(_)) => {}
+                    Ok(Success::Incomplete(_, pos)) => {
+                        try_error!(self.stderr, "incomplete: {}", pos);
+                        return Err(util::other("invalid utf-8 sequence"));
+                    }
+                    Err(e) => {
+                        try_error!(self.stderr, "{}", e);
+                        return Err(util::other("invalid utf-8 sequence"));
+                    }
+                }
+            }
 
             // Run the `Frame` through the extension decode chain.
             self.ext_chain_decode(&mut base)?;
 
-            // Validate utf-8 here to allow pre-processing of appdata by extension chain.
-            if base.opcode() == OpCode::Text && base.fin() {
-                match UTF_8.decode(base.application_data(), DecoderTrap::Strict) {
-                    Ok(_) => {}
-                    Err(e) => return Err(util::other(&e)),
-                }
-            }
             message.set_base(base);
 
             // Send it upstream
@@ -207,6 +218,7 @@ impl<T> Sink for Fragmented<T>
             self.started = false;
             self.complete = false;
             self.opcode = OpCode::Close;
+            self.pos = 0;
             self.buf.clear();
 
             try_trace!(self.stdout, "fragment completed sending result upstream");

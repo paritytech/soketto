@@ -3,8 +3,8 @@ use std::io;
 #[cfg(test)]
 use std::io::Write;
 
-#[allow(dead_code)]
-pub mod utf8;
+// #[allow(dead_code)]
+// pub mod utf8;
 
 #[cfg(test)]
 pub fn stdo(msg: &str) {

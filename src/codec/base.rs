@@ -2,12 +2,11 @@
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 use bytes::{BufMut, Buf, BytesMut, BigEndian};
-use encoding::{Encoding, DecoderTrap};
-use encoding::all::UTF_8;
 use frame::base::{Frame, OpCode};
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
 use util;
+use vatfluid::{Success, validate};
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
 /// length.
@@ -66,6 +65,8 @@ pub struct FrameCodec {
     extension_data: Option<Vec<u8>>,
     /// The optional `application_data`
     application_data: Vec<u8>,
+    /// The position in the application_data that we have validate in a text frame.
+    pos: usize,
     /// Decode state
     state: DecodeState,
     /// Minimum length required to parse the next part of the frame.
@@ -208,12 +209,19 @@ impl Decoder for FrameCodec {
                             self.application_data.extend(buf.take());
                             if self.opcode == OpCode::Text {
                                 apply_mask(&mut self.application_data, mask)?;
-                                match UTF_8.decode(&self.application_data, DecoderTrap::Strict) {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        if &e == "invalid sequence" {
-                                            return Err(util::other(&e));
-                                        }
+                                // try_trace!(self.stdout, "validating from pos: {}", self.pos);
+                                match validate(&self.application_data[self.pos..]) {
+                                    Ok(Success::Complete(pos)) => {
+                                        // try_trace!(self.stdout, "complete: {}", pos);
+                                        self.pos += pos;
+                                    }
+                                    Ok(Success::Incomplete(_, pos)) => {
+                                        // try_trace!(self.stdout, "incomplete: {}", pos);
+                                        self.pos += pos;
+                                    }
+                                    Err(_e) => {
+                                        // try_error!(self.stderr, "{}", e);
+                                        return Err(util::other("invalid utf-8 sequence"));
                                     }
                                 }
                                 apply_mask(&mut self.application_data, mask)?;
