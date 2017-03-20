@@ -3,6 +3,7 @@
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 use bytes::{BufMut, Buf, BytesMut, BigEndian};
 use frame::base::{Frame, OpCode};
+use slog::Logger;
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
 use util;
@@ -73,6 +74,10 @@ pub struct FrameCodec {
     min_len: u64,
     /// Bits reserved by extensions.
     reserved_bits: u8,
+    /// slog stdout `Logger`
+    stdout: Option<Logger>,
+    /// slog stderr `Logger`
+    stderr: Option<Logger>,
 }
 
 impl FrameCodec {
@@ -85,6 +90,20 @@ impl FrameCodec {
     /// Set the bits reserved by extensions (0-8 are valid values).
     pub fn set_reserved_bits(&mut self, reserved_bits: u8) -> &mut FrameCodec {
         self.reserved_bits = reserved_bits;
+        self
+    }
+
+    /// Add a stdout slog `Logger` to this protocol.
+    pub fn stdout(&mut self, logger: Logger) -> &mut FrameCodec {
+        let stdout = logger.new(o!("codec" => "base"));
+        self.stdout = Some(stdout);
+        self
+    }
+
+    /// Add a stderr slog `Logger` to this protocol.
+    pub fn stderr(&mut self, logger: Logger) -> &mut FrameCodec {
+        let stderr = logger.new(o!("codec" => "base"));
+        self.stderr = Some(stderr);
         self
     }
 }
@@ -209,18 +228,18 @@ impl Decoder for FrameCodec {
                             self.application_data.extend(buf.take());
                             if self.opcode == OpCode::Text {
                                 apply_mask(&mut self.application_data, mask)?;
-                                // try_trace!(self.stdout, "validating from pos: {}", self.pos);
+                                try_trace!(self.stdout, "validating from pos: {}", self.pos);
                                 match validate(&self.application_data[self.pos..]) {
                                     Ok(Success::Complete(pos)) => {
-                                        // try_trace!(self.stdout, "complete: {}", pos);
+                                        try_trace!(self.stdout, "complete: {}", pos);
                                         self.pos += pos;
                                     }
                                     Ok(Success::Incomplete(_, pos)) => {
-                                        // try_trace!(self.stdout, "incomplete: {}", pos);
+                                        try_trace!(self.stdout, "incomplete: {}", pos);
                                         self.pos += pos;
                                     }
-                                    Err(_e) => {
-                                        // try_error!(self.stderr, "{}", e);
+                                    Err(e) => {
+                                        try_error!(self.stderr, "{}", e);
                                         return Err(util::other("invalid utf-8 sequence"));
                                     }
                                 }

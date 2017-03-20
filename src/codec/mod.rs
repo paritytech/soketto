@@ -227,6 +227,14 @@ impl Decoder for Twist {
         if self.shaken {
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
+                if let Some(ref mut fc) = self.frame_codec {
+                    if let Some(ref stdout) = self.stdout {
+                        fc.stdout(stdout.clone());
+                    }
+                    if let Some(ref stderr) = self.stderr {
+                        fc.stderr(stderr.clone());
+                    }
+                }
             }
 
             let mut frame = if let Some(ref mut fc) = self.frame_codec {
