@@ -23,7 +23,7 @@ slog-term = "1.5.0"
 tokio-core = "0.1.4"
 tokio-io = "0.1.0"
 tokio-proto = "0.1.1"
-vatfluid = "0.2.0"
+vatfluid = "0.3.0"
 
 [dependencies.slog]
 features = ["max_level_trace", "release_max_level_trace"]
@@ -40,6 +40,3 @@ ext = []
 [lib]
 name = "twist"
 path = "src/lib.rs"
-
-[replace]
-"vatfluid:0.2.0" = { path = "/home/jozias/projects/vatfluid" }
