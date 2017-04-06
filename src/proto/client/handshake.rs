@@ -53,7 +53,7 @@ impl<T> Stream for Handshake<T>
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<WebSocket>, io::Error> {
-        try_trace!(self.stdout, "client handshake poll");
+        try_trace!(self.stdout, "poll");
         loop {
             match try_ready!(self.upstream.poll()) {
                 Some(ref msg) if msg.is_clientside_handshake_response() &&
@@ -75,7 +75,7 @@ impl<T> Sink for Handshake<T>
     type SinkError = io::Error;
 
     fn start_send(&mut self, item: WebSocket) -> StartSend<WebSocket, io::Error> {
-        try_trace!(self.stdout, "client::handshake start_send");
+        try_trace!(self.stdout, "start_send");
         if !self.client_sent {
             self.client_sent = true;
             self.upstream.start_send(item)
@@ -89,7 +89,7 @@ impl<T> Sink for Handshake<T>
     }
 
     fn poll_complete(&mut self) -> Poll<(), io::Error> {
-        try_trace!(self.stdout, "client::handshake poll complete");
+        try_trace!(self.stdout, "poll complete");
         self.upstream.poll_complete()
     }
 }

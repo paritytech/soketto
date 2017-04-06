@@ -31,7 +31,8 @@ impl WebSocket {
     pub fn pong(app_data: Vec<u8>) -> WebSocket {
         let mut base: Frame = Default::default();
         base.set_fin(true).set_opcode(OpCode::Pong);
-        base.set_payload_length(app_data.len() as u64).set_application_data(app_data);
+        base.set_payload_length(app_data.len() as u64)
+            .set_application_data(app_data);
 
         WebSocket {
             base: Some(base),

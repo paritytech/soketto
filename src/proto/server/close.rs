@@ -243,7 +243,8 @@ impl<T> Sink for Close<T>
                 ReasonCode::Reserved3 |
                 ReasonCode::Reserved4 |
                 ReasonCode::Reserved5 => {
-                    if data.write_u16::<BigEndian>(ReasonCode::ProtocolError.into()).is_err() {
+                    if data.write_u16::<BigEndian>(ReasonCode::ProtocolError.into())
+                           .is_err() {
                         return Err(util::other("unable to write close code"));
                     }
                     data.extend(format!("{}", ReasonCode::ProtocolError).bytes())

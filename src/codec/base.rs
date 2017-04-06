@@ -231,11 +231,11 @@ impl Decoder for FrameCodec {
                                 try_trace!(self.stdout, "validating from pos: {}", self.pos);
                                 match validate(&self.application_data[self.pos..]) {
                                     Ok(Success::Complete(pos)) => {
-                                        try_trace!(self.stdout, "complete: {}", pos);
+                                        try_trace!(self.stdout, "validation complete: {}", pos);
                                         self.pos += pos;
                                     }
                                     Ok(Success::Incomplete(_, pos)) => {
-                                        try_trace!(self.stdout, "incomplete: {}", pos);
+                                        try_trace!(self.stdout, "validation incomplete: {}", pos);
                                         self.pos += pos;
                                     }
                                     Err(e) => {
