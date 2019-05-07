@@ -29,7 +29,7 @@ pub struct Twist {
     /// The Uuid of the parent protocol.  Used for extension lookup.
     uuid: Uuid,
     /// Client/Server flag.
-    client: bool,
+    is_client: bool,
     /// The handshake indicator.  If this is false, the handshake is not complete.
     handshake_complete: bool,
     /// The `Codec` to use to decode the buffer into a `base::Frame`.  Due to the reentrant nature
@@ -56,10 +56,10 @@ pub struct Twist {
 
 impl Twist {
     /// Create a new `Twist` codec with the given extensions.
-    pub fn new(uuid: Uuid, client: bool) -> Self {
+    pub fn new(uuid: Uuid, is_client: bool) -> Self {
         Twist {
-            uuid: uuid,
-            client: client,
+            uuid,
+            is_client,
             handshake_complete: false,
             frame_codec: None,
             client_handshake_codec: None,
@@ -92,7 +92,7 @@ impl Twist {
     /// Encode a base frame.
     fn encode_base(&mut self, base: &Frame, buf: &mut BytesMut) -> io::Result<()> {
         let mut fc: FrameCodec = Default::default();
-        fc.set_client(self.client);
+        fc.set_client(self.is_client);
         let mut mut_base = base.clone();
 
         // Run the frame through the permessage extension chain before final encoding.
@@ -182,14 +182,13 @@ impl Decoder for Twist {
             return Ok(None);
         }
 
-        let mut ws_frame: WebSocket = Default::default();
         if self.handshake_complete {
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
             }
 
             let mut frame = if let Some(ref mut fc) = self.frame_codec {
-                fc.set_client(self.client);
+                fc.set_client(self.is_client);
                 fc.set_reserved_bits(self.reserved_bits);
                 match fc.decode(buf) {
                     Ok(Some(frame)) => frame,
@@ -220,9 +219,11 @@ impl Decoder for Twist {
                 }
             }
 
-            ws_frame.set_base(frame);
             self.frame_codec = None;
-        } else if self.client {
+            return Ok(Some(WebSocket::Base(frame)))
+        }
+
+        if self.is_client {
             trace!("decoding into server handshake response frame");
             if self.client_handshake_codec.is_none() {
                 let hc: client::handshake::FrameCodec = Default::default();
@@ -252,33 +253,34 @@ impl Decoder for Twist {
                             }
                         }
 
-                        ws_frame.set_clientside_handshake_response(hand);
                         self.reserved_bits = rb;
                         self.handshake_complete = true;
-                    }
-                    Ok(None) => return Ok(None),
-                    Err(e) => return Err(e),
-                }
-            }
-            self.client_handshake_codec = None;
-        } else {
-            trace!("decoding into server handshake frame");
-            if self.server_handshake_codec.is_none() {
-                self.server_handshake_codec = Some(Default::default());
-            }
+                        self.client_handshake_codec = None;
 
-            if let Some(ref mut hc) = self.server_handshake_codec {
-                match hc.decode(buf) {
-                    Ok(Some(hand)) => {
-                        ws_frame.set_serverside_handshake_request(hand);
+                        return Ok(Some(WebSocket::ClientHandshakeResponse(hand)))
                     }
                     Ok(None) => return Ok(None),
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(e)
                 }
             }
-            self.server_handshake_codec = None;
         }
-        Ok(Some(ws_frame))
+
+        assert!(!self.is_client);
+
+        trace!("decoding into server handshake frame");
+        if self.server_handshake_codec.is_none() {
+            self.server_handshake_codec = Some(Default::default());
+        }
+
+        let hc = self.server_handshake_codec.as_mut().unwrap();
+        match hc.decode(buf) {
+            Ok(Some(hand)) => {
+                self.server_handshake_codec = None;
+                return Ok(Some(WebSocket::ServerHandshake(hand)))
+            }
+            Ok(None) => return Ok(None),
+            Err(e) => return Err(e)
+        }
     }
 }
 
@@ -287,21 +289,18 @@ impl Encoder for Twist {
     type Error = io::Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
-        trace!("encode: {}", self.client);
-        if let Some(base) = msg.base() {
-            if self.handshake_complete {
-                self.encode_base(base, buf)?;
-            } else {
-                return Err(util::other("handshake request not complete"));
-            }
-        } else if let Some(server_handshake) = msg.serverside_handshake_response() {
-            self.encode_server_handshake(server_handshake, buf)?;
-        } else if let Some(client_handshake) = msg.clientside_handshake_request() {
-            self.encode_client_handshake(client_handshake, buf)?;
-        } else {
-            return Err(util::other("unable to extract frame to encode"));
+        trace!("encode: {}", self.is_client);
+        match msg {
+            WebSocket::Base(ref frame) =>
+                if self.handshake_complete {
+                    self.encode_base(frame, buf)
+                } else {
+                    Err(util::other("handshake request not complete"))
+                }
+            WebSocket::ServerHandshakeResponse(ref frame) => self.encode_server_handshake(frame, buf),
+            WebSocket::ClientHandshake(ref frame) => self.encode_client_handshake(frame, buf),
+            _ => Err(util::other("unable to extract frame to encode"))
         }
-        Ok(())
     }
 }
 
@@ -347,7 +346,7 @@ mod test {
 
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
-                if let Some(base) = decoded.base() {
+                if let WebSocket::Base(base) = decoded {
                     if base.opcode() == OpCode::Continue {
                         assert!(!base.fin());
                     } else {
@@ -377,7 +376,6 @@ mod test {
     fn encode_test(cmp: Vec<u8>, opcode: OpCode, len: u64, app_data: Vec<u8>) {
         let mut fc: Twist = Default::default();
         fc.handshake_complete = true;
-        let mut frame: WebSocket = Default::default();
         let mut base: Frame = Default::default();
         base.set_opcode(opcode);
         if opcode == OpCode::Continue {
@@ -385,10 +383,9 @@ mod test {
         }
         base.set_payload_length(len);
         base.set_application_data(app_data);
-        frame.set_base(base);
 
         let mut buf = BytesMut::with_capacity(1024);
-        if let Ok(()) = <Twist as Encoder>::encode(&mut fc, frame, &mut buf) {
+        if let Ok(()) = <Twist as Encoder>::encode(&mut fc, WebSocket::Base(base), &mut buf) {
             if buf.len() < 1024 {
                 println!("{}", util::as_hex(&buf));
             }
