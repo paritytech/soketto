@@ -7,15 +7,16 @@ use uuid::Uuid;
 
 /// Thread safe ref counted storage for user supplied per-message extensions.
 pub type PerMessageExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerMessage>>>>>;
+
 /// Thread safe ref counted storage for user supplied per-frameextensions.
 pub type PerFrameExtensions = Arc<Mutex<HashMap<Uuid, Vec<Box<PerFrame>>>>>;
 
-/// Extensions are configured from the `Sec-WebSocket-Extensions` headers.  Configure your
-/// extension based on that header.
+/// Extensions are configured from the `Sec-WebSocket-Extensions` headers.
+/// Configure your extension based on that header.
 pub trait Header {
     /// Initialize your extension from the given `Sec-WebSocket-Extensions` header
-    /// string.  If your extension parameters exist, but are invalid, you should return an error
-    /// here.  If they don't exist you should mark yourself disabled (see enabled below), and
+    /// string. If your extension parameters exist, but are invalid, you should return an error
+    /// here. If they don't exist you should mark yourself disabled (see enabled below), and
     /// return Ok.  For a server-side extension, this will be called first, and should be used to
     /// generate the value that will be returned by `into_header`.   For a client-side extension,
     /// this will be called after the server response is received, and should be use to

@@ -1,4 +1,5 @@
 //! A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame
+
 use crate::util;
 use std::fmt;
 
@@ -20,7 +21,7 @@ pub enum OpCode {
     /// Indicates a reserved op code.
     Reserved,
     /// Indicates an invalid opcode was received.
-    Bad,
+    Bad
 }
 
 impl OpCode {
@@ -28,7 +29,7 @@ impl OpCode {
     pub fn is_control(&self) -> bool {
         match *self {
             OpCode::Close | OpCode::Ping | OpCode::Pong => true,
-            _ => false,
+            _ => false
         }
     }
 
@@ -36,7 +37,7 @@ impl OpCode {
     pub fn is_invalid(&self) -> bool {
         match *self {
             OpCode::Reserved | OpCode::Bad => true,
-            _ => false,
+            _ => false
         }
     }
 }
@@ -50,14 +51,14 @@ impl Default for OpCode {
 impl fmt::Display for OpCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            OpCode::Continue => write!(f, "Continue"),
-            OpCode::Text => write!(f, "Text"),
-            OpCode::Binary => write!(f, "Binary"),
-            OpCode::Close => write!(f, "Close"),
-            OpCode::Ping => write!(f, "Ping"),
-            OpCode::Pong => write!(f, "Pong"),
-            OpCode::Reserved => write!(f, "Reserved"),
-            OpCode::Bad => write!(f, "Bad"),
+            OpCode::Continue => f.write_str( "Continue"),
+            OpCode::Text => f.write_str("Text"),
+            OpCode::Binary => f.write_str("Binary"),
+            OpCode::Close => f.write_str("Close"),
+            OpCode::Ping => f.write_str("Ping"),
+            OpCode::Pong => f.write_str("Pong"),
+            OpCode::Reserved => f.write_str("Reserved"),
+            OpCode::Bad => f.write_str("Bad")
         }
     }
 }

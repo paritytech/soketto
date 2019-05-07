@@ -3,10 +3,6 @@
 //! # Decode PONG Base Frame from server
 //!
 //! ```
-//! # extern crate bytes;
-//! # extern crate tokio_io;
-//! # extern crate twist;
-//! #
 //! # use bytes::BytesMut;
 //! # use twist::client::{BaseFrameCodec, OpCode};
 //! # use tokio_io::codec::{Decoder, Encoder};
@@ -44,6 +40,7 @@
 //!     }
 //! # }
 //! ```
+
 // Common Codec Exports
 pub use crate::codec::Twist as TwistCodec;
 pub use crate::codec::base::FrameCodec as BaseFrameCodec;

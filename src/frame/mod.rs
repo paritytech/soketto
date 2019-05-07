@@ -1,4 +1,5 @@
-//! A websocket server frame.
+//! A websocket frame.
+
 use crate::frame::base::{Frame, OpCode};
 use crate::frame::client::request::Frame as ClientsideHandshakeRequest;
 use crate::frame::client::response::Frame as ClientsideHandshakeResponse;
@@ -10,8 +11,10 @@ pub mod base;
 pub mod client;
 pub mod server;
 
-/// A `twist` websocket frame.  Note a websocket frame is either a client handshake frame, a
-/// server handshake frame,  or a base frame.  They are mutually exclusive.
+/// A websocket frame.
+///
+/// Note a websocket frame is either a client handshake frame, a
+/// server handshake frame, or a base frame. They are mutually exclusive.
 #[derive(Debug, Default, Clone)]
 pub struct WebSocket {
     /// The client hanshake portion of a websocket frame.

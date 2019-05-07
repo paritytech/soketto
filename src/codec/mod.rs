@@ -31,7 +31,7 @@ pub struct Twist {
     /// Client/Server flag.
     client: bool,
     /// The handshake indicator.  If this is false, the handshake is not complete.
-    shaken: bool,
+    handshake_complete: bool,
     /// The `Codec` to use to decode the buffer into a `base::Frame`.  Due to the reentrant nature
     /// of decode, the codec is initialized if set to None, reused if Some, and reset to None
     /// after every successful decode.
@@ -47,30 +47,26 @@ pub struct Twist {
     /// The `Origin` header, if present.
     // origin: Option<String>,
     /// Per-message extensions
-    permessage_extensions: PerMessageExtensions,
+    permessage_extensions: Option<PerMessageExtensions>,
     /// Per-frame extensions
-    _perframe_extensions: PerFrameExtensions,
+    perframe_extensions: Option<PerFrameExtensions>,
     /// RSVx bits reserved by extensions (must be less than 16)
     reserved_bits: u8
 }
 
 impl Twist {
     /// Create a new `Twist` codec with the given extensions.
-    pub fn new(uuid: Uuid,
-               client: bool,
-               permessage_extensions: PerMessageExtensions,
-               perframe_extensions: PerFrameExtensions)
-               -> Twist {
+    pub fn new(uuid: Uuid, client: bool) -> Self {
         Twist {
             uuid: uuid,
             client: client,
-            shaken: false,
+            handshake_complete: false,
             frame_codec: None,
             client_handshake_codec: None,
             server_handshake_codec: None,
             // origin: None,
-            permessage_extensions: permessage_extensions,
-            _perframe_extensions: perframe_extensions,
+            permessage_extensions: None,
+            perframe_extensions: None,
             reserved_bits: 0
         }
     }
@@ -80,11 +76,13 @@ impl Twist {
         let opcode = frame.opcode();
         // Only run the chain if this is a Text/Binary finish frame.
         if frame.fin() && (opcode == OpCode::Text || opcode == OpCode::Binary) {
-            let mut map = self.permessage_extensions.lock();
-            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pm_exts.iter_mut() {
-                if ext.enabled() {
-                    ext.decode(frame)?;
+            if let Some(ref extensions) = self.permessage_extensions {
+                let mut map = extensions.lock();
+                let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+                for ext in vec_pm_exts.iter_mut() {
+                    if ext.enabled() {
+                        ext.decode(frame)?;
+                    }
                 }
             }
         }
@@ -98,11 +96,13 @@ impl Twist {
         let mut mut_base = base.clone();
 
         // Run the frame through the permessage extension chain before final encoding.
-        let mut map = self.permessage_extensions.lock();
-        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-        for ext in vec_pm_exts.iter_mut() {
-            if ext.enabled() {
-                ext.encode(&mut mut_base)?;
+        if let Some(ref extensions) = self.permessage_extensions {
+            let mut map = extensions.lock();
+            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pm_exts.iter_mut() {
+                if ext.enabled() {
+                    ext.encode(&mut mut_base)?;
+                }
             }
         }
 
@@ -115,14 +115,16 @@ impl Twist {
                                handshake: &ClientHandshakeRequestFrame,
                                buf: &mut BytesMut)
                                -> io::Result<()> {
-        // Run the frame through the permessage extension chain before final encoding.
-        let mut map = self.permessage_extensions.lock();
-        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         let mut hc: client::handshake::FrameCodec = Default::default();
-        for ext in vec_pm_exts.iter_mut() {
-            if ext.enabled() {
-                if let Ok(Some(header)) = ext.into_header() {
-                    hc.add_header(header);
+        // Run the frame through the permessage extension chain before final encoding.
+        if let Some(ref extensions) = self.permessage_extensions {
+            let mut map = extensions.lock();
+            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pm_exts.iter_mut() {
+                if ext.enabled() {
+                    if let Ok(Some(header)) = ext.into_header() {
+                        hc.add_header(header);
+                    }
                 }
             }
         }
@@ -142,18 +144,20 @@ impl Twist {
         let mut rb = self.reserved_bits;
 
         // Run the frame through the permessage extension chain before final encoding.
-        let mut map = self.permessage_extensions.lock();
-        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-        for ext in vec_pm_exts.iter_mut() {
-            ext.from_header(&ext_header)?;
-            if ext.enabled() {
-                match ext.reserve_rsv(rb) {
-                    Ok(r) => rb = r,
-                    Err(e) => return Err(e),
-                }
-                if let Ok(Some(response)) = ext.into_header() {
-                    ext_resp.push_str(&response);
-                    ext_resp.push_str(", ");
+        if let Some(ref extensions) = self.permessage_extensions {
+            let mut map = extensions.lock();
+            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+            for ext in vec_pm_exts.iter_mut() {
+                ext.from_header(&ext_header)?;
+                if ext.enabled() {
+                    match ext.reserve_rsv(rb) {
+                        Ok(r) => rb = r,
+                        Err(e) => return Err(e),
+                    }
+                    if let Ok(Some(response)) = ext.into_header() {
+                        ext_resp.push_str(&response);
+                        ext_resp.push_str(", ");
+                    }
                 }
             }
         }
@@ -164,7 +168,7 @@ impl Twist {
         // TODO: Run through perframe extensions here.
 
         hc.encode(handshake.clone(), buf)?;
-        self.shaken = true;
+        self.handshake_complete = true;
         Ok(())
     }
 }
@@ -179,7 +183,7 @@ impl Decoder for Twist {
         }
 
         let mut ws_frame: WebSocket = Default::default();
-        if self.shaken {
+        if self.handshake_complete {
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
             }
@@ -231,24 +235,26 @@ impl Decoder for Twist {
                         let mut rb = self.reserved_bits;
 
                         // Run the frame through the permessage extension chain..
-                        let mut map = self.permessage_extensions.lock();
-                        let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-                        for ext in vec_pm_exts.iter_mut() {
-                            // Reconfigure based on response
-                            ext.from_header(&ext_header)?;
+                        if let Some(ref extensions) = self.permessage_extensions {
+                            let mut map = extensions.lock();
+                            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+                            for ext in vec_pm_exts.iter_mut() {
+                                // Reconfigure based on response
+                                ext.from_header(&ext_header)?;
 
-                            // If ext is still enabled set the reserved bits.
-                            if ext.enabled() {
-                                match ext.reserve_rsv(rb) {
-                                    Ok(r) => rb = r,
-                                    Err(e) => return Err(e),
+                                // If ext is still enabled set the reserved bits.
+                                if ext.enabled() {
+                                    match ext.reserve_rsv(rb) {
+                                        Ok(r) => rb = r,
+                                        Err(e) => return Err(e),
+                                    }
                                 }
                             }
                         }
 
                         ws_frame.set_clientside_handshake_response(hand);
                         self.reserved_bits = rb;
-                        self.shaken = true;
+                        self.handshake_complete = true;
                     }
                     Ok(None) => return Ok(None),
                     Err(e) => return Err(e),
@@ -283,7 +289,7 @@ impl Encoder for Twist {
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
         trace!("encode: {}", self.client);
         if let Some(base) = msg.base() {
-            if self.shaken {
+            if self.handshake_complete {
                 self.encode_base(base, buf)?;
             } else {
                 return Err(util::other("handshake request not complete"));
@@ -337,7 +343,7 @@ mod test {
         let mut eb = BytesMut::with_capacity(256);
         eb.extend(vec);
         let mut fc: Twist = Default::default();
-        fc.shaken = true;
+        fc.handshake_complete = true;
 
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
@@ -370,7 +376,7 @@ mod test {
 
     fn encode_test(cmp: Vec<u8>, opcode: OpCode, len: u64, app_data: Vec<u8>) {
         let mut fc: Twist = Default::default();
-        fc.shaken = true;
+        fc.handshake_complete = true;
         let mut frame: WebSocket = Default::default();
         let mut base: Frame = Default::default();
         base.set_opcode(opcode);
