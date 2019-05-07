@@ -45,19 +45,17 @@
 //! # }
 //! ```
 // Common Codec Exports
-pub use codec::Twist as TwistCodec;
-pub use codec::base::FrameCodec as BaseFrameCodec;
+pub use crate::codec::Twist as TwistCodec;
+pub use crate::codec::base::FrameCodec as BaseFrameCodec;
 
 // Client Only Codec Exports
-pub use codec::client::handshake::FrameCodec as HanshakeCodec;
+pub use crate::codec::client::handshake::FrameCodec as HanshakeCodec;
 
 // Common Frame Exports
-pub use frame::WebSocket as WebSocketFrame;
-pub use frame::base::{OpCode, Frame as BaseFrame};
+pub use crate::frame::WebSocket as WebSocketFrame;
+pub use crate::frame::base::{OpCode, Frame as BaseFrame};
 
 // Client Only Frame Exports
-pub use frame::client::request::Frame as HandshakeRequestFrame;
-pub use frame::client::response::Frame as HandshakeResponseFrame;
+pub use crate::frame::client::request::Frame as HandshakeRequestFrame;
+pub use crate::frame::client::response::Frame as HandshakeResponseFrame;
 
-// Protocol Exports
-pub use proto::client::WebSocketProtocol;

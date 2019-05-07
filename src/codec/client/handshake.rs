@@ -1,43 +1,25 @@
 //! Codec for dedoding/encoding websocket client handshake frames.
 use bytes::BytesMut;
-use frame::client::request::Frame as ClientRequest;
-use frame::client::response::Frame as ServerResponse;
+use crate::frame::client::request::Frame as ClientRequest;
+use crate::frame::client::response::Frame as ServerResponse;
 use httparse::{EMPTY_HEADER, Response};
-use slog::Logger;
+use log::trace;
 use std::collections::HashMap;
 use std::io;
 use tokio_io::codec::{Decoder, Encoder};
-use util;
+use crate::util;
 
 /// Codec for decoding/encoding websocket client handshake frames.
 #[derive(Default)]
 pub struct FrameCodec {
-    /// slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// slog stderr `Logger`
-    stderr: Option<Logger>,
     /// The extensions headers to send with the request.
-    extension_headers: Vec<String>,
+    extension_headers: Vec<String>
 }
 
 impl FrameCodec {
     /// Add a `Sec-WebSocket-Extensions` header to this client handshake.
     pub fn add_header(&mut self, header: String) -> &mut FrameCodec {
         self.extension_headers.push(header);
-        self
-    }
-
-    /// Add a stdout slog `Logger` to this protocol.
-    pub fn stdout(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stdout = logger.new(o!("codec" => "client::handshake"));
-        self.stdout = Some(stdout);
-        self
-    }
-
-    /// Add a stderr slog `Logger` to this protocol.
-    pub fn stderr(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stderr = logger.new(o!("codec" => "client::handshake"));
-        self.stderr = Some(stderr);
         self
     }
 }
@@ -77,7 +59,7 @@ impl Decoder for FrameCodec {
                     // Duplicate headers are concatenated as comma-separated string.
                     let key = header.name.to_string();
                     let val = String::from_utf8_lossy(header.value).into_owned();
-                    let mut entry = headers.entry(key).or_insert_with(String::new);
+                    let entry = headers.entry(key).or_insert_with(String::new);
 
                     if entry.is_empty() {
                         entry.push_str(&val);
@@ -145,7 +127,7 @@ impl Encoder for FrameCodec {
 
         request.push_str("\r\n");
 
-        try_trace!(self.stdout, "client handshake request\n{}", request);
+        trace!("client handshake request\n{}", request);
         buf.extend(request.as_bytes());
         Ok(())
     }

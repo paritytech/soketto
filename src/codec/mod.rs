@@ -1,16 +1,16 @@
 //! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
 //! handshakes and websocket base frames on the server side.
 use bytes::BytesMut;
-use codec::base::FrameCodec;
-use extension::{PerFrameExtensions, PerMessageExtensions};
-use frame::WebSocket;
-use frame::base::{Frame, OpCode};
-use frame::client::request::Frame as ClientHandshakeRequestFrame;
-use frame::server::response::Frame as ServerHandshakeResponseFrame;
-use slog::Logger;
-use std::{io, str};
+use crate::codec::base::FrameCodec;
+use crate::extension::{PerFrameExtensions, PerMessageExtensions};
+use crate::frame::WebSocket;
+use crate::frame::base::{Frame, OpCode};
+use crate::frame::client::request::Frame as ClientHandshakeRequestFrame;
+use crate::frame::server::response::Frame as ServerHandshakeResponseFrame;
+use crate::util;
+use log::{error, trace};
+use std::io;
 use tokio_io::codec::{Decoder, Encoder};
-use util;
 use uuid::Uuid;
 use vatfluid::{Success, validate};
 
@@ -47,11 +47,7 @@ pub struct Twist {
     /// Per-frame extensions
     _perframe_extensions: PerFrameExtensions,
     /// RSVx bits reserved by extensions (must be less than 16)
-    reserved_bits: u8,
-    /// slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// slog stderr `Logger`
-    stderr: Option<Logger>,
+    reserved_bits: u8
 }
 
 impl Twist {
@@ -71,24 +67,8 @@ impl Twist {
             // origin: None,
             permessage_extensions: permessage_extensions,
             _perframe_extensions: perframe_extensions,
-            reserved_bits: 0,
-            stdout: None,
-            stderr: None,
+            reserved_bits: 0
         }
-    }
-
-    /// Add a stdout slog `Logger` to this protocol.
-    pub fn stdout(&mut self, logger: Logger) -> &mut Twist {
-        let stdout = logger.new(o!("codec" => "twist"));
-        self.stdout = Some(stdout);
-        self
-    }
-
-    /// Add a stderr slog `Logger` to this protocol.
-    pub fn stderr(&mut self, logger: Logger) -> &mut Twist {
-        let stderr = logger.new(o!("codec" => "twist"));
-        self.stderr = Some(stderr);
-        self
     }
 
     /// Run the extension chain decode on the given `base::Frame`.
@@ -139,14 +119,6 @@ impl Twist {
                                handshake: &ClientHandshakeRequestFrame,
                                buf: &mut BytesMut)
                                -> io::Result<()> {
-        let mut hc: client::handshake::FrameCodec = Default::default();
-        if let Some(ref stdout) = self.stdout {
-            hc.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            hc.stderr(stderr.clone());
-        }
-
         // Run the frame through the permessage extension chain before final encoding.
         let pm_lock = self.permessage_extensions.clone();
         let mut map = match pm_lock.lock() {
@@ -154,6 +126,7 @@ impl Twist {
             Err(poisoned) => poisoned.into_inner(),
         };
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
+        let mut hc: client::handshake::FrameCodec = Default::default();
         for ext in vec_pm_exts.iter_mut() {
             if ext.enabled() {
                 if let Ok(Some(header)) = ext.into_header() {
@@ -172,12 +145,6 @@ impl Twist {
                                buf: &mut BytesMut)
                                -> io::Result<()> {
         let mut hc: server::handshake::FrameCodec = Default::default();
-        if let Some(ref stdout) = self.stdout {
-            hc.stdout(stdout.clone());
-        }
-        if let Some(ref stderr) = self.stderr {
-            hc.stderr(stderr.clone());
-        }
         let ext_header = handshake.extensions();
         let mut ext_resp = String::new();
         let mut rb = self.reserved_bits;
@@ -204,7 +171,7 @@ impl Twist {
         }
 
         self.reserved_bits = rb;
-        hc.set_ext_resp(ext_resp.trim_right_matches(", "));
+        hc.set_ext_resp(ext_resp.trim_end_matches(", "));
 
         // TODO: Run through perframe extensions here.
 
@@ -227,14 +194,6 @@ impl Decoder for Twist {
         if self.shaken {
             if self.frame_codec.is_none() {
                 self.frame_codec = Some(Default::default());
-                if let Some(ref mut fc) = self.frame_codec {
-                    if let Some(ref stdout) = self.stdout {
-                        fc.stdout(stdout.clone());
-                    }
-                    if let Some(ref stderr) = self.stderr {
-                        fc.stderr(stderr.clone());
-                    }
-                }
             }
 
             let mut frame = if let Some(ref mut fc) = self.frame_codec {
@@ -256,14 +215,14 @@ impl Decoder for Twist {
                !frame.application_data().is_empty() {
                 match validate(frame.application_data()) {
                     Ok(Success::Complete(pos)) => {
-                        try_trace!(self.stdout, "complete: {}", pos);
+                        trace!("complete: {}", pos);
                     }
                     Ok(Success::Incomplete(_, pos)) => {
-                        try_error!(self.stderr, "incomplete: {}", pos);
+                        error!("incomplete: {}", pos);
                         return Err(util::other("invalid utf-8 sequence"));
                     }
                     Err(e) => {
-                        try_error!(self.stderr, "{}", e);
+                        error!("{}", e);
                         return Err(util::other("invalid utf-8 sequence"));
                     }
                 }
@@ -272,24 +231,12 @@ impl Decoder for Twist {
             ws_frame.set_base(frame);
             self.frame_codec = None;
         } else if self.client {
-            try_trace!(self.stdout, "decoding into server handshake response frame");
+            trace!("decoding into server handshake response frame");
             if self.client_handshake_codec.is_none() {
-                let mut hc: client::handshake::FrameCodec = Default::default();
-                if let Some(ref stdout) = self.stdout {
-                    hc.stdout(stdout.clone());
-                }
-                if let Some(ref stderr) = self.stderr {
-                    hc.stderr(stderr.clone());
-                }
+                let hc: client::handshake::FrameCodec = Default::default();
                 self.client_handshake_codec = Some(hc);
             }
             if let Some(ref mut hc) = self.client_handshake_codec {
-                if let Some(ref stdout) = self.stdout {
-                    hc.stdout(stdout.clone());
-                }
-                if let Some(ref stderr) = self.stderr {
-                    hc.stderr(stderr.clone());
-                }
                 match hc.decode(buf) {
                     Ok(Some(hand)) => {
                         let ext_header = hand.extensions();
@@ -325,7 +272,7 @@ impl Decoder for Twist {
             }
             self.client_handshake_codec = None;
         } else {
-            try_trace!(self.stdout, "decoding into server handshake frame");
+            trace!("decoding into server handshake frame");
             if self.server_handshake_codec.is_none() {
                 self.server_handshake_codec = Some(Default::default());
             }
@@ -350,7 +297,7 @@ impl Encoder for Twist {
     type Error = io::Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
-        try_trace!(self.stdout, "encode: {}", self.client);
+        trace!("encode: {}", self.client);
         if let Some(base) = msg.base() {
             if self.shaken {
                 self.encode_base(base, buf)?;
@@ -372,15 +319,13 @@ impl Encoder for Twist {
 mod test {
     use super::Twist;
     use bytes::BytesMut;
-    use frame::WebSocket;
-    use frame::base::{Frame, OpCode};
+    use crate::frame::WebSocket;
+    use crate::frame::base::{Frame, OpCode};
+    use crate::util;
     use std::io::{self, Write};
     use tokio_io::codec::{Decoder, Encoder};
-    use util;
 
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const SHORT:  [u8; 7]   = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const MID:    [u8; 134] = [0x81, 0xFE, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x01,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -398,15 +343,10 @@ mod test {
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const CONT:   [u8; 7]   = [0x00, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const TEXT:   [u8; 7]   = [0x81, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const BINARY: [u8; 7]   = [0x82, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const PING:   [u8; 7]   = [0x89, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     const PONG:   [u8; 7]   = [0x8A, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
 
     fn decode_test(vec: Vec<u8>, opcode: OpCode, len: u64) {

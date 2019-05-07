@@ -1,8 +1,6 @@
 //! Extension Trait API
-use frame::base;
-use std::collections::HashMap;
-use std::io;
-use std::sync::{Arc, Mutex};
+use crate::frame::base;
+use std::{collections::HashMap, io, sync::{Arc, Mutex}};
 use uuid::Uuid;
 
 /// Thread safe ref counted storage for user supplied per-message extensions.

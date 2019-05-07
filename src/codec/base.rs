@@ -1,12 +1,12 @@
 //! Codec for encoding/decoding websocket [base] frames.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
-use bytes::{BufMut, Buf, BytesMut, BigEndian};
-use frame::base::{Frame, OpCode};
-use slog::Logger;
+use bytes::{BufMut, Buf, BytesMut};
+use crate::frame::base::{Frame, OpCode};
+use crate::util;
+use log::{error, trace};
 use std::io::{self, Cursor};
 use tokio_io::codec::{Decoder, Encoder};
-use util;
 use vatfluid::{Success, validate};
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
@@ -73,11 +73,7 @@ pub struct FrameCodec {
     /// Minimum length required to parse the next part of the frame.
     min_len: u64,
     /// Bits reserved by extensions.
-    reserved_bits: u8,
-    /// slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// slog stderr `Logger`
-    stderr: Option<Logger>,
+    reserved_bits: u8
 }
 
 impl FrameCodec {
@@ -92,26 +88,12 @@ impl FrameCodec {
         self.reserved_bits = reserved_bits;
         self
     }
-
-    /// Add a stdout slog `Logger` to this protocol.
-    pub fn stdout(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stdout = logger.new(o!("codec" => "base"));
-        self.stdout = Some(stdout);
-        self
-    }
-
-    /// Add a stderr slog `Logger` to this protocol.
-    pub fn stderr(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stderr = logger.new(o!("codec" => "base"));
-        self.stderr = Some(stderr);
-        self
-    }
 }
 
 /// Apply the unmasking to the application data.
 fn apply_mask(buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
     let mut mask_buf = BytesMut::with_capacity(4);
-    mask_buf.put_u32::<BigEndian>(mask);
+    mask_buf.put_u32_be(mask);
     let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
     for (byte, &key) in iter {
         *byte ^= key;
@@ -183,7 +165,7 @@ impl Decoder for FrameCodec {
                             self.min_len -= 2;
                             return Ok(None);
                         }
-                        let len = Cursor::new(buf.split_to(2)).get_u16::<BigEndian>();
+                        let len = Cursor::new(buf.split_to(2)).get_u16_be();
                         self.payload_length = len as u64;
                         self.state = DecodeState::LENGTH;
                     } else if self.length_code == EIGHT_EXT {
@@ -192,7 +174,7 @@ impl Decoder for FrameCodec {
                             self.min_len -= 8;
                             return Ok(None);
                         }
-                        let len = Cursor::new(buf.split_to(8)).get_u64::<BigEndian>();
+                        let len = Cursor::new(buf.split_to(8)).get_u64_be();
                         self.payload_length = len as u64;
                         self.state = DecodeState::LENGTH;
                     } else {
@@ -210,7 +192,7 @@ impl Decoder for FrameCodec {
                             self.min_len -= 4;
                             return Ok(None);
                         }
-                        let mask = Cursor::new(buf.split_to(4)).get_u32::<BigEndian>();
+                        let mask = Cursor::new(buf.split_to(4)).get_u32_be();
                         self.mask_key = mask;
                         self.state = DecodeState::MASK;
                     } else {
@@ -228,18 +210,18 @@ impl Decoder for FrameCodec {
                             self.application_data.extend(buf.take());
                             if self.opcode == OpCode::Text {
                                 apply_mask(&mut self.application_data, mask)?;
-                                try_trace!(self.stdout, "validating from pos: {}", self.pos);
+                                trace!("validating from pos: {}", self.pos);
                                 match validate(&self.application_data[self.pos..]) {
                                     Ok(Success::Complete(pos)) => {
-                                        try_trace!(self.stdout, "validation complete: {}", pos);
+                                        trace!("validation complete: {}", pos);
                                         self.pos += pos;
                                     }
                                     Ok(Success::Incomplete(_, pos)) => {
-                                        try_trace!(self.stdout, "validation incomplete: {}", pos);
+                                        trace!("validation incomplete: {}", pos);
                                         self.pos += pos;
                                     }
                                     Err(e) => {
-                                        try_error!(self.stderr, "{}", e);
+                                        error!("{}", e);
                                         return Err(util::other("invalid utf-8 sequence"));
                                     }
                                 }
@@ -247,7 +229,6 @@ impl Decoder for FrameCodec {
                             }
                             return Ok(None);
                         } else {
-                            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
                             let split_len = (self.payload_length as usize) - app_data_len;
                             self.application_data.extend(buf.split_to(split_len));
                             if self.masked {
@@ -302,29 +283,27 @@ impl Encoder for FrameCodec {
 
         let len = msg.payload_length();
         if len < TWO_EXT as u64 {
-            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let cast_len = len as u8;
             second_byte |= cast_len;
             buf.put(second_byte);
         } else if len < 65536 {
             second_byte |= TWO_EXT;
             let mut len_buf = BytesMut::with_capacity(2);
-            #[cfg_attr(feature = "cargo-clippy", allow(cast_possible_truncation))]
             let cast_len = len as u16;
-            len_buf.put_u16::<BigEndian>(cast_len);
+            len_buf.put_u16_be(cast_len);
             buf.put(second_byte);
             buf.extend(len_buf);
         } else {
             second_byte |= EIGHT_EXT;
             let mut len_buf = BytesMut::with_capacity(8);
-            len_buf.put_u64::<BigEndian>(len);
+            len_buf.put_u64_be(len);
             buf.put(second_byte);
             buf.extend(len_buf);
         }
 
         if msg.masked() {
             let mut mask_buf = BytesMut::with_capacity(4);
-            mask_buf.put_u32::<BigEndian>(msg.mask());
+            mask_buf.put_u32_be(msg.mask());
             buf.extend(mask_buf);
         }
 
@@ -357,39 +336,31 @@ impl From<FrameCodec> for Frame {
 mod test {
     use super::FrameCodec;
     use bytes::BytesMut;
-    use frame::base::{Frame, OpCode};
+    use crate::frame::base::{Frame, OpCode};
     use std::io;
     use tokio_io::codec::Decoder;
-    use util;
+    use crate::util;
 
     // Bad Frames, should err
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     // Mask bit must be one. 2nd byte must be 0x80 or greater.
     const NO_MASK: [u8; 2]           = [0x89, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
     const CTRL_PAYLOAD_LEN : [u8; 9] = [0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
     // Truncated Frames, should return Ok(None)
-    #[cfg_attr(rustfmt, rustfmt_skip)]
     // One byte of the 2 byte header is ok.
-    const PARTIAL_HEADER: [u8; 1]    = [0x89];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    const PARTIAL_HEADER: [u8; 1] = [0x89];
     // Between 0 and 2 bytes of a 2 byte length block is ok.
-    const PARTIAL_LENGTH_1: [u8; 3]  = [0x89, 0xFE, 0x01];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    const PARTIAL_LENGTH_1: [u8; 3] = [0x89, 0xFE, 0x01];
     // Between 0 and 8 bytes of an 8 byte length block is ok.
-    const PARTIAL_LENGTH_2: [u8; 6]  = [0x89, 0xFF, 0x01, 0x02, 0x03, 0x04];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    const PARTIAL_LENGTH_2: [u8; 6] = [0x89, 0xFF, 0x01, 0x02, 0x03, 0x04];
     // Between 0 and 4 bytes of the 4 byte mask is ok.
-    const PARTIAL_MASK: [u8; 6]      = [0x82, 0xFE, 0x01, 0x02, 0x00, 0x00];
-    #[cfg_attr(rustfmt, rustfmt_skip)]
+    const PARTIAL_MASK: [u8; 6] = [0x82, 0xFE, 0x01, 0x02, 0x00, 0x00];
     // Between 0 and X bytes of the X byte payload is ok.
-    const PARTIAL_PAYLOAD: [u8; 8]    = [0x82, 0x85, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00];
+    const PARTIAL_PAYLOAD: [u8; 8] = [0x82, 0x85, 0x01, 0x02, 0x03, 0x04, 0x00, 0x00];
 
     // Good Frames, should return Ok(Some(x))
-    #[cfg_attr(rustfmt, rustfmt_skip)]
-    const PING_NO_DATA: [u8; 6]     = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
+    const PING_NO_DATA: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
 
     fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
         let mut eb = BytesMut::with_capacity(256);

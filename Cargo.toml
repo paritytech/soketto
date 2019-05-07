@@ -1,42 +1,30 @@
 [package]
+name = "twist"
+version = "0.7.1"
 authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
-description = "An implementation of the RFC6455 websocket protocol as a tokio Codec and a tokio-proto pipeline ServerProto"
+description = "An implementation of the RFC6455 websocket protocol as a tokio codec."
 documentation = "https://docs.rs/twist"
 homepage = "https://rustyhorde.github.io/twist/"
 keywords = ["tokio", "websocket", "codec", "serverproto"]
 license = "MIT/Apache-2.0"
-name = "twist"
 readme = "README.md"
 repository = "https://github.com/rustyhorde/twist"
-version = "0.7.1"
+edition = "2018"
 
 [dependencies]
 base64 = "0.4.0"
 byteorder = "1.0.0"
 bytes = "0.4.1"
-futures = "0.1.10"
+futures = "0.1.26"
 httparse = "1.2.1"
+log = "0.4"
 rand = "0.3.15"
 sha1 = "0.2.0"
-slog-atomic = "0.4.3"
-slog-term = "1.5.0"
 tokio-core = "0.1.4"
 tokio-io = "0.1.0"
-tokio-proto = "0.1.1"
 vatfluid = "0.3.0"
-
-[dependencies.slog]
-features = ["max_level_trace", "release_max_level_trace"]
-version = "1.4.1"
 
 [dependencies.uuid]
 features = ["v4"]
 version = "0.4.0"
 
-[features]
-default = ["ext"]
-ext = []
-
-[lib]
-name = "twist"
-path = "src/lib.rs"

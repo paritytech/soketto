@@ -1,6 +1,6 @@
 //! A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame
+use crate::util;
 use std::fmt;
-use util;
 
 /// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]

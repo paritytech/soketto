@@ -1,10 +1,8 @@
 //! Server response frame to a client request
 use base64::encode;
+use crate::util;
 use sha1::Sha1;
-use std::collections::HashMap;
-use std::fmt;
-use std::io;
-use util;
+use std::{collections::HashMap, fmt, io};
 
 /// Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header in the server
 /// handshake response.

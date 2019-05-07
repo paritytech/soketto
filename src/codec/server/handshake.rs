@@ -1,40 +1,21 @@
 //! Codec for dedoding/encoding websocket server handshake frames.
 use bytes::BytesMut;
-use frame::server::request::Frame as ClientRequest;
-use frame::server::response::Frame as ServerResponse;
+use crate::frame::server::request::Frame as ClientRequest;
+use crate::frame::server::response::Frame as ServerResponse;
+use crate::util;
+use log::trace;
 use httparse::{EMPTY_HEADER, Request};
-use slog::Logger;
-use std::collections::HashMap;
-use std::io;
+use std::{collections::HashMap, io};
 use tokio_io::codec::{Decoder, Encoder};
-use util;
 
 #[derive(Default)]
 /// Codec for decoding/encoding websocket server handshake frames.
 pub struct FrameCodec {
     /// Extension Negotiation Response.
-    ext_resp: Option<String>,
-    /// slog stdout `Logger`
-    stdout: Option<Logger>,
-    /// slog stderr `Logger`
-    stderr: Option<Logger>,
+    ext_resp: Option<String>
 }
 
 impl FrameCodec {
-    /// Add a stdout slog `Logger` to this protocol.
-    pub fn stdout(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stdout = logger.new(o!("codec" => "handshake"));
-        self.stdout = Some(stdout);
-        self
-    }
-
-    /// Add a stderr slog `Logger` to this protocol.
-    pub fn stderr(&mut self, logger: Logger) -> &mut FrameCodec {
-        let stderr = logger.new(o!("codec" => "handshake"));
-        self.stderr = Some(stderr);
-        self
-    }
-
     /// Set the extension negotiation response.
     pub fn set_ext_resp(&mut self, response: &str) -> &mut FrameCodec {
         self.ext_resp = Some(String::from(response));
@@ -77,7 +58,7 @@ impl Decoder for FrameCodec {
                     // Duplicate headers are concatenated as comma-separated string.
                     let key = header.name.to_string();
                     let val = String::from_utf8_lossy(header.value).into_owned();
-                    let mut entry = headers.entry(key).or_insert_with(String::new);
+                    let entry = headers.entry(key).or_insert_with(String::new);
 
                     if entry.is_empty() {
                         entry.push_str(&val);
@@ -138,14 +119,14 @@ impl Encoder for FrameCodec {
             }
         }
 
-        /// Add the other headers to the response.
+        // Add the other headers to the response.
         for (k, v) in msg.others().iter() {
             response.push_str(&format!("{}: {}\r\n", *k, *v));
         }
 
         response.push_str("\r\n");
 
-        try_trace!(self.stdout, "handshake response\n{}", response);
+        trace!("handshake response\n{}", response);
         buf.extend(response.as_bytes());
         Ok(())
     }

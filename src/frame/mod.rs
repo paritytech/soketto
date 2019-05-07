@@ -1,9 +1,9 @@
 //! A websocket server frame.
-use frame::base::{Frame, OpCode};
-use frame::client::request::Frame as ClientsideHandshakeRequest;
-use frame::client::response::Frame as ClientsideHandshakeResponse;
-use frame::server::request::Frame as ServerSideHandshakeRequest;
-use frame::server::response::Frame as ServerSideHandshakeResponse;
+use crate::frame::base::{Frame, OpCode};
+use crate::frame::client::request::Frame as ClientsideHandshakeRequest;
+use crate::frame::client::response::Frame as ClientsideHandshakeResponse;
+use crate::frame::server::request::Frame as ServerSideHandshakeRequest;
+use crate::frame::server::response::Frame as ServerSideHandshakeResponse;
 use std::fmt;
 
 pub mod base;
