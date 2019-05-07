@@ -1,5 +1,8 @@
-//! Codec for use with the `WebSocketProtocol`.  Used when decoding/encoding of both websocket
-//! handshakes and websocket base frames on the server side.
+//! Codec for use with the `WebSocketProtocol`.
+//!
+//! Used when decoding/encoding of both websocket handshakes and websocket
+//! base frames on the server side.
+
 use bytes::BytesMut;
 use crate::codec::base::FrameCodec;
 use crate::extension::{PerFrameExtensions, PerMessageExtensions};
@@ -18,8 +21,9 @@ pub mod base;
 pub mod server;
 pub mod client;
 
-/// Codec for use with the [`WebSocketProtocol`](struct.WebSocketProtocol.html).  Used when
-/// decoding/encoding of both websocket handshakes and websocket base frames.
+/// Codec for use with the [`WebSocketProtocol`].
+///
+/// Used when decoding/encoding of both websocket handshakes and websocket base frames.
 #[derive(Default)]
 pub struct Twist {
     /// The Uuid of the parent protocol.  Used for extension lookup.
@@ -76,11 +80,7 @@ impl Twist {
         let opcode = frame.opcode();
         // Only run the chain if this is a Text/Binary finish frame.
         if frame.fin() && (opcode == OpCode::Text || opcode == OpCode::Binary) {
-            let pm_lock = self.permessage_extensions.clone();
-            let mut map = match pm_lock.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
+            let mut map = self.permessage_extensions.lock();
             let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pm_exts.iter_mut() {
                 if ext.enabled() {
@@ -98,11 +98,7 @@ impl Twist {
         let mut mut_base = base.clone();
 
         // Run the frame through the permessage extension chain before final encoding.
-        let pm_lock = self.permessage_extensions.clone();
-        let mut map = match pm_lock.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut map = self.permessage_extensions.lock();
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         for ext in vec_pm_exts.iter_mut() {
             if ext.enabled() {
@@ -120,11 +116,7 @@ impl Twist {
                                buf: &mut BytesMut)
                                -> io::Result<()> {
         // Run the frame through the permessage extension chain before final encoding.
-        let pm_lock = self.permessage_extensions.clone();
-        let mut map = match pm_lock.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut map = self.permessage_extensions.lock();
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         let mut hc: client::handshake::FrameCodec = Default::default();
         for ext in vec_pm_exts.iter_mut() {
@@ -150,11 +142,7 @@ impl Twist {
         let mut rb = self.reserved_bits;
 
         // Run the frame through the permessage extension chain before final encoding.
-        let pm_lock = self.permessage_extensions.clone();
-        let mut map = match pm_lock.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut map = self.permessage_extensions.lock();
         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
         for ext in vec_pm_exts.iter_mut() {
             ext.from_header(&ext_header)?;
@@ -243,11 +231,7 @@ impl Decoder for Twist {
                         let mut rb = self.reserved_bits;
 
                         // Run the frame through the permessage extension chain..
-                        let pm_lock = self.permessage_extensions.clone();
-                        let mut map = match pm_lock.lock() {
-                            Ok(guard) => guard,
-                            Err(poisoned) => poisoned.into_inner(),
-                        };
+                        let mut map = self.permessage_extensions.lock();
                         let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
                         for ext in vec_pm_exts.iter_mut() {
                             // Reconfigure based on response

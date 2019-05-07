@@ -1,6 +1,8 @@
 //! Extension Trait API
+
 use crate::frame::base;
-use std::{collections::HashMap, io, sync::{Arc, Mutex}};
+use parking_lot::Mutex;
+use std::{collections::HashMap, io, sync::Arc};
 use uuid::Uuid;
 
 /// Thread safe ref counted storage for user supplied per-message extensions.

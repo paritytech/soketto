@@ -10,7 +10,7 @@ use tokio_io::codec::{Decoder, Encoder};
 use crate::util;
 
 /// Codec for decoding/encoding websocket client handshake frames.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct FrameCodec {
     /// The extensions headers to send with the request.
     extension_headers: Vec<String>

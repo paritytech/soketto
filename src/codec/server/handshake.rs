@@ -8,7 +8,7 @@ use httparse::{EMPTY_HEADER, Request};
 use std::{collections::HashMap, io};
 use tokio_io::codec::{Decoder, Encoder};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 /// Codec for decoding/encoding websocket server handshake frames.
 pub struct FrameCodec {
     /// Extension Negotiation Response.
