@@ -1,9 +1,8 @@
 //! websocket handshake client-side frame
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
-#[derive(Clone, Debug, Default)]
 /// A websocket handshake client-side frame.
+#[derive(Clone, Debug, Default)]
 pub struct Frame {
     /// The URL path.
     path: String,

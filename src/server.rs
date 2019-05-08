@@ -3,10 +3,6 @@
 //! # Decode PING Base Frame from client
 //!
 //! ```
-//! # extern crate bytes;
-//! # extern crate tokio_io;
-//! # extern crate twist;
-//! #
 //! # use bytes::BytesMut;
 //! # use twist::server::{BaseFrameCodec, OpCode};
 //! # use tokio_io::codec::{Decoder, Encoder};
