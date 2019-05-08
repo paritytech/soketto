@@ -12,6 +12,7 @@ use vatfluid::{Success, validate};
 /// If the payload length byte is 126, the following two bytes represent the actual payload
 /// length.
 const TWO_EXT: u8 = 126;
+
 /// If the payload length byte is 127, the following eight bytes represent the actual payload
 /// length.
 const EIGHT_EXT: u8 = 127;
@@ -20,20 +21,20 @@ const EIGHT_EXT: u8 = 127;
 #[derive(Debug, Clone)]
 pub enum DecodeState {
     /// None of the frame has been decoded.
-    NONE,
+    None,
     /// The header has been decoded.
-    HEADER,
+    Header,
     /// The length has been decoded.
-    LENGTH,
+    Length,
     /// The mask has been decoded.
-    MASK,
+    Mask,
     /// The decoding is complete.
-    FULL,
+    Full
 }
 
 impl Default for DecodeState {
     fn default() -> DecodeState {
-        DecodeState::NONE
+        DecodeState::None
     }
 }
 
@@ -63,9 +64,9 @@ pub struct FrameCodec {
     /// The optional `mask`
     mask_key: u32,
     /// The optional `extension_data`
-    extension_data: Option<Vec<u8>>,
+    extension_data: Option<BytesMut>,
     /// The optional `application_data`
-    application_data: Vec<u8>,
+    application_data: BytesMut,
     /// The position in the application_data that we have validate in a text frame.
     pos: usize,
     /// Decode state
@@ -88,12 +89,27 @@ impl FrameCodec {
         self.reserved_bits = reserved_bits;
         self
     }
+
+    // Copy or take data from `FrameCodec` and turn it into a valid `Frame`.
+    fn to_frame(&mut self) -> Frame {
+        let mut frame: Frame = Default::default();
+        frame.set_fin(self.fin);
+        frame.set_rsv1(self.rsv1);
+        frame.set_rsv2(self.rsv2);
+        frame.set_rsv3(self.rsv3);
+        frame.set_masked(self.masked);
+        frame.set_opcode(self.opcode);
+        frame.set_mask(self.mask_key);
+        frame.set_payload_length(self.payload_length);
+        frame.set_application_data(self.application_data.take());
+        frame.set_extension_data(self.extension_data.take());
+        frame
+    }
 }
 
 /// Apply the unmasking to the application data.
 fn apply_mask(buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
-    let mut mask_buf = BytesMut::with_capacity(4);
-    mask_buf.put_u32_be(mask);
+    let mask_buf = mask.to_be_bytes();
     let iter = buf.iter_mut().zip(mask_buf.iter().cycle());
     for (byte, &key) in iter {
         *byte ^= key;
@@ -114,7 +130,7 @@ impl Decoder for FrameCodec {
         self.min_len = 0;
         loop {
             match self.state {
-                DecodeState::NONE => {
+                DecodeState::None => {
                     self.min_len += 2;
                     // Split off the 2 'header' bytes.
                     if (buf_len as u64) < self.min_len {
@@ -156,9 +172,9 @@ impl Decoder for FrameCodec {
                     }
 
                     self.length_code = (second & 0x7F) as u8;
-                    self.state = DecodeState::HEADER;
+                    self.state = DecodeState::Header;
                 }
-                DecodeState::HEADER => {
+                DecodeState::Header => {
                     if self.length_code == TWO_EXT {
                         self.min_len += 2;
                         if (buf_len as u64) < self.min_len {
@@ -167,7 +183,7 @@ impl Decoder for FrameCodec {
                         }
                         let len = Cursor::new(buf.split_to(2)).get_u16_be();
                         self.payload_length = len as u64;
-                        self.state = DecodeState::LENGTH;
+                        self.state = DecodeState::Length;
                     } else if self.length_code == EIGHT_EXT {
                         self.min_len += 8;
                         if (buf_len as u64) < self.min_len {
@@ -176,16 +192,16 @@ impl Decoder for FrameCodec {
                         }
                         let len = Cursor::new(buf.split_to(8)).get_u64_be();
                         self.payload_length = len as u64;
-                        self.state = DecodeState::LENGTH;
+                        self.state = DecodeState::Length;
                     } else {
                         self.payload_length = self.length_code as u64;
-                        self.state = DecodeState::LENGTH;
+                        self.state = DecodeState::Length;
                     }
                     if self.payload_length > 125 && self.opcode.is_control() {
                         return Err(util::other("invalid control frame"));
                     }
                 }
-                DecodeState::LENGTH => {
+                DecodeState::Length => {
                     if self.masked {
                         self.min_len += 4;
                         if (buf_len as u64) < self.min_len {
@@ -194,22 +210,22 @@ impl Decoder for FrameCodec {
                         }
                         let mask = Cursor::new(buf.split_to(4)).get_u32_be();
                         self.mask_key = mask;
-                        self.state = DecodeState::MASK;
+                        self.state = DecodeState::Mask;
                     } else {
                         self.mask_key = 0;
-                        self.state = DecodeState::MASK;
+                        self.state = DecodeState::Mask;
                     }
                 }
-                DecodeState::MASK => {
+                DecodeState::Mask => {
                     if self.payload_length > 0 {
                         let mask = self.mask_key;
                         let app_data_len = self.application_data.len();
                         if buf.is_empty() {
                             return Ok(None);
                         } else if ((buf.len() + app_data_len) as u64) < self.payload_length {
-                            self.application_data.extend(buf.take());
+                            self.application_data.unsplit(buf.take());
                             if self.opcode == OpCode::Text {
-                                apply_mask(&mut self.application_data, mask)?;
+                                apply_mask(&mut self.application_data[..], mask)?;
                                 trace!("validating from pos: {}", self.pos);
                                 match validate(&self.application_data[self.pos..]) {
                                     Ok(Success::Complete(pos)) => {
@@ -225,26 +241,26 @@ impl Decoder for FrameCodec {
                                         return Err(util::other("invalid utf-8 sequence"));
                                     }
                                 }
-                                apply_mask(&mut self.application_data, mask)?;
+                                apply_mask(&mut self.application_data[..], mask)?;
                             }
                             return Ok(None);
                         } else {
                             let split_len = (self.payload_length as usize) - app_data_len;
-                            self.application_data.extend(buf.split_to(split_len));
+                            self.application_data.unsplit(buf.split_to(split_len));
                             if self.masked {
-                                apply_mask(&mut self.application_data, mask)?;
+                                apply_mask(&mut self.application_data[..], mask)?;
                             }
-                            self.state = DecodeState::FULL;
+                            self.state = DecodeState::Full;
                         }
                     } else {
-                        self.state = DecodeState::FULL;
+                        self.state = DecodeState::Full;
                     }
                 }
-                DecodeState::FULL => break,
+                DecodeState::Full => break,
             }
         }
 
-        Ok(Some(self.clone().into()))
+        Ok(Some(self.to_frame()))
     }
 }
 
@@ -283,52 +299,27 @@ impl Encoder for FrameCodec {
 
         let len = msg.payload_length();
         if len < TWO_EXT as u64 {
-            let cast_len = len as u8;
-            second_byte |= cast_len;
+            second_byte |= len as u8;
             buf.put(second_byte);
         } else if len < 65536 {
             second_byte |= TWO_EXT;
-            let mut len_buf = BytesMut::with_capacity(2);
-            let cast_len = len as u16;
-            len_buf.put_u16_be(cast_len);
             buf.put(second_byte);
-            buf.extend(len_buf);
+            buf.extend_from_slice(&(len as u16).to_be_bytes())
         } else {
             second_byte |= EIGHT_EXT;
-            let mut len_buf = BytesMut::with_capacity(8);
-            len_buf.put_u64_be(len);
             buf.put(second_byte);
-            buf.extend(len_buf);
+            buf.extend_from_slice(&len.to_be_bytes()[..])
         }
 
         if msg.masked() {
-            let mut mask_buf = BytesMut::with_capacity(4);
-            mask_buf.put_u32_be(msg.mask());
-            buf.extend(mask_buf);
+            buf.extend_from_slice(&msg.mask().to_be_bytes()[..])
         }
 
         if !msg.application_data().is_empty() {
-            buf.extend(msg.application_data().clone());
+            buf.extend_from_slice(&msg.application_data()[..])
         }
 
         Ok(())
-    }
-}
-
-impl From<FrameCodec> for Frame {
-    fn from(frame_codec: FrameCodec) -> Frame {
-        let mut frame: Frame = Default::default();
-        frame.set_fin(frame_codec.fin);
-        frame.set_rsv1(frame_codec.rsv1);
-        frame.set_rsv2(frame_codec.rsv2);
-        frame.set_rsv3(frame_codec.rsv3);
-        frame.set_masked(frame_codec.masked);
-        frame.set_opcode(frame_codec.opcode);
-        frame.set_mask(frame_codec.mask_key);
-        frame.set_payload_length(frame_codec.payload_length);
-        frame.set_application_data(frame_codec.application_data);
-        frame.set_extension_data(frame_codec.extension_data);
-        frame
     }
 }
 

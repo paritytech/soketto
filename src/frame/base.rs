@@ -1,5 +1,6 @@
 //! A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame
 
+use bytes::BytesMut;
 use crate::util;
 use std::fmt;
 
@@ -112,9 +113,9 @@ pub struct Frame {
     /// The `payload_length`
     payload_length: u64,
     /// The optional `extension_data`
-    extension_data: Option<Vec<u8>>,
+    extension_data: Option<BytesMut>,
     /// The optional `application_data`
-    application_data: Vec<u8>,
+    application_data: BytesMut
 }
 
 impl Frame {
@@ -207,7 +208,7 @@ impl Frame {
     }
 
     /// Get the `extension_data`.
-    pub fn extension_data(&self) -> Option<&Vec<u8>> {
+    pub fn extension_data(&self) -> Option<&[u8]> {
         if let Some(ref ed) = self.extension_data {
             Some(ed)
         } else {
@@ -216,19 +217,19 @@ impl Frame {
     }
 
     /// Set the `extension_data`.
-    pub fn set_extension_data(&mut self, extension_data: Option<Vec<u8>>) -> &mut Frame {
-        self.extension_data = extension_data;
+    pub fn set_extension_data(&mut self, bytes: Option<impl Into<BytesMut>>) -> &mut Frame {
+        self.extension_data = bytes.map(Into::into);
         self
     }
 
     /// Get the `application_data`
-    pub fn application_data(&self) -> &Vec<u8> {
+    pub fn application_data(&self) -> &[u8] {
         &self.application_data
     }
 
     /// Set the `application_data`
-    pub fn set_application_data(&mut self, application_data: Vec<u8>) -> &mut Frame {
-        self.application_data = application_data;
+    pub fn set_application_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Frame {
+        self.application_data = bytes.into();
         self
     }
 }
@@ -245,7 +246,7 @@ impl Default for Frame {
             mask: 0,
             payload_length: 0,
             extension_data: None,
-            application_data: Vec::new(),
+            application_data: BytesMut::new(),
         }
     }
 }
