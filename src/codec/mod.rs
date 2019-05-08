@@ -17,9 +17,11 @@ use tokio_io::codec::{Decoder, Encoder};
 use uuid::Uuid;
 use vatfluid::{Success, validate};
 
+mod http;
+
 pub mod base;
-pub mod server;
 pub mod client;
+pub mod server;
 
 /// Codec for use with the [`WebSocketProtocol`].
 ///
