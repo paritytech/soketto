@@ -7,7 +7,7 @@ pub mod server;
 use base::OpCode;
 
 /// A websocket frame.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum WebSocket {
     /// TODO
     Base(base::Frame),
@@ -16,7 +16,7 @@ pub enum WebSocket {
     /// TODO
     ClientHandshakeResponse(client::response::Frame),
     /// TODO
-    ServerHandshake(server::request::Frame),
+    ServerHandshake(server::request::ClientHandshake),
     /// TODO
     ServerHandshakeResponse(server::response::Frame)
 }

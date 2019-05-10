@@ -1,4 +1,5 @@
-//! Codec for dedoding/encoding websocket client handshake frames.
+//! Codec for decoding/encoding websocket client handshake frames.
+
 use bytes::BytesMut;
 use crate::frame::client::request::Frame as ClientRequest;
 use crate::frame::client::response::Frame as ServerResponse;

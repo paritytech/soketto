@@ -165,7 +165,7 @@ impl Twist {
         }
 
         self.reserved_bits = rb;
-        hc.set_ext_resp(ext_resp.trim_end_matches(", "));
+        // TODO: hc.set_ext_resp(ext_resp.trim_end_matches(", "));
 
         // TODO: Run through perframe extensions here.
 
@@ -177,7 +177,7 @@ impl Twist {
 
 impl Decoder for Twist {
     type Item = WebSocket;
-    type Error = io::Error;
+    type Error = http::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if buf.is_empty() {
@@ -195,10 +195,10 @@ impl Decoder for Twist {
                 match fc.decode(buf) {
                     Ok(Some(frame)) => frame,
                     Ok(None) => return Ok(None),
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(e.into()),
                 }
             } else {
-                return Err(util::other("unable to extract frame codec"));
+                return Err(util::other("unable to extract frame codec").into());
             };
 
             self.ext_chain_decode(&mut frame)?;
@@ -212,11 +212,11 @@ impl Decoder for Twist {
                     }
                     Ok(Success::Incomplete(_, pos)) => {
                         error!("incomplete: {}", pos);
-                        return Err(util::other("invalid utf-8 sequence"));
+                        return Err(util::other("invalid utf-8 sequence").into());
                     }
                     Err(e) => {
                         error!("{}", e);
-                        return Err(util::other("invalid utf-8 sequence"));
+                        return Err(util::other("invalid utf-8 sequence").into());
                     }
                 }
             }
@@ -249,7 +249,7 @@ impl Decoder for Twist {
                                 if ext.enabled() {
                                     match ext.reserve_rsv(rb) {
                                         Ok(r) => rb = r,
-                                        Err(e) => return Err(e),
+                                        Err(e) => return Err(e.into()),
                                     }
                                 }
                             }
@@ -262,7 +262,7 @@ impl Decoder for Twist {
                         return Ok(Some(WebSocket::ClientHandshakeResponse(hand)))
                     }
                     Ok(None) => return Ok(None),
-                    Err(e) => return Err(e)
+                    Err(e) => return Err(e.into())
                 }
             }
         }

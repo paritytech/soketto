@@ -1,296 +1,63 @@
 //! Client handshake frame received by server.
-use std::collections::HashMap;
-use std::fmt;
 
-/// Client handshake request data received by server.
-#[derive(Clone, Debug, Default)]
-pub struct Frame {
-    /// The request method (must be 'GET').
-    method: String,
-    /// The request path.
-    path: String,
-    /// The request version (must be 1).
-    version: u8,
-    /// Host header (Required)
-    host: Option<String>,
-    /// Upgrade header (Required)
-    upgrade: Option<String>,
-    /// Connection header (Required)
-    conn: Option<String>,
-    /// Sec-WebSocket-Key header (Required)
-    ws_key: Option<String>,
-    /// Sec-WebSocket-Version header (Required)
-    ws_version: Option<String>,
-    /// Origin header (Optional)
-    origin: Option<String>,
-    /// Sec-WebSocket-Protocol header (Optional)
-    protocol: Option<String>,
-    /// Sec-WebSocket-Extensions header (Optional)
-    extensions: Option<String>,
-    /// Other headers (Optional)
-    others: HashMap<String, String>,
+use std::borrow::Cow;
+use crate::util::{with_header, expect_header, Invalid};
+
+#[derive(Debug)]
+pub struct ClientHandshake<S = Validated>(S);
+
+#[derive(Debug)]
+pub struct Validated {
+    request: http::Request<()>,
+    ws_key: String
 }
 
-impl Frame {
-    /// Get the `method` value.
-    pub fn method(&self) -> &str {
-        &self.method
+impl ClientHandshake<http::Request<()>> {
+    pub(crate) fn new(r: http::Request<()>) -> Self {
+        Self(r)
     }
 
-    /// Set the `method` value.
-    pub fn set_method(&mut self, method: &str) -> &mut Frame {
-        self.method = method.into();
-        self
+    pub fn request(&self) -> &http::Request<()> {
+        &self.0
     }
 
-    /// Get the `path` value.
-    pub fn path(&self) -> &str {
-        &self.path
-    }
-
-    /// Set the `path` value.
-    pub fn set_path(&mut self, path: &str) -> &mut Frame {
-        self.path = path.into();
-        self
-    }
-
-    /// Get the `version` value.
-    pub fn version(&self) -> u8 {
-        self.version
-    }
-
-    /// Set the `version` value.
-    pub fn set_version(&mut self, version: u8) -> &mut Frame {
-        self.version = version;
-        self
-    }
-
-    /// Get the `host` value.
-    pub fn host(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref host) = self.host {
-            res.push_str(host);
-        }
-        res
-    }
-
-    /// Set the `host` value.
-    pub fn set_host(&mut self, host: Option<String>) -> &mut Frame {
-        self.host = host;
-        self
-    }
-
-    /// Get the `upgrade` value.
-    pub fn upgrade(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref upgrade) = self.upgrade {
-            res.push_str(upgrade);
-        }
-        res
-    }
-
-    /// Set the `upgrade` value.
-    pub fn set_upgrade(&mut self, upgrade: Option<String>) -> &mut Frame {
-        self.upgrade = upgrade;
-        self
-    }
-
-    /// Get the `conn` value.
-    pub fn conn(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref conn) = self.conn {
-            res.push_str(conn);
-        }
-        res
-    }
-
-    /// Set the `conn` value.
-    pub fn set_conn(&mut self, conn: Option<String>) -> &mut Frame {
-        self.conn = conn;
-        self
-    }
-
-    /// Get the `ws_key` value.
-    pub fn ws_key(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref ws_key) = self.ws_key {
-            res.push_str(ws_key);
-        }
-        res
-    }
-
-    /// Set the `ws_key` value.
-    pub fn set_ws_key(&mut self, ws_key: Option<String>) -> &mut Frame {
-        self.ws_key = ws_key;
-        self
-    }
-
-    /// Get the `ws_version` value.
-    pub fn ws_version(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref ws_version) = self.ws_version {
-            res.push_str(ws_version);
-        }
-        res
-    }
-
-    /// Set the `ws_version` value.
-    pub fn set_ws_version(&mut self, ws_version: Option<String>) -> &mut Frame {
-        self.ws_version = ws_version;
-        self
-    }
-
-    /// Get the `origin` value.
-    pub fn ws_origin(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref origin) = self.origin {
-            res.push_str(origin);
-        }
-        res
-    }
-
-    /// Set the `origin` value.
-    pub fn set_origin(&mut self, origin: Option<String>) -> &mut Frame {
-        self.origin = origin;
-        self
-    }
-
-    /// Get the `protocol` value.
-    pub fn protocol(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref protocol) = self.protocol {
-            res.push_str(protocol);
-        }
-        res
-    }
-
-    /// Set the `protocol` value.
-    pub fn set_protocol(&mut self, protocol: Option<String>) -> &mut Frame {
-        self.protocol = protocol;
-        self
-    }
-
-    /// Get the `extensions` value.
-    pub fn extensions(&self) -> String {
-        let mut res = String::new();
-
-        if let Some(ref extensions) = self.extensions {
-            res.push_str(extensions);
-        }
-        res
-    }
-
-    /// Set the `extensions` value.
-    pub fn set_extensions(&mut self, extensions: Option<String>) -> &mut Frame {
-        self.extensions = extensions;
-        self
-    }
-
-    /// Get the `others` value.
-    pub fn others(&self) -> &HashMap<String, String> {
-        &self.others
-    }
-
-    /// Set the `others` value.
-    pub fn set_others(&mut self, others: HashMap<String, String>) -> &mut Frame {
-        self.others = others;
-        self
-    }
-
-    /// Validate the client handshake request.
-    pub fn validate(&mut self) -> bool {
-        if self.method != "GET" {
-            return false;
+    pub fn validated<'a>(self) -> Result<ClientHandshake<Validated>, Invalid<'a>> {
+        if self.request().method() != http::Method::GET {
+            return Err(Invalid(Cow::Borrowed("request method != GET")))
         }
 
-        if self.version != 1 {
-            return false;
+        if self.request().version() != http::Version::HTTP_11 {
+            return Err(Invalid(Cow::Borrowed("unsupported HTTP version")))
         }
 
         // TODO: Host Validation
 
-        if let Some(ref val) = self.upgrade {
-            if val.to_lowercase() != "websocket" {
-                return false;
-            }
-        } else {
-            return false;
-        }
+        expect_header(self.request(), &http::header::UPGRADE, "websocket")?;
+        expect_header(self.request(), &http::header::CONNECTION, "upgrade")?;
+        expect_header(self.request(), &http::header::SEC_WEBSOCKET_VERSION, "13")?;
 
-        if let Some(ref val) = self.conn {
-            if val.to_lowercase() != "upgrade" {
-                return false;
-            }
-        } else {
-            return false;
-        }
+        let ws_key = with_header(self.request(), &http::header::SEC_WEBSOCKET_KEY, |k| {
+            Ok(String::from(k))
+        })?;
 
-        if self.ws_key.is_none() {
-            return false;
-        }
-
-        if let Some(ref val) = self.ws_version {
-            if val != "13" {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        true
+        Ok(ClientHandshake(Validated { request: self.0, ws_key }))
     }
 }
 
-impl fmt::Display for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Frame {{")?;
-        writeln!(f, "\tmethod: {}", self.method)?;
-        writeln!(f, "\tpath: {}", self.path)?;
-        writeln!(f, "\tversion: {}", self.version)?;
+impl ClientHandshake<Validated> {
+    pub fn request(&self) -> &http::Request<()> {
+        &self.0.request
+    }
 
-        if let Some(ref host) = self.host {
-            writeln!(f, "\thost: {}", host)?;
-        }
+    pub fn websocket_key(&self) -> &str {
+        &self.0.ws_key
+    }
 
-        if let Some(ref upgrade) = self.upgrade {
-            writeln!(f, "\tupgrade: {}", upgrade)?;
-        }
-
-        if let Some(ref conn) = self.conn {
-            writeln!(f, "\tconn: {}", conn)?;
-        }
-
-        if let Some(ref ws_key) = self.ws_key {
-            writeln!(f, "\tws_key: {}", ws_key)?;
-        }
-
-        if let Some(ref ws_version) = self.ws_version {
-            writeln!(f, "\tws_version: {}", ws_version)?;
-        }
-
-        if let Some(ref origin) = self.origin {
-            writeln!(f, "\torigin: {}", origin)?;
-        }
-
-        if let Some(ref protocol) = self.protocol {
-            writeln!(f, "\tprotocol: {}", protocol)?;
-        }
-
-        if let Some(ref extensions) = self.extensions {
-            writeln!(f, "\textensions: {}", extensions)?;
-        }
-
-        for (k, v) in &self.others {
-            writeln!(f, "\t{}: {}", *k, *v)?;
-        }
-
-        writeln!(f, "}}")
+    pub fn websocket_extensions(&self) -> impl Iterator<Item = &http::header::HeaderValue> {
+        self.request()
+            .headers()
+            .get_all(&http::header::SEC_WEBSOCKET_EXTENSIONS)
+            .into_iter()
     }
 }
+

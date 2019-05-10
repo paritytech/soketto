@@ -6,7 +6,7 @@ use std::{collections::HashMap, fmt, io};
 
 /// Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header in the server
 /// handshake response.
-static KEY: &'static str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const KEY: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /// Data needed to construct a server response to a client request.
 #[derive(Clone, Debug)]
