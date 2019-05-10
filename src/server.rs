@@ -51,6 +51,3 @@ pub use crate::frame::WebSocket as WebSocketFrame;
 pub use crate::frame::base::Frame as BaseFrame;
 pub use crate::frame::base::OpCode;
 
-// Server Only Frame Exports
-pub use crate::frame::server::response::Frame as HandshakeResponseFrame;
-

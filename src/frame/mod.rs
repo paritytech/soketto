@@ -18,7 +18,7 @@ pub enum WebSocket {
     /// TODO
     ServerHandshake(server::request::ClientHandshake),
     /// TODO
-    ServerHandshakeResponse(server::response::Frame)
+    ServerHandshakeResponse(server::response::ServerHandshake)
 }
 
 impl WebSocket {

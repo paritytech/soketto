@@ -9,7 +9,7 @@ use crate::extension::{PerFrameExtensions, PerMessageExtensions};
 use crate::frame::WebSocket;
 use crate::frame::base::{Frame, OpCode};
 use crate::frame::client::request::Frame as ClientHandshakeRequestFrame;
-use crate::frame::server::response::Frame as ServerHandshakeResponseFrame;
+use crate::frame::server::response::ServerHandshake;
 use crate::util;
 use log::{error, trace};
 use std::io;
@@ -136,12 +136,9 @@ impl Twist {
     }
 
     /// Encode a server handshake frame.
-    fn encode_server_handshake(&mut self,
-                               handshake: &ServerHandshakeResponseFrame,
-                               buf: &mut BytesMut)
-                               -> io::Result<()> {
+    fn encode_server_handshake(&mut self, sh: ServerHandshake, buf: &mut BytesMut) -> Result<(), http::Error> {
         let mut hc: server::handshake::FrameCodec = Default::default();
-        let ext_header = handshake.extensions();
+        // TODO: let ext_header = handshake.extensions();
         let mut ext_resp = String::new();
         let mut rb = self.reserved_bits;
 
@@ -150,11 +147,11 @@ impl Twist {
             let mut map = extensions.lock();
             let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
             for ext in vec_pm_exts.iter_mut() {
-                ext.from_header(&ext_header)?;
+                // TODO: ext.from_header(&ext_header)?;
                 if ext.enabled() {
                     match ext.reserve_rsv(rb) {
                         Ok(r) => rb = r,
-                        Err(e) => return Err(e),
+                        Err(e) => return Err(e.into()),
                     }
                     if let Ok(Some(response)) = ext.into_header() {
                         ext_resp.push_str(&response);
@@ -169,7 +166,7 @@ impl Twist {
 
         // TODO: Run through perframe extensions here.
 
-        hc.encode(handshake.clone(), buf)?;
+        hc.encode(sh, buf)?;
         self.handshake_complete = true;
         Ok(())
     }
@@ -288,20 +285,20 @@ impl Decoder for Twist {
 
 impl Encoder for Twist {
     type Item = WebSocket;
-    type Error = io::Error;
+    type Error = http::Error;
 
-    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         trace!("encode: {}", self.is_client);
         match msg {
             WebSocket::Base(ref frame) =>
                 if self.handshake_complete {
-                    self.encode_base(frame, buf)
+                    self.encode_base(frame, buf).map_err(From::from)
                 } else {
-                    Err(util::other("handshake request not complete"))
+                    Err(util::other("handshake request not complete").into())
                 }
-            WebSocket::ServerHandshakeResponse(ref frame) => self.encode_server_handshake(frame, buf),
-            WebSocket::ClientHandshake(ref frame) => self.encode_client_handshake(frame, buf),
-            _ => Err(util::other("unable to extract frame to encode"))
+            WebSocket::ServerHandshakeResponse(frame) => self.encode_server_handshake(frame, buf),
+            WebSocket::ClientHandshake(ref frame) => self.encode_client_handshake(frame, buf).map_err(From::from),
+            _ => Err(util::other("unable to extract frame to encode").into())
         }
     }
 }

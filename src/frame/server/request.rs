@@ -59,5 +59,12 @@ impl ClientHandshake<Validated> {
             .get_all(&http::header::SEC_WEBSOCKET_EXTENSIONS)
             .into_iter()
     }
+
+    pub fn websocket_protocols(&self) -> impl Iterator<Item = &http::header::HeaderValue> {
+        self.request()
+            .headers()
+            .get_all(&http::header::SEC_WEBSOCKET_PROTOCOL)
+            .into_iter()
+    }
 }
 

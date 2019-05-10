@@ -74,13 +74,13 @@ impl Encoder for RequestHeaderCodec {
 
 /// HTTP/1.1 response header encoder/decoder.
 #[derive(Debug)]
-pub struct ResponseHeaderCodec(());
+pub struct ResponseHeaderCodec<'a>(std::marker::PhantomData<&'a ()>);
 
-impl ResponseHeaderCodec {
-    pub fn new() -> Self { Self(()) }
+impl<'a> ResponseHeaderCodec<'a> {
+    pub fn new() -> Self { Self(std::marker::PhantomData) }
 }
 
-impl Decoder for ResponseHeaderCodec {
+impl<'a> Decoder for ResponseHeaderCodec<'a> {
     type Item = http::Response<()>;
     type Error = Error;
 
@@ -111,8 +111,8 @@ impl Decoder for ResponseHeaderCodec {
     }
 }
 
-impl Encoder for ResponseHeaderCodec {
-    type Item = http::Response<()>;
+impl<'a> Encoder for ResponseHeaderCodec<'a> {
+    type Item = &'a http::Response<()>;
     type Error = Error;
 
     fn encode(&mut self, rs: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
