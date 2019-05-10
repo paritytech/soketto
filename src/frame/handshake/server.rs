@@ -1,25 +1,20 @@
-//! Server response frame to a client request
-
-use crate::util::Invalid;
+use crate::util::{self, Invalid, Nonce};
 use sha1::Sha1;
 use std::borrow::Cow;
 
-/// Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header in the server
-/// handshake response.
-const KEY: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
 #[derive(Debug)]
-pub struct Builder(http::response::Builder);
+pub struct ResponseBuilder(http::response::Builder);
 
+/// The server's handshake response.
 #[derive(Debug)]
-pub struct ServerHandshake(http::Response<()>);
+pub struct Response(http::Response<()>);
 
-impl Builder {
-    pub fn accept(key: &str) -> Self {
+impl ResponseBuilder {
+    pub fn accept(nonce: &Nonce) -> Self {
         let accept = {
             let mut digest = Sha1::new();
-            digest.update(key.as_bytes());
-            digest.update(KEY);
+            digest.update(nonce.as_ref().as_bytes());
+            digest.update(util::KEY);
             base64::encode(&digest.digest().bytes())
         };
 
@@ -28,7 +23,7 @@ impl Builder {
             .version(http::Version::HTTP_11)
             .header(http::header::UPGRADE, "websocket")
             .header(http::header::CONNECTION, http::header::UPGRADE)
-            .header(http::header::SEC_WEBSOCKET_KEY, key)
+            .header(http::header::SEC_WEBSOCKET_KEY, nonce.as_ref())
             .header(http::header::SEC_WEBSOCKET_ACCEPT, accept);
 
         Self(rb)
@@ -39,15 +34,16 @@ impl Builder {
         self
     }
 
-    pub fn finish<'a>(mut self) -> Result<ServerHandshake, Invalid<'a>> {
+    pub fn finish<'a>(mut self) -> Result<Response, Invalid<'a>> {
         self.0.body(())
             .map_err(|_| Invalid(Cow::Borrowed("invalid 'Response' construction")))
-            .map(ServerHandshake)
+            .map(Response)
     }
 }
 
-impl ServerHandshake {
-    pub fn response(&self) -> &http::Response<()> {
+impl Response {
+    pub fn as_http(&self) -> &http::Response<()> {
         &self.0
     }
 }
+

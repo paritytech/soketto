@@ -1,135 +1,35 @@
 //! Codec for decoding/encoding websocket client handshake frames.
 
 use bytes::BytesMut;
-use crate::frame::client::request::Frame as ClientRequest;
-use crate::frame::client::response::Frame as ServerResponse;
-use httparse::{EMPTY_HEADER, Response};
-use log::trace;
-use std::collections::HashMap;
-use std::io;
-use tokio_io::codec::{Decoder, Encoder};
-use crate::util;
+use crate::codec::http::{self, ResponseHeaderCodec};
+use crate::frame::handshake;
+use tokio_io::codec::Decoder;
+use crate::util::{self, Nonce};
 
-/// Codec for decoding/encoding websocket client handshake frames.
-#[derive(Debug, Default)]
-pub struct FrameCodec {
-    /// The extensions headers to send with the request.
-    extension_headers: Vec<String>
+/// Decoder of websocket server to client handshake response.
+#[derive(Debug)]
+pub struct FrameCodec<'a> {
+    nonce: &'a Nonce
 }
 
-impl FrameCodec {
-    /// Add a `Sec-WebSocket-Extensions` header to this client handshake.
-    pub fn add_header(&mut self, header: String) -> &mut FrameCodec {
-        self.extension_headers.push(header);
-        self
+impl<'a> FrameCodec<'a> {
+    pub fn new(nonce: &'a Nonce) -> Self {
+        Self { nonce }
     }
 }
 
-impl Decoder for FrameCodec {
-    type Item = ServerResponse;
-    type Error = io::Error;
-    // type Out = ClientRequest;
+impl<'a> Decoder for FrameCodec<'a> {
+    type Item = handshake::client::Response;
+    type Error = http::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let len = buf.len();
-        if len == 0 {
-            return Ok(None);
-        }
-        let drained = buf.split_to(len);
-        let resp_bytes = &drained;
-        let mut headers = [EMPTY_HEADER; 32];
-        let mut resp = Response::new(&mut headers);
-        let mut handshake_frame: ServerResponse = Default::default();
-
-        if let Ok(res) = resp.parse(resp_bytes) {
-            if res.is_complete() {
-                if let Some(version) = resp.version {
-                    handshake_frame.set_version(version);
-                }
-
-                if let Some(code) = resp.code {
-                    handshake_frame.set_code(code);
-                }
-
-                if let Some(reason) = resp.reason {
-                    handshake_frame.set_reason(reason);
-                }
-
-                let mut headers = HashMap::new();
-                for header in resp.headers {
-                    // Duplicate headers are concatenated as comma-separated string.
-                    let key = header.name.to_string();
-                    let val = String::from_utf8_lossy(header.value).into_owned();
-                    let entry = headers.entry(key).or_insert_with(String::new);
-
-                    if entry.is_empty() {
-                        entry.push_str(&val);
-                    } else {
-                        entry.push(',');
-                        entry.push_str(&val);
-                    }
-                }
-
-                // Required Headers
-                handshake_frame.set_upgrade(headers.remove("Upgrade"));
-                handshake_frame.set_conn(headers.remove("Connection"));
-                handshake_frame.set_ws_accept(headers.remove("Sec-WebSocket-Accept"));
-
-                // Optional headers
-                handshake_frame.set_protocol(headers.remove("Sec-WebSocket-Protocol"));
-                handshake_frame.set_extensions(headers.remove("Sec-WebSocket-Extensions"));
-
-                if !headers.is_empty() {
-                    handshake_frame.set_others(headers);
-                }
-
-                if handshake_frame.validate() {
-                    Ok(Some(handshake_frame))
-                } else {
-                    Err(util::other("invalid handshake request"))
-                }
-            } else {
-                return Ok(None);
+        if let Some(res) = ResponseHeaderCodec::new().decode(buf)? {
+            match handshake::client::Response::new(self.nonce, res) {
+                Ok(handshake) => Ok(Some(handshake)),
+                Err(invalid) => unimplemented!()
             }
         } else {
-            return Err(util::other("unable to parse client request"));
+            Ok(None)
         }
-    }
-}
-
-impl Encoder for FrameCodec {
-    type Item = ClientRequest;
-    type Error = io::Error;
-
-    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
-        let mut request = format!("GET {}", msg.path());
-
-        if !msg.query().is_empty() {
-            request.push_str(&format!("?{}", msg.query()));
-        }
-
-        request.push_str(" HTTP/1.1\r\n");
-        request.push_str(&format!("User-Agent: {}\r\n", msg.user_agent()));
-        request.push_str(&format!("Host: {}\r\n", msg.host()));
-        request.push_str(&format!("Origin: {}\r\n", msg.origin()));
-        request.push_str("Upgrade: websocket\r\n");
-        request.push_str("Connection: upgrade\r\n");
-        request.push_str(&format!("Sec-WebSocket-Key: {}\r\n", msg.sec_websocket_key()));
-        request.push_str("Sec-WebSocket-Version: 13\r\n");
-
-        for header in &self.extension_headers {
-            request.push_str(header);
-            request.push_str("\r\n");
-        }
-
-        for (k, v) in msg.others() {
-            request.push_str(&format!("{}: {}\r\n", *k, *v));
-        }
-
-        request.push_str("\r\n");
-
-        trace!("client handshake request\n{}", request);
-        buf.extend(request.as_bytes());
-        Ok(())
     }
 }

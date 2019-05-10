@@ -1,24 +1,19 @@
-//! A websocket frame.
-
 pub mod base;
-pub mod client;
-pub mod server;
+pub mod handshake;
 
 use base::OpCode;
 
 /// A websocket frame.
 #[derive(Debug)]
 pub enum WebSocket {
-    /// TODO
-    Base(base::Frame),
-    /// TODO
-    ClientHandshake(client::request::Frame),
-    /// TODO
-    ClientHandshakeResponse(client::response::Frame),
-    /// TODO
-    ServerHandshake(server::request::ClientHandshake),
-    /// TODO
-    ServerHandshakeResponse(server::response::ServerHandshake)
+    /// The initial client to server handshake HTTP request.
+    ClientRequest(handshake::client::Request),
+    /// The server's handshake HTTP response.
+    ServerResponse(handshake::server::Response),
+    /// The server's handshake HTTP reeponse as received by the client.
+    ClientResponse(handshake::client::Response),
+    /// A generic post-handshake websocket frame
+    Base(base::Frame)
 }
 
 impl WebSocket {

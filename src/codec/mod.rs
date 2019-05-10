@@ -8,8 +8,7 @@ use crate::codec::base::FrameCodec;
 use crate::extension::{PerFrameExtensions, PerMessageExtensions};
 use crate::frame::WebSocket;
 use crate::frame::base::{Frame, OpCode};
-use crate::frame::client::request::Frame as ClientHandshakeRequestFrame;
-use crate::frame::server::response::ServerHandshake;
+use crate::frame::handshake;
 use crate::util;
 use log::{error, trace};
 use std::io;
@@ -136,7 +135,7 @@ impl Twist {
     }
 
     /// Encode a server handshake frame.
-    fn encode_server_handshake(&mut self, sh: ServerHandshake, buf: &mut BytesMut) -> Result<(), http::Error> {
+    fn encode_server_handshake(&mut self, sh: handshake::server::Response, buf: &mut BytesMut) -> Result<(), http::Error> {
         let mut hc: server::handshake::FrameCodec = Default::default();
         // TODO: let ext_header = handshake.extensions();
         let mut ext_resp = String::new();

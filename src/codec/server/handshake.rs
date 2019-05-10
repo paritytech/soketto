@@ -1,8 +1,7 @@
 //! Codec for dedoding/encoding websocket server handshake frames.
 
 use bytes::BytesMut;
-use crate::frame::server::request::{ClientHandshake, Validated};
-use crate::frame::server::response::ServerHandshake;
+use crate::frame::handshake;
 use crate::codec::http::{self, RequestHeaderCodec, ResponseHeaderCodec};
 use tokio_io::codec::{Decoder, Encoder};
 
@@ -11,12 +10,12 @@ use tokio_io::codec::{Decoder, Encoder};
 pub struct FrameCodec(());
 
 impl Decoder for FrameCodec {
-    type Item = ClientHandshake<Validated>;
+    type Item = handshake::client::Request;
     type Error = http::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if let Some(req) = RequestHeaderCodec::new().decode(buf)? {
-            match ClientHandshake::new(req).validated() {
+            match handshake::client::Request::new(req) {
                 Ok(handshake) => Ok(Some(handshake)),
                 Err(invalid) => unimplemented!()
             }
@@ -27,11 +26,11 @@ impl Decoder for FrameCodec {
 }
 
 impl Encoder for FrameCodec {
-    type Item = ServerHandshake;
+    type Item = handshake::server::Response;
     type Error = http::Error;
 
     fn encode(&mut self, item: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        ResponseHeaderCodec::new().encode(item.response(), buf)
+        ResponseHeaderCodec::new().encode(item.as_http(), buf)
     }
 }
 

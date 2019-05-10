@@ -52,7 +52,4 @@ pub use crate::codec::client::handshake::FrameCodec as HanshakeCodec;
 pub use crate::frame::WebSocket as WebSocketFrame;
 pub use crate::frame::base::{OpCode, Frame as BaseFrame};
 
-// Client Only Frame Exports
-pub use crate::frame::client::request::Frame as HandshakeRequestFrame;
-pub use crate::frame::client::response::Frame as HandshakeResponseFrame;
 
