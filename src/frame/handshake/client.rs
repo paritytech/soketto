@@ -1,8 +1,31 @@
-use sha1::Sha1;
-use std::borrow::Cow;
-use crate::util::{self, with_header, expect_header, Invalid, Nonce};
+use crate::Nonce;
+use super::{expect_header, with_header, Invalid};
 
-/// The client's handshake HTTP request.
+/// Websocket handshake request builder.
+#[derive(Debug)]
+pub struct Builder {
+    request: http::request::Builder,
+    ws_key: Nonce
+}
+
+impl Builder {
+    pub fn add_protocol(&mut self, proto: &str) -> &mut Self {
+        self.request.header(http::header::SEC_WEBSOCKET_PROTOCOL, proto);
+        self
+    }
+
+    pub fn add_extension(&mut self, ext: &str) -> &mut Self {
+        self.request.header(http::header::SEC_WEBSOCKET_EXTENSIONS, ext);
+        self
+    }
+
+    pub fn finish(mut self) -> Result<Request, Invalid> {
+        let r = self.request.body(()).map_err(|e| Invalid::new(format!("{}", e)))?;
+        Ok(Request { request: r, ws_key: self.ws_key })
+    }
+}
+
+/// The client's websocket handshake request.
 #[derive(Debug)]
 pub struct Request {
     request: http::Request<()>,
@@ -10,17 +33,28 @@ pub struct Request {
 }
 
 impl Request {
-    pub(crate) fn new<'a>(request: http::Request<()>) -> Result<Self, Invalid<'a>> {
+    pub fn builder(ws_key: Nonce) -> Builder {
+        let mut rb = http::Request::builder();
+        rb.method(http::Method::GET);
+        rb.version(http::Version::HTTP_11);
+        rb.header(http::header::UPGRADE, "websocket");
+        rb.header(http::header::CONNECTION, "upgrade");
+        rb.header(http::header::SEC_WEBSOCKET_VERSION, "13");
+        rb.header(http::header::SEC_WEBSOCKET_KEY, ws_key.as_ref());
+        Builder { request: rb, ws_key }
+    }
+
+    pub(crate) fn new(request: http::Request<()>) -> Result<Self, Invalid> {
         if request.method() != http::Method::GET {
-            return Err(Invalid(Cow::Borrowed("request method != GET")))
+            return Err(Invalid::new("request method != GET"))
         }
 
         if request.version() != http::Version::HTTP_11 {
-            return Err(Invalid(Cow::Borrowed("unsupported HTTP version")))
+            return Err(Invalid::new("unsupported HTTP version"))
         }
 
         // TODO: Host Validation
-        with_header(request.headers(), &http::header::HOST, |h| Ok(()))?;
+        with_header(request.headers(), &http::header::HOST, |_h| Ok(()))?;
 
         expect_header(request.headers(), &http::header::UPGRADE, "websocket")?;
         expect_header(request.headers(), &http::header::CONNECTION, "upgrade")?;
@@ -56,39 +90,3 @@ impl Request {
     }
 }
 
-
-/// The server's handshake HTTP response.
-#[derive(Debug)]
-pub struct Response {
-    response: http::Response<()>
-}
-
-impl Response {
-    // TODO: check extension is one of the onces requested.
-    // TODO: check protocol is one of the ones requested.
-    pub(crate) fn new<'a>(nonce: &Nonce, response: http::Response<()>) -> Result<Self, Invalid<'a>> {
-        if response.version() != http::Version::HTTP_11 {
-            return Err(Invalid(Cow::Borrowed("unsupported HTTP version")))
-        }
-
-        if response.status() != http::StatusCode::SWITCHING_PROTOCOLS {
-            return Err(Invalid(Cow::Borrowed("unexpected HTTP status code")))
-        }
-
-        expect_header(response.headers(), &http::header::UPGRADE, "websocket")?;
-        expect_header(response.headers(), &http::header::CONNECTION, "upgrade")?;
-
-        with_header(response.headers(), &http::header::SEC_WEBSOCKET_ACCEPT, move |theirs| {
-            let mut digest = Sha1::new();
-            digest.update(nonce.as_ref().as_bytes());
-            digest.update(util::KEY);
-            let ours = base64::encode(&digest.digest().bytes());
-            if ours != theirs {
-                return Err(Invalid(Cow::Borrowed("invalid 'Sec-WebSocket-Accept' received")))
-            }
-            Ok(())
-        })?;
-
-        Ok(Response { response })
-    }
-}

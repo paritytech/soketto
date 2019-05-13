@@ -6,13 +6,13 @@ use tokio_io::codec::{Decoder, Encoder};
 
 /// HTTP/1.1 request header encoder/decoder.
 #[derive(Debug)]
-pub struct RequestHeaderCodec(());
+pub struct RequestHeaderCodec<'a>(std::marker::PhantomData<&'a ()>);
 
-impl RequestHeaderCodec {
-    pub fn new() -> Self { Self(()) }
+impl<'a> RequestHeaderCodec<'a> {
+    pub fn new() -> Self { Self(std::marker::PhantomData) }
 }
 
-impl Decoder for RequestHeaderCodec {
+impl<'a> Decoder for RequestHeaderCodec<'a> {
     type Item = http::Request<()>;
     type Error = Error;
 
@@ -44,8 +44,8 @@ impl Decoder for RequestHeaderCodec {
     }
 }
 
-impl Encoder for RequestHeaderCodec {
-    type Item = http::Request<()>;
+impl<'a> Encoder for RequestHeaderCodec<'a> {
+    type Item = &'a http::Request<()>;
     type Error = Error;
 
     fn encode(&mut self, rq: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
@@ -140,7 +140,10 @@ pub enum Error {
     Io(io::Error),
     Http(http::Error),
     Parse(Box<dyn std::error::Error + Send + 'static>),
-    UnknownHttpVersion(u8)
+    UnknownHttpVersion(u8),
+
+    #[doc(hidden)]
+    __Nonexhaustive
 }
 
 impl fmt::Display for Error {
@@ -149,7 +152,8 @@ impl fmt::Display for Error {
             Error::Io(e) => write!(f, "i/o error: {}", e),
             Error::Http(e) => write!(f, "http error: {}", e),
             Error::Parse(e) => write!(f, "parse error: {}", e),
-            Error::UnknownHttpVersion(n) => write!(f, "unknown http version ({})", n)
+            Error::UnknownHttpVersion(n) => write!(f, "unknown http version ({})", n),
+            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
 }
@@ -160,7 +164,8 @@ impl std::error::Error for Error {
             Error::Io(e) => Some(e),
             Error::Http(e) => Some(e),
             Error::Parse(e) => Some(&**e),
-            Error::UnknownHttpVersion(_) => None
+            Error::UnknownHttpVersion(_) => None,
+            Error::__Nonexhaustive => None
         }
     }
 }

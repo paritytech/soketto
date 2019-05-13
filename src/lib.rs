@@ -7,18 +7,33 @@
 // modified, or distributed except according to those terms.
 
 //! An implementation of the [RFC6455][rfc6455] websocket protocol as
-//! a set of tokio [`Codecs`][codec] and a tokio-proto pipeline [`ServerProto`][proto]
+//! a set of tokio codecs.
 //!
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
-//! [codec]: https://docs.rs/tokio-core/0.1.4/tokio_core/io/trait.Codec.html
-//! [proto]: https://docs.rs/tokio-proto/0.1.0/tokio_proto/pipeline/trait.ServerProto.html
 
-#![deny(missing_docs)]
+pub mod codec;
+pub mod frame;
 
-pub mod client;
-pub mod server;
-pub mod extension;
+/// A base64-encoded random value.
+#[derive(Debug)]
+pub struct Nonce(String);
 
-mod codec;
-mod frame;
-mod util;
+impl Nonce {
+    pub fn fresh() -> Self {
+        use rand::Rng;
+        let mut buf = [0; 16];
+        rand::thread_rng().fill(&mut buf);
+        Self(base64::encode(&buf))
+    }
+
+    pub(crate) fn wrap(s: String) -> Self {
+        Nonce(s)
+    }
+}
+
+impl AsRef<str> for Nonce {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+

@@ -25,6 +25,4 @@ sha1 = "0.6.0"
 tokio-core = "0.1.17"
 tokio-io = "0.1.12"
 unicase = "2.4.0"
-uuid = { version = "0.7.4", features = ["v4"] }
-vatfluid = "0.3.0"
 

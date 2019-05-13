@@ -1,8 +1,7 @@
 //! A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame
 
 use bytes::BytesMut;
-use crate::util;
-use std::fmt;
+use std::{convert::TryFrom, fmt};
 
 /// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -20,61 +19,65 @@ pub enum OpCode {
     /// Indicates a pong control frame.
     Pong,
     /// Indicates a reserved op code.
-    Reserved,
-    /// Indicates an invalid opcode was received.
-    Bad
+    Reserved
 }
 
 impl OpCode {
     /// Is this a control opcode?
-    pub fn is_control(&self) -> bool {
-        match *self {
+    pub fn is_control(self) -> bool {
+        match self {
             OpCode::Close | OpCode::Ping | OpCode::Pong => true,
             _ => false
         }
     }
 
-    /// Is this opcode reserved or bad?
-    pub fn is_invalid(&self) -> bool {
-        match *self {
-            OpCode::Reserved | OpCode::Bad => true,
+    /// Is this opcode reserved?
+    pub fn is_reserved(self) -> bool {
+        match self {
+            OpCode::Reserved => true,
             _ => false
         }
-    }
-}
-
-impl Default for OpCode {
-    fn default() -> OpCode {
-        OpCode::Close
     }
 }
 
 impl fmt::Display for OpCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            OpCode::Continue => f.write_str( "Continue"),
+            OpCode::Continue => f.write_str("Continue"),
             OpCode::Text => f.write_str("Text"),
             OpCode::Binary => f.write_str("Binary"),
             OpCode::Close => f.write_str("Close"),
             OpCode::Ping => f.write_str("Ping"),
             OpCode::Pong => f.write_str("Pong"),
-            OpCode::Reserved => f.write_str("Reserved"),
-            OpCode::Bad => f.write_str("Bad")
+            OpCode::Reserved => f.write_str("Reserved")
         }
     }
 }
 
-impl From<u8> for OpCode {
-    fn from(val: u8) -> OpCode {
+#[derive(Debug)]
+pub struct UnknownOpCode(());
+
+impl fmt::Display for UnknownOpCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("unknown opcode")
+    }
+}
+
+impl std::error::Error for UnknownOpCode {}
+
+impl TryFrom<u8> for OpCode {
+    type Error = UnknownOpCode;
+
+    fn try_from(val: u8) -> Result<OpCode, Self::Error> {
         match val {
-            0 => OpCode::Continue,
-            1 => OpCode::Text,
-            2 => OpCode::Binary,
-            8 => OpCode::Close,
-            9 => OpCode::Ping,
-            10 => OpCode::Pong,
-            3 | 4 | 5 | 6 | 7 | 11 | 12 | 13 | 14 | 15 => OpCode::Reserved,
-            _ => OpCode::Bad,
+            0 => Ok(OpCode::Continue),
+            1 => Ok(OpCode::Text),
+            2 => Ok(OpCode::Binary),
+            8 => Ok(OpCode::Close),
+            9 => Ok(OpCode::Ping),
+            10 => Ok(OpCode::Pong),
+            3 ... 7 | 11 ... 15 => Ok(OpCode::Reserved),
+            _ => Err(UnknownOpCode(()))
         }
     }
 }
@@ -88,14 +91,13 @@ impl From<OpCode> for u8 {
             OpCode::Close => 8,
             OpCode::Ping => 9,
             OpCode::Pong => 10,
-            OpCode::Reserved | OpCode::Bad => 3,
+            OpCode::Reserved => 3
         }
     }
 }
 
-/// Represents the parts of a [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
 #[derive(Debug, Clone)]
-pub struct Frame {
+pub struct Header {
     /// The `fin` flag.
     fin: bool,
     /// The `rsv1` flag.
@@ -109,67 +111,73 @@ pub struct Frame {
     /// The `opcode`
     opcode: OpCode,
     /// The `mask`.
-    mask: u32,
-    /// The `payload_length`
-    payload_length: u64,
-    /// The optional `extension_data`
-    extension_data: Option<BytesMut>,
-    /// The optional `application_data`
-    application_data: BytesMut
+    mask: u32
 }
 
-impl Frame {
+impl Header {
+    pub fn new(oc: OpCode) -> Self {
+        Self {
+            fin: false,
+            rsv1: false,
+            rsv2: false,
+            rsv3: false,
+            masked: false,
+            opcode: oc,
+            mask: 0
+        }
+    }
+
     /// Get the `fin` flag.
-    pub fn fin(&self) -> bool {
+    pub fn is_fin(&self) -> bool {
         self.fin
     }
 
     /// Set the `fin` flag.
-    pub fn set_fin(&mut self, fin: bool) -> &mut Frame {
+    pub fn set_fin(&mut self, fin: bool) -> &mut Self {
         self.fin = fin;
         self
     }
 
     /// Get the `rsv1` flag.
-    pub fn rsv1(&self) -> bool {
+    pub fn is_rsv1(&self) -> bool {
         self.rsv1
     }
 
     /// Set the `rsv1` flag.
-    pub fn set_rsv1(&mut self, rsv1: bool) -> &mut Frame {
+    pub fn set_rsv1(&mut self, rsv1: bool) -> &mut Self {
         self.rsv1 = rsv1;
         self
     }
 
     /// Get the `rsv2` flag.
-    pub fn rsv2(&self) -> bool {
+    pub fn is_rsv2(&self) -> bool {
         self.rsv2
     }
 
     /// Set the `rsv2` flag.
-    pub fn set_rsv2(&mut self, rsv2: bool) -> &mut Frame {
+    pub fn set_rsv2(&mut self, rsv2: bool) -> &mut Self {
         self.rsv2 = rsv2;
         self
     }
 
     /// Get the `rsv3` flag.
-    pub fn rsv3(&self) -> bool {
+    pub fn is_rsv3(&self) -> bool {
         self.rsv3
     }
 
     /// Set the `rsv3` flag.
-    pub fn set_rsv3(&mut self, rsv3: bool) -> &mut Frame {
+    pub fn set_rsv3(&mut self, rsv3: bool) -> &mut Self {
         self.rsv3 = rsv3;
         self
     }
 
     /// Get the `masked` flag.
-    pub fn masked(&self) -> bool {
+    pub fn is_masked(&self) -> bool {
         self.masked
     }
 
     /// Set the `masked` flag.
-    pub fn set_masked(&mut self, masked: bool) -> &mut Frame {
+    pub fn set_masked(&mut self, masked: bool) -> &mut Self {
         self.masked = masked;
         self
     }
@@ -180,7 +188,7 @@ impl Frame {
     }
 
     /// Set the `opcode`
-    pub fn set_opcode(&mut self, opcode: OpCode) -> &mut Frame {
+    pub fn set_opcode(&mut self, opcode: OpCode) -> &mut Self {
         self.opcode = opcode;
         self
     }
@@ -191,34 +199,47 @@ impl Frame {
     }
 
     /// Set the `mask`
-    pub fn set_mask(&mut self, mask: u32) -> &mut Frame {
+    pub fn set_mask(&mut self, mask: u32) -> &mut Self {
         self.mask = mask;
         self
     }
+}
 
-    /// Get the `payload_length`.
-    pub fn payload_length(&self) -> u64 {
-        self.payload_length
+impl From<Header> for Frame {
+    fn from(header: Header) -> Self {
+        Frame {
+            header,
+            extension_data: BytesMut::new(),
+            application_data: BytesMut::new()
+        }
     }
+}
 
-    /// Set the `payload_length`
-    pub fn set_payload_length(&mut self, payload_length: u64) -> &mut Frame {
-        self.payload_length = payload_length;
-        self
+/// Represents the parts of a [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
+#[derive(Debug, Clone)]
+pub struct Frame {
+    /// The frame header.
+    header: Header,
+    /// The optional extension data.
+    extension_data: BytesMut,
+    /// The optional application data.
+    application_data: BytesMut
+}
+
+impl Frame {
+    /// Get the frame header.
+    pub fn header(&self) -> &Header {
+        &self.header
     }
 
     /// Get the `extension_data`.
-    pub fn extension_data(&self) -> Option<&[u8]> {
-        if let Some(ref ed) = self.extension_data {
-            Some(ed)
-        } else {
-            None
-        }
+    pub fn extension_data(&self) -> &[u8] {
+        &self.extension_data
     }
 
     /// Set the `extension_data`.
-    pub fn set_extension_data(&mut self, bytes: Option<impl Into<BytesMut>>) -> &mut Frame {
-        self.extension_data = bytes.map(Into::into);
+    pub fn set_extension_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Self {
+        self.extension_data = bytes.into();
         self
     }
 
@@ -228,58 +249,9 @@ impl Frame {
     }
 
     /// Set the `application_data`
-    pub fn set_application_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Frame {
+    pub fn set_application_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Self {
         self.application_data = bytes.into();
         self
     }
 }
 
-impl Default for Frame {
-    fn default() -> Frame {
-        Frame {
-            fin: true,
-            rsv1: false,
-            rsv2: false,
-            rsv3: false,
-            masked: false,
-            opcode: OpCode::Close,
-            mask: 0,
-            payload_length: 0,
-            extension_data: None,
-            application_data: BytesMut::new(),
-        }
-    }
-}
-
-impl fmt::Display for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Frame {{")?;
-        write!(f, "\n\tfin: {}", self.fin)?;
-        write!(f, "\n\trsv1: {}", self.rsv1)?;
-        write!(f, "\n\trsv2: {}", self.rsv2)?;
-        write!(f, "\n\trsv3 {}", self.rsv3)?;
-        write!(f, "\n\trsv3 {}", self.rsv3)?;
-        write!(f, "\n\topcode {}", self.opcode)?;
-        write!(f, "\n\tpayload_length {}", self.payload_length)?;
-        if let Some(ref ext_data) = self.extension_data {
-            let len = ext_data.len();
-            if len <= 256 {
-                write!(f, "\n\textension_data:\n")?;
-                write!(f, "{}\n", util::hex_header())?;
-                write!(f, "{}", util::as_hex(ext_data))?;
-            } else {
-                write!(f, "\n\textension_data: [ {} bytes ]", len)?;
-            }
-        }
-
-        let len = self.application_data.len();
-        if len <= 256 {
-            write!(f, "\n\tapplication_data:\n")?;
-            write!(f, "{}\n", util::hex_header())?;
-            write!(f, "{}", util::as_hex(&self.application_data))?;
-        } else {
-            write!(f, "\n\tapplication_data: [ {} bytes ]", len)?;
-        }
-        writeln!(f, "\n}}")
-    }
-}

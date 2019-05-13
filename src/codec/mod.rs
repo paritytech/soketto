@@ -1,314 +1,165 @@
-//! Codec for use with the `WebSocketProtocol`.
-//!
-//! Used when decoding/encoding of both websocket handshakes and websocket
-//! base frames on the server side.
-
 use bytes::BytesMut;
-use crate::codec::base::FrameCodec;
-use crate::extension::{PerFrameExtensions, PerMessageExtensions};
-use crate::frame::WebSocket;
-use crate::frame::base::{Frame, OpCode};
-use crate::frame::handshake;
-use crate::util;
-use log::{error, trace};
-use std::io;
+use crate::{codec::base::BaseCodec, frame::WebSocket, frame::handshake::Invalid, Nonce};
+use std::{fmt, io};
 use tokio_io::codec::{Decoder, Encoder};
-use uuid::Uuid;
-use vatfluid::{Success, validate};
 
-mod http;
-
+pub mod http;
 pub mod base;
-pub mod client;
-pub mod server;
 
-/// Codec for use with the [`WebSocketProtocol`].
-///
-/// Used when decoding/encoding of both websocket handshakes and websocket base frames.
-#[derive(Default)]
-pub struct Twist {
-    /// The Uuid of the parent protocol.  Used for extension lookup.
-    uuid: Uuid,
-    /// Client/Server flag.
-    is_client: bool,
+/// Codec for use with the websocket protocol.
+pub struct WebSocketCodec {
+    /// The codec to use to decode the buffer into a `base::Frame`.
+    base_codec: BaseCodec,
+    /// The client-generated random nonce if any.
+    nonce: Option<crate::Nonce>,
     /// The handshake indicator.  If this is false, the handshake is not complete.
-    handshake_complete: bool,
-    /// The `Codec` to use to decode the buffer into a `base::Frame`.  Due to the reentrant nature
-    /// of decode, the codec is initialized if set to None, reused if Some, and reset to None
-    /// after every successful decode.
-    frame_codec: Option<FrameCodec>,
-    /// The `Codec` use to decode the buffer into a `handshake::Frame`.  Due to the reentrant
-    /// nature of decode, the codec is initialized if set to None, reused if Some, and reset to
-    /// None after every successful decode.
-    client_handshake_codec: Option<client::handshake::FrameCodec>,
-    /// The `Codec` use to decode the buffer into a `handshake::Frame`.  Due to the reentrant
-    /// nature of decode, the codec is initialized if set to None, reused if Some, and reset to
-    /// None after every successful decode.
-    server_handshake_codec: Option<server::handshake::FrameCodec>,
-    /// The `Origin` header, if present.
-    // origin: Option<String>,
-    /// Per-message extensions
-    permessage_extensions: Option<PerMessageExtensions>,
-    /// Per-frame extensions
-    perframe_extensions: Option<PerFrameExtensions>,
-    /// RSVx bits reserved by extensions (must be less than 16)
-    reserved_bits: u8
+    handshake_complete: bool
 }
 
-impl Twist {
-    /// Create a new `Twist` codec with the given extensions.
-    pub fn new(uuid: Uuid, is_client: bool) -> Self {
-        Twist {
-            uuid,
-            is_client,
-            handshake_complete: false,
-            frame_codec: None,
-            client_handshake_codec: None,
-            server_handshake_codec: None,
-            // origin: None,
-            permessage_extensions: None,
-            perframe_extensions: None,
-            reserved_bits: 0
+impl WebSocketCodec {
+    pub fn server() -> Self {
+        WebSocketCodec {
+            nonce: None,
+            base_codec: BaseCodec::new(),
+            handshake_complete: false
         }
     }
 
-    /// Run the extension chain decode on the given `base::Frame`.
-    fn ext_chain_decode(&self, frame: &mut Frame) -> Result<(), io::Error> {
-        let opcode = frame.opcode();
-        // Only run the chain if this is a Text/Binary finish frame.
-        if frame.fin() && (opcode == OpCode::Text || opcode == OpCode::Binary) {
-            if let Some(ref extensions) = self.permessage_extensions {
-                let mut map = extensions.lock();
-                let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-                for ext in vec_pm_exts.iter_mut() {
-                    if ext.enabled() {
-                        ext.decode(frame)?;
-                    }
-                }
-            }
+    pub fn client(nonce: Nonce) -> Self {
+        WebSocketCodec {
+            nonce: Some(nonce),
+            base_codec: BaseCodec::new(),
+            handshake_complete: false
         }
-        Ok(())
-    }
-
-    /// Encode a base frame.
-    fn encode_base(&mut self, base: &Frame, buf: &mut BytesMut) -> io::Result<()> {
-        let mut fc: FrameCodec = Default::default();
-        fc.set_client(self.is_client);
-        let mut mut_base = base.clone();
-
-        // Run the frame through the permessage extension chain before final encoding.
-        if let Some(ref extensions) = self.permessage_extensions {
-            let mut map = extensions.lock();
-            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pm_exts.iter_mut() {
-                if ext.enabled() {
-                    ext.encode(&mut mut_base)?;
-                }
-            }
-        }
-
-        fc.encode(mut_base, buf)?;
-        Ok(())
-    }
-
-    /// Encode a client handshake frame
-    fn encode_client_handshake(&mut self,
-                               handshake: &ClientHandshakeRequestFrame,
-                               buf: &mut BytesMut)
-                               -> io::Result<()> {
-        let mut hc: client::handshake::FrameCodec = Default::default();
-        // Run the frame through the permessage extension chain before final encoding.
-        if let Some(ref extensions) = self.permessage_extensions {
-            let mut map = extensions.lock();
-            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pm_exts.iter_mut() {
-                if ext.enabled() {
-                    if let Ok(Some(header)) = ext.into_header() {
-                        hc.add_header(header);
-                    }
-                }
-            }
-        }
-
-        hc.encode(handshake.clone(), buf)?;
-        Ok(())
-    }
-
-    /// Encode a server handshake frame.
-    fn encode_server_handshake(&mut self, sh: handshake::server::Response, buf: &mut BytesMut) -> Result<(), http::Error> {
-        let mut hc: server::handshake::FrameCodec = Default::default();
-        // TODO: let ext_header = handshake.extensions();
-        let mut ext_resp = String::new();
-        let mut rb = self.reserved_bits;
-
-        // Run the frame through the permessage extension chain before final encoding.
-        if let Some(ref extensions) = self.permessage_extensions {
-            let mut map = extensions.lock();
-            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-            for ext in vec_pm_exts.iter_mut() {
-                // TODO: ext.from_header(&ext_header)?;
-                if ext.enabled() {
-                    match ext.reserve_rsv(rb) {
-                        Ok(r) => rb = r,
-                        Err(e) => return Err(e.into()),
-                    }
-                    if let Ok(Some(response)) = ext.into_header() {
-                        ext_resp.push_str(&response);
-                        ext_resp.push_str(", ");
-                    }
-                }
-            }
-        }
-
-        self.reserved_bits = rb;
-        // TODO: hc.set_ext_resp(ext_resp.trim_end_matches(", "));
-
-        // TODO: Run through perframe extensions here.
-
-        hc.encode(sh, buf)?;
-        self.handshake_complete = true;
-        Ok(())
     }
 }
 
-impl Decoder for Twist {
+impl Decoder for WebSocketCodec {
     type Item = WebSocket;
-    type Error = http::Error;
+    type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if buf.is_empty() {
-            return Ok(None);
-        }
-
         if self.handshake_complete {
-            if self.frame_codec.is_none() {
-                self.frame_codec = Some(Default::default());
-            }
-
-            let mut frame = if let Some(ref mut fc) = self.frame_codec {
-                fc.set_client(self.is_client);
-                fc.set_reserved_bits(self.reserved_bits);
-                match fc.decode(buf) {
-                    Ok(Some(frame)) => frame,
-                    Ok(None) => return Ok(None),
-                    Err(e) => return Err(e.into()),
-                }
+            if let Some(frame) = self.base_codec.decode(buf)? {
+                return Ok(Some(WebSocket::Base(frame)))
             } else {
-                return Err(util::other("unable to extract frame codec").into());
-            };
-
-            self.ext_chain_decode(&mut frame)?;
-
-            // Validate utf-8 here to allow pre-processing of appdata by extension chain.
-            if frame.opcode() == OpCode::Text && frame.fin() &&
-               !frame.application_data().is_empty() {
-                match validate(frame.application_data()) {
-                    Ok(Success::Complete(pos)) => {
-                        trace!("complete: {}", pos);
-                    }
-                    Ok(Success::Incomplete(_, pos)) => {
-                        error!("incomplete: {}", pos);
-                        return Err(util::other("invalid utf-8 sequence").into());
-                    }
-                    Err(e) => {
-                        error!("{}", e);
-                        return Err(util::other("invalid utf-8 sequence").into());
-                    }
-                }
-            }
-
-            self.frame_codec = None;
-            return Ok(Some(WebSocket::Base(frame)))
-        }
-
-        if self.is_client {
-            trace!("decoding into server handshake response frame");
-            if self.client_handshake_codec.is_none() {
-                let hc: client::handshake::FrameCodec = Default::default();
-                self.client_handshake_codec = Some(hc);
-            }
-            if let Some(ref mut hc) = self.client_handshake_codec {
-                match hc.decode(buf) {
-                    Ok(Some(hand)) => {
-                        let ext_header = hand.extensions();
-                        let mut rb = self.reserved_bits;
-
-                        // Run the frame through the permessage extension chain..
-                        if let Some(ref extensions) = self.permessage_extensions {
-                            let mut map = extensions.lock();
-                            let vec_pm_exts = map.entry(self.uuid).or_insert_with(Vec::new);
-                            for ext in vec_pm_exts.iter_mut() {
-                                // Reconfigure based on response
-                                ext.from_header(&ext_header)?;
-
-                                // If ext is still enabled set the reserved bits.
-                                if ext.enabled() {
-                                    match ext.reserve_rsv(rb) {
-                                        Ok(r) => rb = r,
-                                        Err(e) => return Err(e.into()),
-                                    }
-                                }
-                            }
-                        }
-
-                        self.reserved_bits = rb;
-                        self.handshake_complete = true;
-                        self.client_handshake_codec = None;
-
-                        return Ok(Some(WebSocket::ClientHandshakeResponse(hand)))
-                    }
-                    Ok(None) => return Ok(None),
-                    Err(e) => return Err(e.into())
-                }
+                return Ok(None)
             }
         }
 
-        assert!(!self.is_client);
-
-        trace!("decoding into server handshake frame");
-        if self.server_handshake_codec.is_none() {
-            self.server_handshake_codec = Some(Default::default());
-        }
-
-        let hc = self.server_handshake_codec.as_mut().unwrap();
-        match hc.decode(buf) {
-            Ok(Some(hand)) => {
-                self.server_handshake_codec = None;
-                return Ok(Some(WebSocket::ServerHandshake(hand)))
+        if let Some(nonce) = self.nonce.take() { // decode server response
+            if let Some(http_resp) = http::ResponseHeaderCodec::new().decode(buf)? {
+                let r = crate::frame::handshake::server::Response::new(nonce, http_resp)?;
+                self.handshake_complete = true;
+                Ok(Some(WebSocket::ServerResponse(r)))
+            } else {
+                Ok(None)
             }
-            Ok(None) => return Ok(None),
-            Err(e) => return Err(e)
+        } else { // decode client request
+            if let Some(http_req) = http::RequestHeaderCodec::new().decode(buf)? {
+                let r = crate::frame::handshake::client::Request::new(http_req)?;
+                Ok(Some(WebSocket::ClientRequest(r)))
+            } else {
+                Ok(None)
+            }
         }
     }
 }
 
-impl Encoder for Twist {
+impl Encoder for WebSocketCodec {
     type Item = WebSocket;
-    type Error = http::Error;
+    type Error = Error;
 
     fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        trace!("encode: {}", self.is_client);
         match msg {
-            WebSocket::Base(ref frame) =>
-                if self.handshake_complete {
-                    self.encode_base(frame, buf).map_err(From::from)
-                } else {
-                    Err(util::other("handshake request not complete").into())
-                }
-            WebSocket::ServerHandshakeResponse(frame) => self.encode_server_handshake(frame, buf),
-            WebSocket::ClientHandshake(ref frame) => self.encode_client_handshake(frame, buf).map_err(From::from),
-            _ => Err(util::other("unable to extract frame to encode").into())
+            WebSocket::ClientRequest(request) => {
+                assert!(!self.handshake_complete);
+                http::RequestHeaderCodec::new().encode(request.as_http(), buf)?;
+                Ok(())
+            }
+            WebSocket::ServerResponse(response) => {
+                assert!(!self.handshake_complete);
+                http::ResponseHeaderCodec::new().encode(response.as_http(), buf)?;
+                self.handshake_complete = true;
+                Ok(())
+            }
+            WebSocket::Base(frame) => {
+                assert!(self.handshake_complete);
+                self.base_codec.encode(frame, buf)?;
+                Ok(())
+            }
         }
     }
 }
+
+// Error //////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    Http(http::Error),
+    Base(base::Error),
+    Invalid(Invalid),
+
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::Http(e) => write!(f, "http error: {}", e),
+            Error::Base(e) => write!(f, "base frame error: {}", e),
+            Error::Invalid(i) => write!(f, "{}", i),
+            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::Http(e) => Some(e),
+            Error::Base(e) => Some(e),
+            Error::Invalid(e) => Some(e),
+            Error::__Nonexhaustive => None
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+impl From<http::Error> for Error {
+    fn from(e: http::Error) -> Self {
+        Error::Http(e)
+    }
+}
+
+impl From<base::Error> for Error {
+    fn from(e: base::Error) -> Self {
+        Error::Base(e)
+    }
+}
+
+impl From<Invalid> for Error {
+    fn from(e: Invalid) -> Self {
+        Error::Invalid(e)
+    }
+}
+
 
 #[cfg(test)]
 mod test {
-    use super::Twist;
+    use super::WebSocketCodec;
     use bytes::BytesMut;
     use crate::frame::WebSocket;
-    use crate::frame::base::{Frame, OpCode};
-    use crate::util;
+    use crate::frame::base::{Frame, Header, OpCode};
     use std::io::{self, Write};
     use tokio_io::codec::{Decoder, Encoder};
 
@@ -336,26 +187,25 @@ mod test {
     const PING:   [u8; 7]   = [0x89, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
     const PONG:   [u8; 7]   = [0x8A, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00];
 
-    fn decode_test(vec: Vec<u8>, opcode: OpCode, len: u64) {
+    fn decode_test(vec: Vec<u8>, opcode: OpCode) {
         let mut eb = BytesMut::with_capacity(256);
         eb.extend(vec);
-        let mut fc: Twist = Default::default();
+        let mut fc = WebSocketCodec::server();
         fc.handshake_complete = true;
 
         match fc.decode(&mut eb) {
             Ok(Some(decoded)) => {
                 if let WebSocket::Base(base) = decoded {
-                    if base.opcode() == OpCode::Continue {
-                        assert!(!base.fin());
+                    if base.header().opcode() == OpCode::Continue {
+                        assert!(!base.header().is_fin());
                     } else {
-                        assert!(base.fin());
+                        assert!(base.header().is_fin());
                     }
-                    assert!(!base.rsv1());
-                    assert!(!base.rsv2());
-                    assert!(!base.rsv3());
-                    assert!(base.opcode() == opcode);
-                    assert!(base.payload_length() == len);
-                    assert!(base.extension_data().is_none());
+                    assert!(!base.header().is_rsv1());
+                    assert!(!base.header().is_rsv2());
+                    assert!(!base.header().is_rsv3());
+                    assert!(base.header().opcode() == opcode);
+                    assert!(base.extension_data().is_empty());
                     assert!(!base.application_data().is_empty());
                 } else {
                     assert!(false);
@@ -371,22 +221,18 @@ mod test {
         }
     }
 
-    fn encode_test(cmp: Vec<u8>, opcode: OpCode, len: u64, app_data: Vec<u8>) {
-        let mut fc: Twist = Default::default();
+    fn encode_test(cmp: Vec<u8>, opcode: OpCode, app_data: Vec<u8>) {
+        let mut fc = WebSocketCodec::server();
         fc.handshake_complete = true;
-        let mut base: Frame = Default::default();
-        base.set_opcode(opcode);
+        let mut header = Header::new(opcode);
         if opcode == OpCode::Continue {
-            base.set_fin(false);
+            header.set_fin(false);
         }
-        base.set_payload_length(len);
+        let mut base = Frame::from(header);
         base.set_application_data(app_data);
 
         let mut buf = BytesMut::with_capacity(1024);
-        if let Ok(()) = <Twist as Encoder>::encode(&mut fc, WebSocket::Base(base), &mut buf) {
-            if buf.len() < 1024 {
-                println!("{}", util::as_hex(&buf));
-            }
+        if let Ok(()) = <WebSocketCodec as Encoder>::encode(&mut fc, WebSocket::Base(base), &mut buf) {
             // There is no mask in encoded frames
             println!("b: {}, c: {}", buf.len(), cmp.len());
             assert!(buf.len() == (cmp.len() - 4));
@@ -399,33 +245,33 @@ mod test {
 
     #[test]
     fn decode() {
-        decode_test(SHORT.to_vec(), OpCode::Text, 1);
-        decode_test(MID.to_vec(), OpCode::Text, 126);
+        decode_test(SHORT.to_vec(), OpCode::Text);
+        decode_test(MID.to_vec(), OpCode::Text);
         let mut long = Vec::with_capacity(65550);
         long.extend(&[0x81, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                       0x00, 0x01]);
         long.extend([0; 65536].iter());
-        decode_test(long, OpCode::Text, 65536);
-        decode_test(CONT.to_vec(), OpCode::Continue, 1);
-        decode_test(TEXT.to_vec(), OpCode::Text, 1);
-        decode_test(BINARY.to_vec(), OpCode::Binary, 1);
-        decode_test(PING.to_vec(), OpCode::Ping, 1);
-        decode_test(PONG.to_vec(), OpCode::Pong, 1);
+        decode_test(long, OpCode::Text);
+        decode_test(CONT.to_vec(), OpCode::Continue);
+        decode_test(TEXT.to_vec(), OpCode::Text);
+        decode_test(BINARY.to_vec(), OpCode::Binary);
+        decode_test(PING.to_vec(), OpCode::Ping);
+        decode_test(PONG.to_vec(), OpCode::Pong);
     }
 
     #[test]
     fn encode() {
-        encode_test(SHORT.to_vec(), OpCode::Text, 1, vec![0]);
-        encode_test(MID.to_vec(), OpCode::Text, 126, vec![0; 126]);
+        encode_test(SHORT.to_vec(), OpCode::Text, vec![0]);
+        encode_test(MID.to_vec(), OpCode::Text, vec![0; 126]);
         let mut long = Vec::with_capacity(65550);
         long.extend(&[0x81, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                       0x00, 0x01]);
         long.extend([0; 65536].iter());
-        encode_test(long.to_vec(), OpCode::Close, 65536, vec![0; 65536]);
-        encode_test(CONT.to_vec(), OpCode::Continue, 1, vec![0]);
-        encode_test(TEXT.to_vec(), OpCode::Text, 1, vec![0]);
-        encode_test(BINARY.to_vec(), OpCode::Binary, 1, vec![0]);
-        encode_test(PING.to_vec(), OpCode::Ping, 1, vec![0]);
-        encode_test(PONG.to_vec(), OpCode::Pong, 1, vec![0]);
+        encode_test(long.to_vec(), OpCode::Close, vec![0; 65536]);
+        encode_test(CONT.to_vec(), OpCode::Continue, vec![0]);
+        encode_test(TEXT.to_vec(), OpCode::Text, vec![0]);
+        encode_test(BINARY.to_vec(), OpCode::Binary, vec![0]);
+        encode_test(PING.to_vec(), OpCode::Ping, vec![0]);
+        encode_test(PONG.to_vec(), OpCode::Pong, vec![0]);
     }
 }

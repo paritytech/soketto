@@ -1,13 +1,11 @@
 //! Codec for encoding/decoding websocket [base] frames.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
+
 use bytes::{BufMut, Buf, BytesMut};
-use crate::frame::base::{Frame, OpCode};
-use crate::util;
-use log::{error, trace};
-use std::io::{self, Cursor};
+use crate::frame::base::{Frame, OpCode, Header};
+use std::{convert::TryFrom, fmt, io::{self, Cursor}};
 use tokio_io::codec::{Decoder, Encoder};
-use vatfluid::{Success, validate};
 
 /// If the payload length byte is 126, the following two bytes represent the actual payload
 /// length.
@@ -17,93 +15,41 @@ const TWO_EXT: u8 = 126;
 /// length.
 const EIGHT_EXT: u8 = 127;
 
-/// Indicates the state of the decoding process for this frame.
-#[derive(Debug, Clone)]
-pub enum DecodeState {
-    /// None of the frame has been decoded.
-    None,
-    /// The header has been decoded.
-    Header,
-    /// The length has been decoded.
-    Length,
-    /// The mask has been decoded.
-    Mask,
-    /// The decoding is complete.
-    Full
-}
-
-impl Default for DecodeState {
-    fn default() -> DecodeState {
-        DecodeState::None
-    }
-}
-
 /// Codec for encoding/decoding websocket [base] frames.
 ///
 /// [base]: https://tools.ietf.org/html/rfc6455#section-5.2
-#[derive(Clone, Debug, Default)]
-pub struct FrameCodec {
-    /// Is this a client frame?
-    client: bool,
-    /// The `fin` flag.
-    fin: bool,
-    /// The `rsv1` flag.
-    rsv1: bool,
-    /// The `rsv2` flag.
-    rsv2: bool,
-    /// The `rsv3` flag.
-    rsv3: bool,
-    /// The `opcode`
-    opcode: OpCode,
-    /// The `masked` flag
-    masked: bool,
-    /// The length code.
-    length_code: u8,
-    /// The `payload_length`
-    payload_length: u64,
-    /// The optional `mask`
-    mask_key: u32,
-    /// The optional `extension_data`
-    extension_data: Option<BytesMut>,
-    /// The optional `application_data`
-    application_data: BytesMut,
-    /// The position in the application_data that we have validate in a text frame.
-    pos: usize,
+#[derive(Debug)]
+pub struct BaseCodec {
     /// Decode state
-    state: DecodeState,
-    /// Minimum length required to parse the next part of the frame.
-    min_len: u64,
+    state: Option<DecodeState>,
     /// Bits reserved by extensions.
     reserved_bits: u8
 }
 
-impl FrameCodec {
-    /// Set the `client` flag.
-    pub fn set_client(&mut self, client: bool) -> &mut FrameCodec {
-        self.client = client;
-        self
+#[derive(Debug)]
+enum DecodeState {
+    Start,
+    HeaderStart {
+        header: Header,
+        length_code: u8
+    },
+    HeaderLength {
+        header: Header,
+        length: u64
+    },
+    Body {
+        header: Header,
+        length: u64,
+        body: BytesMut
     }
+}
 
-    /// Set the bits reserved by extensions (0-8 are valid values).
-    pub fn set_reserved_bits(&mut self, reserved_bits: u8) -> &mut FrameCodec {
-        self.reserved_bits = reserved_bits;
-        self
-    }
-
-    // Copy or take data from `FrameCodec` and turn it into a valid `Frame`.
-    fn to_frame(&mut self) -> Frame {
-        let mut frame: Frame = Default::default();
-        frame.set_fin(self.fin);
-        frame.set_rsv1(self.rsv1);
-        frame.set_rsv2(self.rsv2);
-        frame.set_rsv3(self.rsv3);
-        frame.set_masked(self.masked);
-        frame.set_opcode(self.opcode);
-        frame.set_mask(self.mask_key);
-        frame.set_payload_length(self.payload_length);
-        frame.set_application_data(self.application_data.take());
-        frame.set_extension_data(self.extension_data.take());
-        frame
+impl BaseCodec {
+    pub fn new() -> Self {
+        Self {
+            state: Some(DecodeState::Start),
+            reserved_bits: 0
+        }
     }
 }
 
@@ -117,224 +63,248 @@ fn apply_mask(buf: &mut [u8], mask: u32) -> Result<(), io::Error> {
     Ok(())
 }
 
-impl Decoder for FrameCodec {
+impl Decoder for BaseCodec {
     type Item = Frame;
-    type Error = io::Error;
+    type Error = Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let buf_len = buf.len();
-        if buf_len == 0 {
-            return Ok(None);
-        }
-
-        self.min_len = 0;
         loop {
-            match self.state {
-                DecodeState::None => {
-                    self.min_len += 2;
-                    // Split off the 2 'header' bytes.
-                    if (buf_len as u64) < self.min_len {
-                        return Ok(None);
+            match self.state.take() {
+                Some(DecodeState::Start) => {
+                    if buf.len() < 2 {
+                        self.state = Some(DecodeState::Start);
+                        return Ok(None)
                     }
+
                     let header_bytes = buf.split_to(2);
-                    let header = &header_bytes;
-                    let first = header[0];
-                    let second = header[1];
+                    let first = header_bytes[0];
+                    let second = header_bytes[1];
 
-                    // Extract the details
-                    self.fin = first & 0x80 != 0;
-                    self.rsv1 = first & 0x40 != 0;
-                    if self.rsv1 && (self.reserved_bits & 0x4 == 0) {
-                        return Err(util::other("invalid rsv1 bit set"));
+                    let fin = first & 0x80 != 0;
+                    let opcode = OpCode::try_from(first & 0x0F)?;
+                    if opcode.is_reserved() {
+                        return Err(Error::ReservedOpCode)
+                    }
+                    if opcode.is_control() && !fin {
+                        return Err(Error::FragmentedControl)
                     }
 
-                    self.rsv2 = first & 0x20 != 0;
-                    if self.rsv2 && (self.reserved_bits & 0x2 == 0) {
-                        return Err(util::other("invalid rsv2 bit set"));
-                    }
+                    let mut header = Header::new(opcode);
+                    header.set_fin(fin);
 
-                    self.rsv3 = first & 0x10 != 0;
-                    if self.rsv3 && (self.reserved_bits & 0x1 == 0) {
-                        return Err(util::other("invalid rsv3 bit set"));
+                    let rsv1 = first & 0x40 != 0;
+                    if rsv1 && (self.reserved_bits & 0x4 == 0) {
+                        return Err(Error::Message("invalid rsv1 bit set"))
                     }
+                    header.set_rsv1(rsv1);
 
-                    self.opcode = OpCode::from((first & 0x0F) as u8);
-                    if self.opcode.is_invalid() {
-                        return Err(util::other("invalid opcode set"));
+                    let rsv2 = first & 0x20 != 0;
+                    if rsv2 && (self.reserved_bits & 0x2 == 0) {
+                        return Err(Error::Message("invalid rsv2 bit set"))
                     }
-                    if self.opcode.is_control() && !self.fin {
-                        return Err(util::other("control frames must not be fragmented"));
-                    }
+                    header.set_rsv2(rsv2);
 
-                    self.masked = second & 0x80 != 0;
-                    if !self.masked && !self.client {
-                        return Err(util::other("all client frames must have a mask"));
+                    let rsv3 = first & 0x10 != 0;
+                    if rsv3 && (self.reserved_bits & 0x1 == 0) {
+                        return Err(Error::Message("invalid rsv3 bit set"))
                     }
+                    header.set_rsv3(rsv3);
 
-                    self.length_code = (second & 0x7F) as u8;
-                    self.state = DecodeState::Header;
+                    header.set_masked(second & 0x80 != 0);
+
+                    self.state = Some(DecodeState::HeaderStart { header, length_code: second & 0x7F })
                 }
-                DecodeState::Header => {
-                    if self.length_code == TWO_EXT {
-                        self.min_len += 2;
-                        if (buf_len as u64) < self.min_len {
-                            self.min_len -= 2;
-                            return Ok(None);
-                        }
-                        let len = Cursor::new(buf.split_to(2)).get_u16_be();
-                        self.payload_length = len as u64;
-                        self.state = DecodeState::Length;
-                    } else if self.length_code == EIGHT_EXT {
-                        self.min_len += 8;
-                        if (buf_len as u64) < self.min_len {
-                            self.min_len -= 8;
-                            return Ok(None);
-                        }
-                        let len = Cursor::new(buf.split_to(8)).get_u64_be();
-                        self.payload_length = len as u64;
-                        self.state = DecodeState::Length;
-                    } else {
-                        self.payload_length = self.length_code as u64;
-                        self.state = DecodeState::Length;
-                    }
-                    if self.payload_length > 125 && self.opcode.is_control() {
-                        return Err(util::other("invalid control frame"));
-                    }
-                }
-                DecodeState::Length => {
-                    if self.masked {
-                        self.min_len += 4;
-                        if (buf_len as u64) < self.min_len {
-                            self.min_len -= 4;
-                            return Ok(None);
-                        }
-                        let mask = Cursor::new(buf.split_to(4)).get_u32_be();
-                        self.mask_key = mask;
-                        self.state = DecodeState::Mask;
-                    } else {
-                        self.mask_key = 0;
-                        self.state = DecodeState::Mask;
-                    }
-                }
-                DecodeState::Mask => {
-                    if self.payload_length > 0 {
-                        let mask = self.mask_key;
-                        let app_data_len = self.application_data.len();
-                        if buf.is_empty() {
-                            return Ok(None);
-                        } else if ((buf.len() + app_data_len) as u64) < self.payload_length {
-                            self.application_data.unsplit(buf.take());
-                            if self.opcode == OpCode::Text {
-                                apply_mask(&mut self.application_data[..], mask)?;
-                                trace!("validating from pos: {}", self.pos);
-                                match validate(&self.application_data[self.pos..]) {
-                                    Ok(Success::Complete(pos)) => {
-                                        trace!("validation complete: {}", pos);
-                                        self.pos += pos;
-                                    }
-                                    Ok(Success::Incomplete(_, pos)) => {
-                                        trace!("validation incomplete: {}", pos);
-                                        self.pos += pos;
-                                    }
-                                    Err(e) => {
-                                        error!("{}", e);
-                                        return Err(util::other("invalid utf-8 sequence"));
-                                    }
-                                }
-                                apply_mask(&mut self.application_data[..], mask)?;
+                Some(DecodeState::HeaderStart { header, length_code }) => {
+                    let len = match length_code {
+                        TWO_EXT => {
+                            if buf.len() < 2 {
+                                self.state = Some(DecodeState::HeaderStart { header, length_code });
+                                return Ok(None)
                             }
-                            return Ok(None);
-                        } else {
-                            let split_len = (self.payload_length as usize) - app_data_len;
-                            self.application_data.unsplit(buf.split_to(split_len));
-                            if self.masked {
-                                apply_mask(&mut self.application_data[..], mask)?;
-                            }
-                            self.state = DecodeState::Full;
+                            let len = u16::from_be_bytes([buf[0], buf[1]]);
+                            buf.split_to(2);
+                            u64::from(len)
                         }
-                    } else {
-                        self.state = DecodeState::Full;
+                        EIGHT_EXT => {
+                            if buf.len() < 8 {
+                                self.state = Some(DecodeState::HeaderStart { header, length_code });
+                                return Ok(None)
+                            }
+                            Cursor::new(buf.split_to(8)).get_u64_be()
+                        }
+                        n => u64::from(n)
+                    };
+
+                    if len > 125 && header.opcode().is_control() {
+                        return Err(Error::Message("invalid control frame (len > 125)"))
                     }
+
+                    self.state = Some(DecodeState::HeaderLength { header, length: len })
                 }
-                DecodeState::Full => break,
+                Some(DecodeState::HeaderLength { mut header, length }) => {
+                    if !header.is_masked() {
+                        self.state = Some(DecodeState::Body { header, length, body: BytesMut::new() });
+                        continue
+                    }
+                    if buf.len() < 4 {
+                        self.state = Some(DecodeState::HeaderLength { header, length });
+                        return Ok(None)
+                    }
+                    header.set_mask(u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]));
+                    buf.split_to(4);
+                    self.state = Some(DecodeState::Body { header, length, body: BytesMut::new() })
+                }
+                Some(DecodeState::Body { header, length: 0, .. }) => {
+                    self.state = Some(DecodeState::Start);
+                    return Ok(Some(Frame::from(header)))
+                }
+                Some(DecodeState::Body { header, length, mut body }) => {
+                    if (buf.len() as u64) < length {
+                        if (buf.capacity() as u64) < length {
+                            buf.reserve(length as usize - buf.len())
+                        }
+                        self.state = Some(DecodeState::Body { header, length, body });
+                        return Ok(None)
+                    }
+                    body = buf.split_to(length as usize);
+                    if header.is_masked() {
+                        apply_mask(&mut body, header.mask())?
+                    }
+                    let mut f = Frame::from(header);
+                    f.set_application_data(body);
+                    self.state = Some(DecodeState::Start);
+                    return Ok(Some(f))
+                }
+                None => return Err(Error::IllegalState)
             }
         }
-
-        Ok(Some(self.to_frame()))
     }
 }
 
-impl Encoder for FrameCodec {
+impl Encoder for BaseCodec {
     type Item = Frame;
     type Error = io::Error;
 
-    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&mut self, frame: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+        buf.reserve(2);
+
         let mut first_byte = 0_u8;
-
-        if msg.fin() {
-            first_byte |= 0x80;
+        if frame.header().is_fin() {
+            first_byte |= 0x80
+        }
+        if frame.header().is_rsv1() {
+            first_byte |= 0x40
+        }
+        if frame.header().is_rsv2() {
+            first_byte |= 0x20
+        }
+        if frame.header().is_rsv3() {
+            first_byte |= 0x10
         }
 
-        if msg.rsv1() {
-            first_byte |= 0x40;
-        }
-
-        if msg.rsv2() {
-            first_byte |= 0x20;
-        }
-
-        if msg.rsv3() {
-            first_byte |= 0x10;
-        }
-
-        let opcode: u8 = msg.opcode().into();
+        let opcode: u8 = frame.header().opcode().into();
         first_byte |= opcode;
+
         buf.put(first_byte);
 
         let mut second_byte = 0_u8;
 
-        if msg.masked() {
-            second_byte |= 0x80;
+        if frame.header().is_masked() {
+            second_byte |= 0x80
         }
 
-        let len = msg.payload_length();
-        if len < TWO_EXT as u64 {
+        let len = frame.application_data().len();
+
+        if len < usize::from(TWO_EXT) {
             second_byte |= len as u8;
             buf.put(second_byte);
-        } else if len < 65536 {
+        } else if len <= usize::from(u16::max_value()) {
             second_byte |= TWO_EXT;
             buf.put(second_byte);
             buf.extend_from_slice(&(len as u16).to_be_bytes())
         } else {
             second_byte |= EIGHT_EXT;
             buf.put(second_byte);
-            buf.extend_from_slice(&len.to_be_bytes()[..])
+            buf.extend_from_slice(&len.to_be_bytes())
         }
 
-        if msg.masked() {
-            buf.extend_from_slice(&msg.mask().to_be_bytes()[..])
+        if frame.header().is_masked() {
+            buf.extend_from_slice(&frame.header().mask().to_be_bytes())
         }
 
-        if !msg.application_data().is_empty() {
-            buf.extend_from_slice(&msg.application_data()[..])
+        if !frame.application_data().is_empty() {
+            buf.extend_from_slice(frame.application_data())
         }
 
         Ok(())
     }
 }
 
+// Error type /////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    UnknownOpCode,
+    ReservedOpCode,
+    FragmentedControl,
+    Message(&'static str),
+    IllegalState,
+
+    #[doc(hidden)]
+    __Nonexhaustive
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::UnknownOpCode => f.write_str("unknown opcode"),
+            Error::ReservedOpCode => f.write_str("reserved opcode"),
+            Error::FragmentedControl => f.write_str("fragmented control frame"),
+            Error::Message(msg) => write!(f, "{}", msg),
+            Error::IllegalState => f.write_str("illegal state"),
+            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::UnknownOpCode => None,
+            Error::ReservedOpCode => None,
+            Error::FragmentedControl => None,
+            Error::Message(_) => None,
+            Error::IllegalState => None,
+            Error::__Nonexhaustive => None
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
+}
+
+impl From<crate::frame::base::UnknownOpCode> for Error {
+    fn from(_: crate::frame::base::UnknownOpCode) -> Self {
+        Error::UnknownOpCode
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use super::FrameCodec;
+    use super::BaseCodec;
     use bytes::BytesMut;
     use crate::frame::base::{Frame, OpCode};
-    use std::io;
     use tokio_io::codec::Decoder;
-    use crate::util;
 
     // Bad Frames, should err
     // Mask bit must be one. 2nd byte must be 0x80 or greater.
-    const NO_MASK: [u8; 2]           = [0x89, 0x00];
+    const _NO_MASK: [u8; 2]          = [0x89, 0x00];
     // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
     const CTRL_PAYLOAD_LEN : [u8; 9] = [0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
@@ -353,11 +323,10 @@ mod test {
     // Good Frames, should return Ok(Some(x))
     const PING_NO_DATA: [u8; 6] = [0x89, 0x80, 0x00, 0x00, 0x00, 0x01];
 
-    fn decode(buf: &[u8]) -> Result<Option<Frame>, io::Error> {
+    fn decode(buf: &[u8]) -> Result<Option<Frame>, super::Error> {
         let mut eb = BytesMut::with_capacity(256);
         eb.extend(buf);
-        let mut fc: FrameCodec = Default::default();
-        fc.set_client(false);
+        let mut fc = BaseCodec::new();
         fc.decode(&mut eb)
     }
 
@@ -437,7 +406,7 @@ mod test {
                 assert!(true);
                 // TODO: Assert error type when implemented.
             } else {
-                util::stdo(&format!("rsv should not be set: {}", res));
+                eprintln!("rsv should not be set: {}", res);
                 assert!(false);
             }
         }
@@ -458,7 +427,7 @@ mod test {
                 assert!(true);
                 // TODO: Assert error type when implemented.
             } else {
-                util::stdo("control frame {} is marked as fragment");
+                eprintln!("control frame is marked as fragment");
                 assert!(false);
             }
         }
@@ -480,38 +449,24 @@ mod test {
                 assert!(true);
                 // TODO: Assert error type when implemented.
             } else {
-                util::stdo(&format!("opcode {} should be reserved", res));
+                eprintln!("opcode {} should be reserved", res);
                 assert!(false);
             }
         }
     }
 
     #[test]
-    /// Checking that a decode frame (always from client) with the mask bit not set returns an
-    /// error.
-    fn decode_no_mask() {
-        if let Err(_e) = decode(&NO_MASK) {
-            assert!(true);
-            // TODO: Assert error type when implemented.
-        } else {
-            util::stdo("decoded frames should always have a mask");
-            assert!(false);
-        }
-    }
-
-    #[test]
     fn decode_ping_no_data() {
         if let Ok(Some(frame)) = decode(&PING_NO_DATA) {
-            assert!(frame.fin());
-            assert!(!frame.rsv1());
-            assert!(!frame.rsv2());
-            assert!(!frame.rsv3());
-            assert!(frame.opcode() == OpCode::Ping);
-            assert!(frame.payload_length() == 0);
-            assert!(frame.extension_data().is_none());
+            assert!(frame.header().is_fin());
+            assert!(!frame.header().is_rsv1());
+            assert!(!frame.header().is_rsv2());
+            assert!(!frame.header().is_rsv3());
+            assert!(frame.header().opcode() == OpCode::Ping);
             assert!(frame.application_data().is_empty());
+            assert!(frame.extension_data().is_empty())
         } else {
-            assert!(false);
+            assert!(false)
         }
     }
 }
