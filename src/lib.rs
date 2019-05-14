@@ -11,6 +11,9 @@
 //!
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
 
+pub mod next;
+
+
 pub mod codec;
 pub mod frame;
 
