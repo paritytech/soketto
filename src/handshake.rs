@@ -1,3 +1,7 @@
+//! Websocket [handshake] codecs.
+//!
+//! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
+
 use bytes::BytesMut;
 use sha1::Sha1;
 use smallvec::SmallVec;

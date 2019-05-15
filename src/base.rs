@@ -1,4 +1,4 @@
-//! A websocket [base] [`Frame`] and accompanying tokio [`Codec`].
+//! A websocket [base] frame and accompanying tokio codec.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 
