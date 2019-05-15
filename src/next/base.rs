@@ -6,6 +6,8 @@ use bytes::{BufMut, Buf, BytesMut};
 use std::{convert::TryFrom, fmt, io::{self, Cursor}};
 use tokio_io::codec::{Decoder, Encoder};
 
+// OpCode /////////////////////////////////////////////////////////////////////////////////////////
+
 /// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpCode {
@@ -100,6 +102,8 @@ impl From<OpCode> for u8 {
         }
     }
 }
+
+// Header /////////////////////////////////////////////////////////////////////////////////////////
 
 /// A base [`Frame`] header.
 #[derive(Debug, Clone)]
@@ -221,6 +225,8 @@ impl From<Header> for Frame {
         }
     }
 }
+
+// Frame //////////////////////////////////////////////////////////////////////////////////////////
 
 /// A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
 #[derive(Debug, Clone)]
@@ -494,7 +500,7 @@ impl Encoder for Codec {
     }
 }
 
-// Error type /////////////////////////////////////////////////////////////////////////////////////
+// Codec error type ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 pub enum Error {
@@ -502,8 +508,8 @@ pub enum Error {
     UnknownOpCode,
     ReservedOpCode,
     FragmentedControl,
-    Message(&'static str),
     IllegalState,
+    Message(&'static str),
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -516,8 +522,8 @@ impl fmt::Display for Error {
             Error::UnknownOpCode => f.write_str("unknown opcode"),
             Error::ReservedOpCode => f.write_str("reserved opcode"),
             Error::FragmentedControl => f.write_str("fragmented control frame"),
+            Error::IllegalState => f.write_str("illegal codec state"),
             Error::Message(msg) => write!(f, "{}", msg),
-            Error::IllegalState => f.write_str("illegal state"),
             Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
@@ -530,8 +536,8 @@ impl std::error::Error for Error {
             Error::UnknownOpCode => None,
             Error::ReservedOpCode => None,
             Error::FragmentedControl => None,
-            Error::Message(_) => None,
             Error::IllegalState => None,
+            Error::Message(_) => None,
             Error::__Nonexhaustive => None
         }
     }
@@ -548,6 +554,8 @@ impl From<UnknownOpCode> for Error {
         Error::UnknownOpCode
     }
 }
+
+// Tests //////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
