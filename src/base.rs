@@ -218,11 +218,7 @@ impl Header {
 
 impl From<Header> for Frame {
     fn from(header: Header) -> Self {
-        Frame {
-            header,
-            extension_data: BytesMut::new(),
-            application_data: BytesMut::new()
-        }
+        Frame { header, application_data: BytesMut::new() }
     }
 }
 
@@ -233,8 +229,6 @@ impl From<Header> for Frame {
 pub struct Frame {
     /// The frame header.
     header: Header,
-    /// The optional extension data.
-    extension_data: BytesMut,
     /// The optional application data.
     application_data: BytesMut
 }
@@ -243,17 +237,6 @@ impl Frame {
     /// Get the frame header.
     pub fn header(&self) -> &Header {
         &self.header
-    }
-
-    /// Get the extension data.
-    pub fn extension_data(&self) -> &[u8] {
-        &self.extension_data
-    }
-
-    /// Set the extension data.
-    pub fn set_extension_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Self {
-        self.extension_data = bytes.into();
-        self
     }
 
     /// Get the application data.
@@ -724,8 +707,7 @@ mod test {
             assert!(!frame.header().is_rsv2());
             assert!(!frame.header().is_rsv3());
             assert!(frame.header().opcode() == OpCode::Ping);
-            assert!(frame.application_data().is_empty());
-            assert!(frame.extension_data().is_empty())
+            assert!(frame.application_data().is_empty())
         } else {
             assert!(false)
         }
