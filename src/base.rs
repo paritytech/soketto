@@ -4,7 +4,7 @@
 
 use bytes::{BufMut, Buf, BytesMut};
 use std::{convert::TryFrom, fmt, io::{self, Cursor}};
-use tokio_io::codec::{Decoder, Encoder};
+use tokio_codec::{Decoder, Encoder};
 
 // OpCode /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -544,7 +544,7 @@ impl From<UnknownOpCode> for Error {
 mod test {
     use super::{Frame, OpCode, Codec};
     use bytes::BytesMut;
-    use tokio_io::codec::Decoder;
+    use tokio_codec::Decoder;
 
     // Bad Frames, should err
     // Mask bit must be one. 2nd byte must be 0x80 or greater.

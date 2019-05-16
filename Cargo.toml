@@ -21,6 +21,6 @@ log = "0.4.6"
 rand = "0.6.5"
 sha1 = "0.6.0"
 smallvec = "0.6.9"
-tokio-io = "0.1.12"
+tokio-codec = "0.1.1"
 unicase = "2.4.0"
 

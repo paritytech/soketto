@@ -7,7 +7,7 @@ use http::StatusCode;
 use sha1::Sha1;
 use smallvec::SmallVec;
 use std::{io, fmt, str};
-use tokio_io::codec::{Decoder, Encoder};
+use tokio_codec::{Decoder, Encoder};
 use unicase::Ascii;
 
 // Handshake codec ////////////////////////////////////////////////////////////////////////////////
@@ -36,6 +36,41 @@ pub struct Client<'a> {
     protocols: SmallVec<[&'a str; 4]>,
     extensions: SmallVec<[&'a str; 4]>,
 }
+
+impl<'a> Client<'a> {
+    pub fn new(host: &'a str, resource: &'a str, nonce: &'a str) -> Self {
+        Client {
+            secure: true,
+            host,
+            resource,
+            origin: None,
+            nonce,
+            protocols: SmallVec::new(),
+            extensions: SmallVec::new()
+        }
+    }
+
+    pub fn insecure(&mut self) -> &mut Self {
+        self.secure = false;
+        self
+    }
+
+    pub fn set_origin(&mut self, o: &'a str) -> &mut Self {
+        self.origin = Some(o);
+        self
+    }
+
+    pub fn add_protocol(&mut self, p: &'a str) -> &mut Self {
+        self.protocols.push(p);
+        self
+    }
+
+    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
+        self.extensions.push(e);
+        self
+    }
+}
+
 
 impl<'a> Encoder for Client<'a> {
     type Item = ();
@@ -81,6 +116,16 @@ impl<'a> Encoder for Client<'a> {
 pub struct Response<'a> {
     protocol: Option<&'a str>,
     extensions: SmallVec<[&'a str; 4]>
+}
+
+impl<'a> Response<'a> {
+    pub fn protocol(&self) -> Option<&str> {
+        self.protocol
+    }
+
+    pub fn extensions(&self) -> &[&str] {
+        &self.extensions
+    }
 }
 
 impl<'a> Decoder for Client<'a> {
@@ -161,12 +206,45 @@ pub struct Server<'a> {
     extensions: SmallVec<[&'a str; 4]>
 }
 
+impl<'a> Server<'a> {
+    pub fn new() -> Self {
+        Server {
+            protocols: SmallVec::new(),
+            extensions: SmallVec::new()
+        }
+    }
+
+    pub fn add_protocol(&mut self, p: &'a str) -> &mut Self {
+        self.protocols.push(p);
+        self
+    }
+
+    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
+        self.extensions.push(e);
+        self
+    }
+}
+
 /// Client handshake request
 #[derive(Debug)]
 pub struct Request<'a> {
     ws_key: SmallVec<[u8; 32]>,
     protocols: SmallVec<[&'a str; 4]>,
     extensions: SmallVec<[&'a str; 4]>
+}
+
+impl<'a> Request<'a> {
+    pub fn key(&self) -> &[u8] {
+        &self.ws_key
+    }
+
+    pub fn protocols(&self) -> &[&str] {
+        &self.extensions
+    }
+
+    pub fn extensions(&self) -> &[&str] {
+        &self.extensions
+    }
 }
 
 impl<'a> Decoder for Server<'a> {
@@ -230,10 +308,36 @@ pub struct Accept<'a> {
     extensions: SmallVec<[&'a str; 4]>
 }
 
+impl<'a> Accept<'a> {
+    pub fn new(key: &'a [u8]) -> Self {
+        Accept {
+            key,
+            protocol: None,
+            extensions: SmallVec::new()
+        }
+    }
+
+    pub fn set_protocol(&mut self, p: &'a str) -> &mut Self {
+        self.protocol = Some(p);
+        self
+    }
+
+    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
+        self.extensions.push(e);
+        self
+    }
+}
+
 /// Error handshake response the server wants to send to the client.
 #[derive(Debug)]
 pub struct Reject {
     code: u16
+}
+
+impl Reject {
+    pub fn new(code: u16) -> Self {
+        Reject { code }
+    }
 }
 
 impl<'a> Encoder for Server<'a> {
