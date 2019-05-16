@@ -144,10 +144,10 @@ impl<'a> Decoder for Client<'a> {
         };
 
         if response.version != Some(1) {
-            return Err(Error::Invalid("unsupported HTTP version".into()))
+            return Err(Error::UnsupportedHttpVersion)
         }
         if response.code != Some(101) {
-            return Err(Error::Invalid("unexpected HTTP status code".into()))
+            return Err(Error::UnexpectedStatusCode(response.code.unwrap_or(0)))
         }
 
         expect_header(&response.headers, "Upgrade", "websocket")?;
@@ -160,7 +160,7 @@ impl<'a> Decoder for Client<'a> {
             digest.update(KEY);
             let ours = base64::encode(&digest.digest().bytes());
             if ours.as_bytes() != theirs {
-                return Err(Error::Invalid("invalid 'Sec-WebSocket-Accept' received".into()))
+                return Err(Error::InvalidSecWebSocketAccept)
             }
             Ok(())
         })?;
@@ -171,7 +171,7 @@ impl<'a> Decoder for Client<'a> {
         for e in response.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_EXTENSIONS) {
             match self.extensions.iter().find(|x| x.as_bytes() == e.value) {
                 Some(&x) => selected_exts.push(x),
-                None => return Err(Error::Invalid("extension was not requested".into()))
+                None => return Err(Error::UnsolicitedExtension)
             }
         }
 
@@ -187,7 +187,7 @@ impl<'a> Decoder for Client<'a> {
             if let Some(&p) = self.protocols.iter().find(|x| x.as_bytes() == tp.value) {
                 selected_proto = Some(p)
             } else {
-                return Err(Error::Invalid("protocol was not requested".into()))
+                return Err(Error::UnsolicitedProtocol)
             }
         }
 
@@ -263,10 +263,10 @@ impl<'a> Decoder for Server<'a> {
         };
 
         if request.method != Some("GET") {
-            return Err(Error::Invalid("request method != GET".into()))
+            return Err(Error::InvalidRequestMethod)
         }
         if request.version != Some(1) {
-            return Err(Error::Invalid("unsupported HTTP version".into()))
+            return Err(Error::UnsupportedHttpVersion)
         }
 
         // TODO: Host Validation
@@ -394,7 +394,7 @@ fn expect_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result
         if Ascii::new(s) == Ascii::new(ours) {
             Ok(())
         } else {
-            Err(Error::Invalid(format!("invalid value for header {}", name)))
+            Err(Error::UnexpectedHeader(name.into()))
         }
     })
 }
@@ -407,7 +407,7 @@ where
     if let Some(h) = headers.iter().find(move |h| Ascii::new(h.name) == ascii_name) {
         f(h.value)
     } else {
-        Err(Error::Invalid(format!("header {} not found", name)))
+        Err(Error::HeaderNotFound(name.into()))
     }
 }
 
@@ -415,9 +415,27 @@ where
 
 #[derive(Debug)]
 pub enum Error {
+    /// An I/O error has been encountered.
     Io(io::Error),
-    Invalid(String),
+    /// An HTTP version =/= 1.1 was encountered.
+    UnsupportedHttpVersion,
+    /// The handshake request was not a GET request.
+    InvalidRequestMethod,
+    /// The HTTP response code was unexpected.
+    UnexpectedStatusCode(u16),
+    /// An HTTP header has not been present.
+    HeaderNotFound(String),
+    /// An HTTP header value was not expected.
+    UnexpectedHeader(String),
+    /// The Sec-WebSocket-Accept header value did not match.
+    InvalidSecWebSocketAccept,
+    /// The server returned an extension we did not ask for.
+    UnsolicitedExtension,
+    /// The server returned a protocol we did not ask for.
+    UnsolicitedProtocol,
+    /// The HTTP entity could not be parsed successfully.
     Http(Box<dyn std::error::Error + Send + 'static>),
+    /// UTF-8 decoding failed.
     Utf8(std::str::Utf8Error),
 
     #[doc(hidden)]
@@ -427,10 +445,17 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Io(e) => write!(f, "i/o: {}", e),
-            Error::Http(e) => write!(f, "http: {}", e),
-            Error::Invalid(s) => write!(f, "invalid: {}", s),
-            Error::Utf8(e) => write!(f, "utf-8: {}", e),
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::Http(e) => write!(f, "http parser error: {}", e),
+            Error::HeaderNotFound(n) => write!(f, "header {} not found", n),
+            Error::UnexpectedHeader(n) => write!(f, "header {} had unexpected value", n),
+            Error::Utf8(e) => write!(f, "utf-8 decoding error: {}", e),
+            Error::UnexpectedStatusCode(c) => write!(f, "unexpected response status: {}", c),
+            Error::UnsupportedHttpVersion => f.write_str("http version was not 1.1"),
+            Error::InvalidRequestMethod => f.write_str("handshake not a GET request"),
+            Error::InvalidSecWebSocketAccept => f.write_str("websocket key mismatch"),
+            Error::UnsolicitedExtension => f.write_str("unsolicited extension returned"),
+            Error::UnsolicitedProtocol => f.write_str("unsolicited protocol returned"),
             Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
@@ -442,7 +467,14 @@ impl std::error::Error for Error {
             Error::Io(e) => Some(e),
             Error::Utf8(e) => Some(e),
             Error::Http(e) => Some(&**e),
-            Error::Invalid(_)
+            Error::HeaderNotFound(_)
+            | Error::UnexpectedHeader(_)
+            | Error::UnexpectedStatusCode(_)
+            | Error::UnsupportedHttpVersion
+            | Error::InvalidRequestMethod
+            | Error::InvalidSecWebSocketAccept
+            | Error::UnsolicitedExtension
+            | Error::UnsolicitedProtocol
             | Error::__Nonexhaustive => None
         }
     }
@@ -454,8 +486,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<std::str::Utf8Error> for Error {
-    fn from(e: std::str::Utf8Error) -> Self {
+impl From<str::Utf8Error> for Error {
+    fn from(e: str::Utf8Error) -> Self {
         Error::Utf8(e)
     }
 }
