@@ -3,6 +3,7 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 use bytes::BytesMut;
+use http::StatusCode;
 use sha1::Sha1;
 use smallvec::SmallVec;
 use std::{io, fmt, str};
@@ -28,10 +29,10 @@ const SEC_WEBSOCKET_PROTOCOL: Ascii<&str> = Ascii::new("Sec-WebSocket-Protocol")
 #[derive(Debug)]
 pub struct Client<'a> {
     secure: bool,
-    url: &'a str,
     host: &'a str,
-    nonce: &'a str,
+    resource: &'a str,
     origin: Option<&'a str>,
+    nonce: &'a str,
     protocols: SmallVec<[&'a str; 4]>,
     extensions: SmallVec<[&'a str; 4]>,
 }
@@ -43,7 +44,7 @@ impl<'a> Encoder for Client<'a> {
     // encode client handshake request
     fn encode(&mut self, _: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         buf.extend_from_slice(b"GET ");
-        buf.extend_from_slice(self.url.as_bytes());
+        buf.extend_from_slice(self.resource.as_bytes());
         buf.extend_from_slice(b" HTTP/1.1");
         buf.extend_from_slice(b"\r\nHost: ");
         buf.extend_from_slice(self.host.as_bytes());
@@ -221,46 +222,64 @@ impl<'a> Decoder for Server<'a> {
     }
 }
 
-/// Handshake response ther server wants to send to the client.
+/// Successful handshake response the server wants to send to the client.
 #[derive(Debug)]
-pub struct Answer<'a> {
+pub struct Accept<'a> {
     key: &'a [u8],
     protocol: Option<&'a str>,
     extensions: SmallVec<[&'a str; 4]>
 }
 
+/// Error handshake response the server wants to send to the client.
+#[derive(Debug)]
+pub struct Reject {
+    code: u16
+}
+
 impl<'a> Encoder for Server<'a> {
-    type Item = Answer<'a>;
+    type Item = Result<Accept<'a>, Reject>;
     type Error = Error;
 
     // encode server handshake response
     fn encode(&mut self, answer: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
-        let mut key_buf = [0; 32];
-        let accept = {
-            let mut digest = Sha1::new();
-            digest.update(answer.key);
-            digest.update(KEY);
-            let d = digest.digest().bytes();
-            let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
-            &key_buf[.. n]
-        };
-        buf.extend_from_slice(b"HTTP/1.1 101 Switching Protocols");
-        buf.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: upgrade");
-        buf.extend_from_slice(b"\r\nSec-WebSocket-Accept: ");
-        buf.extend_from_slice(accept);
-        if let Some(p) = answer.protocol {
-            buf.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
-            buf.extend_from_slice(p.as_bytes())
-        }
-        if let Some((last, prefix)) = answer.extensions.split_last() {
-            buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ");
-            for p in prefix {
-                buf.extend_from_slice(p.as_bytes());
-                buf.extend_from_slice(b",")
+        match answer {
+            Ok(accept) => {
+                let mut key_buf = [0; 32];
+                let accept_value = {
+                    let mut digest = Sha1::new();
+                    digest.update(accept.key);
+                    digest.update(KEY);
+                    let d = digest.digest().bytes();
+                    let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
+                    &key_buf[.. n]
+                };
+                buf.extend_from_slice(b"HTTP/1.1 101 Switching Protocols");
+                buf.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: upgrade");
+                buf.extend_from_slice(b"\r\nSec-WebSocket-Accept: ");
+                buf.extend_from_slice(accept_value);
+                if let Some(p) = accept.protocol {
+                    buf.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
+                    buf.extend_from_slice(p.as_bytes())
+                }
+                if let Some((last, prefix)) = accept.extensions.split_last() {
+                    buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ");
+                    for p in prefix {
+                        buf.extend_from_slice(p.as_bytes());
+                        buf.extend_from_slice(b",")
+                    }
+                    buf.extend_from_slice(last.as_bytes())
+                }
+                buf.extend_from_slice(b"\r\n\n\n")
             }
-            buf.extend_from_slice(last.as_bytes())
+            Err(reject) => {
+                buf.extend_from_slice(b"HTTP/1.1 ");
+                let s = StatusCode::from_u16(reject.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                buf.extend_from_slice(s.as_str().as_bytes());
+                buf.extend_from_slice(b" ");
+                buf.extend_from_slice(s.canonical_reason().unwrap_or("N/A").as_bytes());
+                buf.extend_from_slice(b"\r\n\r\n")
+            }
         }
-        buf.extend_from_slice(b"\r\n\n\n");
         Ok(())
     }
 }
