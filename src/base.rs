@@ -410,9 +410,9 @@ impl Decoder for Codec {
 
 impl Encoder for Codec {
     type Item = Frame;
-    type Error = io::Error;
+    type Error = Error;
 
-    fn encode(&mut self, frame: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&mut self, frame: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         buf.reserve(2);
 
         let mut first_byte = 0_u8;
