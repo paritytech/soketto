@@ -4,9 +4,10 @@
 
 use bytes::BytesMut;
 use http::StatusCode;
+use rand::Rng;
 use sha1::Sha1;
 use smallvec::SmallVec;
-use std::{io, fmt, str};
+use std::{borrow::{Borrow, Cow}, io, fmt, str};
 use tokio_codec::{Decoder, Encoder};
 use unicase::Ascii;
 
@@ -29,16 +30,19 @@ const SEC_WEBSOCKET_PROTOCOL: Ascii<&str> = Ascii::new("Sec-WebSocket-Protocol")
 #[derive(Debug)]
 pub struct Client<'a> {
     secure: bool,
-    host: &'a str,
-    resource: &'a str,
+    host: Cow<'a, str>,
+    resource: Cow<'a, str>,
     origin: Option<&'a str>,
-    nonce: &'a str,
+    nonce: Cow<'a, str>,
     protocols: SmallVec<[&'a str; 4]>,
     extensions: SmallVec<[&'a str; 4]>,
 }
 
 impl<'a> Client<'a> {
-    pub fn new(host: &'a str, resource: &'a str, nonce: &'a str) -> Self {
+    pub fn new(host: Cow<'a, str>, resource: Cow<'a, str>) -> Self {
+        let mut buf = [0; 16];
+        rand::thread_rng().fill(&mut buf);
+        let nonce = Cow::Owned(base64::encode(&buf));
         Client {
             secure: true,
             host,
@@ -48,6 +52,10 @@ impl<'a> Client<'a> {
             protocols: SmallVec::new(),
             extensions: SmallVec::new()
         }
+    }
+
+    pub fn ws_key(&self) -> &str {
+        &self.nonce
     }
 
     pub fn insecure(&mut self) -> &mut Self {
@@ -153,7 +161,7 @@ impl<'a> Decoder for Client<'a> {
         expect_header(&response.headers, "Upgrade", "websocket")?;
         expect_header(&response.headers, "Connection", "upgrade")?;
 
-        let nonce = self.nonce;
+        let nonce: &str = self.nonce.borrow();
         with_header(&response.headers, "Sec-WebSocket-Accept", move |theirs| {
             let mut digest = Sha1::new();
             digest.update(nonce.as_bytes());
@@ -303,13 +311,13 @@ impl<'a> Decoder for Server<'a> {
 /// Successful handshake response the server wants to send to the client.
 #[derive(Debug)]
 pub struct Accept<'a> {
-    key: &'a [u8],
-    protocol: Option<&'a str>,
-    extensions: SmallVec<[&'a str; 4]>
+    key: Cow<'a, [u8]>,
+    protocol: Option<Cow<'a, str>>,
+    extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Accept<'a> {
-    pub fn new(key: &'a [u8]) -> Self {
+    pub fn new(key: Cow<'a, [u8]>) -> Self {
         Accept {
             key,
             protocol: None,
@@ -317,12 +325,12 @@ impl<'a> Accept<'a> {
         }
     }
 
-    pub fn set_protocol(&mut self, p: &'a str) -> &mut Self {
+    pub fn set_protocol(&mut self, p: Cow<'a, str>) -> &mut Self {
         self.protocol = Some(p);
         self
     }
 
-    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
+    pub fn add_extension(&mut self, e: Cow<'a, str>) -> &mut Self {
         self.extensions.push(e);
         self
     }
@@ -351,7 +359,7 @@ impl<'a> Encoder for Server<'a> {
                 let mut key_buf = [0; 32];
                 let accept_value = {
                     let mut digest = Sha1::new();
-                    digest.update(accept.key);
+                    digest.update(accept.key.borrow());
                     digest.update(KEY);
                     let d = digest.digest().bytes();
                     let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);

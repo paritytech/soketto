@@ -14,6 +14,29 @@ pub struct Connection<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
+    pub fn new(io: T) -> Self {
+        Connection {
+            framed: Framed::new(io, base::Codec::new()),
+            state: Some(State::Open(None)),
+            is_sending: false
+        }
+    }
+}
+
+impl<T> From<Framed<T, base::Codec>> for Connection<T>
+where
+    T: AsyncRead + AsyncWrite
+{
+    fn from(framed: Framed<T, base::Codec>) -> Self {
+        Connection {
+            framed,
+            state: Some(State::Open(None)),
+            is_sending: false
+        }
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite> Connection<T> {
     fn answer_ping(&mut self, frame: Frame, buf: Option<BytesMut>) -> Poll<(), Error> {
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerPing(frame, buf));

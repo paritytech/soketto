@@ -15,3 +15,5 @@ pub mod base;
 pub mod handshake;
 pub mod connection;
 
+pub use connection::Connection;
+
