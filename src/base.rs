@@ -223,6 +223,11 @@ impl Frame {
         &self.application_data
     }
 
+    /// Consume frame and return application data only.
+    pub fn into_application_data(self) -> BytesMut {
+        self.application_data
+    }
+
     /// Set the application data.
     pub fn set_application_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Self {
         self.application_data = bytes.into();
