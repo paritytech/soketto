@@ -130,7 +130,7 @@ impl Frame {
     /// Create a new frame with a given [`OpCode`].
     pub fn new(oc: OpCode) -> Self {
         Frame {
-            fin: false,
+            fin: true,
             rsv1: false,
             rsv2: false,
             rsv3: false,

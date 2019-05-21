@@ -381,7 +381,7 @@ impl<'a> Encoder for Server<'a> {
                     }
                     buf.extend_from_slice(last.as_bytes())
                 }
-                buf.extend_from_slice(b"\r\n\n\n")
+                buf.extend_from_slice(b"\r\n\r\n")
             }
             Err(reject) => {
                 buf.extend_from_slice(b"HTTP/1.1 ");
