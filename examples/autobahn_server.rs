@@ -2,13 +2,15 @@
 // suite to verify client and server implementations of websocket
 // implementation.
 //
+// Once started, the tests can be executed with: wstest -m fuzzingclient
+//
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
 use futures::{future::{self, Either}, prelude::*};
 use std::{borrow::Cow, error, io};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpListener;
-use twist::{base, handshake, Connection};
+use twist::{base, handshake, Connection, Mode};
 
 fn main() {
     env_logger::init();
@@ -31,7 +33,7 @@ fn main() {
                                 new.read_buf = old.read_buf;
                                 new.write_buf = old.write_buf;
                                 let framed = Framed::from_parts(new);
-                                Connection::from(framed)
+                                Connection::from_framed(framed, Mode::Server)
                             });
                         Either::A(f.map_err(|e| Box::new(e) as Box<dyn error::Error + Send>))
                     } else {

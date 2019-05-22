@@ -1,37 +1,57 @@
-use bytes::BytesMut;
 use crate::base::{self, Frame, OpCode};
 use log::{debug, trace};
 use futures::{prelude::*, try_ready};
+use rand::RngCore;
 use std::fmt;
 use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 
+#[derive(Copy, Clone, Debug)]
+pub enum Mode {
+    Client,
+    Server
+}
+
+impl Mode {
+    pub fn is_client(self) -> bool {
+        if let Mode::Client = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_server(self) -> bool {
+        !self.is_client()
+    }
+}
+
 #[derive(Debug)]
 pub struct Connection<T> {
+    mode: Mode,
     framed: Framed<T, base::Codec>,
     state: Option<State>,
     is_sending: bool
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
-    pub fn new(io: T) -> Self {
+    pub fn new(io: T, mode: Mode) -> Self {
+        Connection::from_framed(Framed::new(io, base::Codec::new()), mode)
+    }
+
+    pub fn from_framed(framed: Framed<T, base::Codec>, mode: Mode) -> Self {
         Connection {
-            framed: Framed::new(io, base::Codec::new()),
+            mode,
+            framed,
             state: Some(State::Open(None)),
             is_sending: false
         }
     }
-}
 
-impl<T> From<Framed<T, base::Codec>> for Connection<T>
-where
-    T: AsyncRead + AsyncWrite
-{
-    fn from(framed: Framed<T, base::Codec>) -> Self {
-        Connection {
-            framed,
-            state: Some(State::Open(None)),
-            is_sending: false
+    fn set_mask(&self, frame: &mut Frame) {
+        if self.mode.is_client() {
+            frame.set_masked(true);
+            frame.set_mask(rand::thread_rng().next_u32());
         }
     }
 }
@@ -123,7 +143,6 @@ enum State {
 
     /// Send a PONG frame as answer to a PING we have received.
     AnswerPing(Frame, Option<base::Data>),
-    // TODO: AwaitPong(BytesMut),
 
     /// We want to send a close frame.
     SendClose(Frame),
@@ -152,6 +171,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_application_data(frame.into_application_data());
+                            self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, None))
                         }
                         OpCode::Text | OpCode::Binary if frame.is_fin() => {
@@ -169,7 +189,11 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             debug!("unexpected opcode: {}", frame.opcode());
                             return Err(Error::UnexpectedOpCode(frame.opcode()))
                         }
-                        OpCode::Close => try_ready!(self.answer_close(close_answer(frame)?))
+                        OpCode::Close => {
+                            let mut answer = close_answer(frame)?;
+                            self.set_mask(&mut answer);
+                            try_ready!(self.answer_close(answer))
+                        }
                     }
                     Async::Ready(None) => {
                         self.state = Some(State::Closed);
@@ -185,6 +209,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_application_data(frame.into_application_data());
+                            self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, Some(data)))
                         }
                         OpCode::Continue if frame.is_fin() => {
@@ -208,7 +233,11 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             debug!("unexpected opcode {}", frame.opcode());
                             return Err(Error::UnexpectedOpCode(frame.opcode()))
                         }
-                        OpCode::Close => try_ready!(self.answer_close(close_answer(frame)?))
+                        OpCode::Close => {
+                            let mut answer = close_answer(frame)?;
+                            self.set_mask(&mut answer);
+                            try_ready!(self.answer_close(answer))
+                        }
                     }
                     Async::Ready(None) => {
                         self.state = Some(State::Closed);
@@ -253,6 +282,7 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                     };
                     frame.set_fin(false);
                     frame.set_application_data(Some(item));
+                    self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
                     if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
                         let data = frame.into_application_data().expect("frame was constructed with Some");
@@ -302,7 +332,9 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         match self.state.take() {
             Some(State::Open(buf)) =>
                 if self.is_sending {
-                    try_ready!(self.finish(Frame::new(OpCode::Continue), buf))
+                    let mut frame = Frame::new(OpCode::Continue);
+                    self.set_mask(&mut frame);
+                    try_ready!(self.finish(frame, buf))
                 } else {
                     self.state = Some(State::Open(buf));
                     try_ready!(self.framed.poll_complete())
@@ -324,7 +356,8 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         try_ready!(self.poll_complete());
         if let Some(State::Open(_)) = self.state.take() {
             let mut frame = Frame::new(OpCode::Close);
-            frame.set_application_data(Some(base::Data::Binary(BytesMut::from(&b"1000"[..]))));
+            frame.set_application_data(Some(base::Data::Binary(1000_u16.to_be_bytes()[..].into())));
+            self.set_mask(&mut frame);
             try_ready!(self.send_close(frame))
         }
         Ok(Async::Ready(()))

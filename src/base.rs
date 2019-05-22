@@ -537,8 +537,14 @@ impl Encoder for Codec {
             buf.extend_from_slice(&frame.mask().to_be_bytes())
         }
 
-        if !frame.application_data().is_empty() {
-            buf.extend_from_slice(frame.application_data())
+        let mask = frame.mask();
+        let is_masked = frame.is_masked();
+
+        if let Some(mut data) = frame.into_application_data() {
+            if is_masked {
+                apply_mask(data.as_mut(), mask)
+            }
+            buf.extend_from_slice(data.as_ref())
         }
 
         Ok(())
