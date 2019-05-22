@@ -103,6 +103,59 @@ impl From<OpCode> for u8 {
     }
 }
 
+// Data //////////////////////////////////////////////////////////////////////////////////////////
+
+/// Application data of a websocket frame.
+#[derive(Debug, Clone)]
+pub enum Data {
+    /// Application data of type binary (opcode 2)
+    Binary(BytesMut),
+    /// Application data of type text (opcode 1)
+    Text(BytesMut)
+}
+
+impl Data {
+    pub fn into_bytes(self) -> BytesMut {
+        match self {
+            Data::Binary(bytes) => bytes,
+            Data::Text(bytes) => bytes,
+        }
+    }
+
+    pub fn bytes_mut(&mut self) -> &mut BytesMut {
+        match self {
+            Data::Binary(bytes) => bytes,
+            Data::Text(bytes) => bytes,
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        if let Data::Text(_) = self { true } else { false }
+    }
+
+    pub fn is_binary(&self) -> bool {
+        !self.is_text()
+    }
+}
+
+impl AsRef<[u8]> for Data {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Data::Binary(bytes) => bytes,
+            Data::Text(bytes) => bytes
+        }
+    }
+}
+
+impl AsMut<[u8]> for Data {
+    fn as_mut(&mut self) -> &mut [u8] {
+        match self {
+            Data::Binary(bytes) => bytes,
+            Data::Text(bytes) => bytes
+        }
+    }
+}
+
 // Frame //////////////////////////////////////////////////////////////////////////////////////////
 
 /// A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
@@ -123,7 +176,7 @@ pub struct Frame {
     /// The `mask`.
     mask: u32,
     /// The optional application data.
-    application_data: BytesMut
+    application_data: Option<Data>
 }
 
 impl Frame {
@@ -137,7 +190,7 @@ impl Frame {
             masked: false,
             opcode: oc,
             mask: 0,
-            application_data: BytesMut::new()
+            application_data: None
         }
     }
 
@@ -220,17 +273,17 @@ impl Frame {
 
     /// Get the application data.
     pub fn application_data(&self) -> &[u8] {
-        &self.application_data
+        self.application_data.as_ref().map(|d| d.as_ref()).unwrap_or(&[])
     }
 
     /// Consume frame and return application data only.
-    pub fn into_application_data(self) -> BytesMut {
+    pub fn into_application_data(self) -> Option<Data> {
         self.application_data
     }
 
     /// Set the application data.
-    pub fn set_application_data(&mut self, bytes: impl Into<BytesMut>) -> &mut Self {
-        self.application_data = bytes.into();
+    pub fn set_application_data(&mut self, data: Option<Data>) -> &mut Self {
+        self.application_data = data;
         self
     }
 }
@@ -387,8 +440,21 @@ impl Decoder for Codec {
                     buf.split_to(4);
                     self.state = Some(DecodeState::Body { frame, length })
                 }
-                Some(DecodeState::Body { frame, length: 0, .. }) => {
+                Some(DecodeState::Body { mut frame, length: 0, .. }) => {
                     self.state = Some(DecodeState::Start);
+                    if frame.application_data.is_none() {
+                        match frame.opcode {
+                            OpCode::Binary => {
+                                let d = Data::Binary(BytesMut::new());
+                                frame.set_application_data(Some(d));
+                            }
+                            OpCode::Text => {
+                                let d = Data::Text(BytesMut::new());
+                                frame.set_application_data(Some(d));
+                            }
+                            _ => ()
+                        }
+                    }
                     return Ok(Some(frame))
                 }
                 Some(DecodeState::Body { mut frame, length }) => {
@@ -399,10 +465,17 @@ impl Decoder for Codec {
                         self.state = Some(DecodeState::Body { frame, length });
                         return Ok(None)
                     }
-                    frame.application_data = buf.split_to(length as usize);
+                    frame.application_data =
+                        if let OpCode::Text = frame.opcode {
+                            Some(Data::Text(buf.split_to(length as usize)))
+                        } else {
+                            Some(Data::Binary(buf.split_to(length as usize)))
+                        };
                     if frame.is_masked() {
                         let mask = frame.mask();
-                        apply_mask(&mut frame.application_data, mask)
+                        if let Some(ref mut d) = frame.application_data {
+                            apply_mask(d.as_mut(), mask)
+                        }
                     }
                     self.state = Some(DecodeState::Start);
                     return Ok(Some(frame))

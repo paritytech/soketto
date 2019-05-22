@@ -57,6 +57,12 @@ mod tests {
                     })
                     .and_then(|connection| {
                         let (sink, stream) = connection.split();
+                        let sink = sink.with(|data: base::Data| {
+                            if data.is_text() {
+                                std::str::from_utf8(data.as_ref())?;
+                            }
+                            Ok(data)
+                        });
                         stream.forward(sink)
                             .and_then(|(_stream, mut sink)| future::poll_fn(move || sink.close()))
                             .map_err(|e| Box::new(e) as Box<dyn error::Error + Send>)

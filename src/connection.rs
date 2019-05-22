@@ -1,4 +1,4 @@
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use crate::base::{self, Frame, OpCode};
 use log::{debug, trace};
 use futures::{prelude::*, try_ready};
@@ -37,7 +37,7 @@ where
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
-    fn answer_ping(&mut self, frame: Frame, buf: Option<BytesMut>) -> Poll<(), Error> {
+    fn answer_ping(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerPing(frame, buf));
             return Ok(Async::NotReady)
@@ -70,7 +70,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         Ok(Async::Ready(()))
     }
 
-    fn flush(&mut self, buf: Option<BytesMut>) -> Poll<(), Error> {
+    fn flush(&mut self, buf: Option<base::Data>) -> Poll<(), Error> {
         if self.framed.poll_complete()?.is_not_ready() {
             self.state = Some(State::Flush(buf));
             return Ok(Async::NotReady)
@@ -101,7 +101,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         Ok(Async::NotReady)
     }
 
-    fn finish(&mut self, frame: Frame, buf: Option<BytesMut>) -> Poll<(), Error> {
+    fn finish(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::Finish(frame, buf));
             return Ok(Async::NotReady)
@@ -115,14 +115,14 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
 #[derive(Debug)]
 enum State {
     /// Default state.
-    Open(Option<BytesMut>),
+    Open(Option<base::Data>),
     /// Flush some frame we started sending.
-    Flush(Option<BytesMut>),
+    Flush(Option<base::Data>),
     /// Send a FIN frame to end fragmented message.
-    Finish(Frame, Option<BytesMut>),
+    Finish(Frame, Option<base::Data>),
 
     /// Send a PONG frame as answer to a PING we have received.
-    AnswerPing(Frame, Option<BytesMut>),
+    AnswerPing(Frame, Option<base::Data>),
     // TODO: AwaitPong(BytesMut),
 
     /// We want to send a close frame.
@@ -141,7 +141,7 @@ enum State {
 }
 
 impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
-    type Item = Bytes;
+    type Item = base::Data;
     type Error = Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
@@ -156,10 +156,10 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         }
                         OpCode::Text | OpCode::Binary if frame.is_fin() => {
                             self.state = Some(State::Open(None));
-                            return Ok(Async::Ready(Some(frame.into_application_data().freeze())))
+                            return Ok(Async::Ready(frame.into_application_data()))
                         }
                         OpCode::Text | OpCode::Binary => {
-                            self.state = Some(State::Open(Some(frame.into_application_data())))
+                            self.state = Some(State::Open(frame.into_application_data()))
                         }
                         OpCode::Pong => {
                             trace!("unexpected pong; ignoring");
@@ -180,25 +180,29 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         return Ok(Async::NotReady)
                     }
                 }
-                Some(State::Open(Some(mut buf))) => match self.framed.poll()? {
+                Some(State::Open(Some(mut data))) => match self.framed.poll()? {
                     Async::Ready(Some(frame)) => match frame.opcode() {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_application_data(frame.into_application_data());
-                            try_ready!(self.answer_ping(answer, None))
+                            try_ready!(self.answer_ping(answer, Some(data)))
                         }
                         OpCode::Continue if frame.is_fin() => {
-                            buf.unsplit(frame.into_application_data());
+                            if let Some(d) = frame.into_application_data() {
+                                data.bytes_mut().unsplit(d.into_bytes())
+                            }
                             self.state = Some(State::Open(None));
-                            return Ok(Async::Ready(Some(buf.freeze())))
+                            return Ok(Async::Ready(Some(data)))
                         }
                         OpCode::Continue => {
-                            buf.unsplit(frame.into_application_data());
-                            self.state = Some(State::Open(Some(buf)))
+                            if let Some(d) = frame.into_application_data() {
+                                data.bytes_mut().unsplit(d.into_bytes())
+                            }
+                            self.state = Some(State::Open(Some(data)))
                         }
                         OpCode::Pong => {
                             trace!("unexpected pong; ignoring");
-                            self.state = Some(State::Open(Some(buf)))
+                            self.state = Some(State::Open(Some(data)))
                         }
                         OpCode::Text | OpCode::Binary | OpCode::Reserved => {
                             debug!("unexpected opcode {}", frame.opcode());
@@ -211,7 +215,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         return Ok(Async::Ready(None))
                     }
                     Async::NotReady => {
-                        self.state = Some(State::Open(Some(buf)));
+                        self.state = Some(State::Open(Some(data)));
                         return Ok(Async::NotReady)
                     }
                 }
@@ -230,7 +234,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
-    type SinkItem = Bytes;
+    type SinkItem = base::Data;
     type SinkError = Error;
 
     fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
@@ -241,13 +245,18 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                         Frame::new(OpCode::Continue)
                     } else {
                         self.is_sending = true;
-                        Frame::new(OpCode::Binary)
+                        if item.is_text() {
+                            Frame::new(OpCode::Text)
+                        } else {
+                            Frame::new(OpCode::Binary)
+                        }
                     };
                     frame.set_fin(false);
-                    frame.set_application_data(item);
+                    frame.set_application_data(Some(item));
                     self.state = Some(State::Open(buf));
                     if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-                        return Ok(AsyncSink::NotReady(frame.into_application_data().freeze()))
+                        let data = frame.into_application_data().expect("frame was constructed with Some");
+                        return Ok(AsyncSink::NotReady(data))
                     } else {
                         return Ok(AsyncSink::Ready)
                     }
@@ -315,7 +324,7 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         try_ready!(self.poll_complete());
         if let Some(State::Open(_)) = self.state.take() {
             let mut frame = Frame::new(OpCode::Close);
-            frame.set_application_data(&b"0"[..]);
+            frame.set_application_data(Some(base::Data::Binary(BytesMut::from(&b"1000"[..]))));
             try_ready!(self.send_close(frame))
         }
         Ok(Async::Ready(()))
@@ -323,18 +332,26 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
 }
 
 fn close_answer(frame: Frame) -> Result<Frame, Error> {
-    let data = frame.application_data();
-    if data.len() >= 2 {
-        let code = u16::from_be_bytes([data[0], data[1]]);
-        let reason = std::str::from_utf8(&data[2 ..])?;
-        debug!("received close frame; code = {}; reason = {}", code, reason);
-        let mut answer = Frame::new(OpCode::Close);
-        answer.set_application_data(&code.to_be_bytes()[..]);
-        Ok(answer)
-    } else {
-        debug!("received close frame");
-        Ok(Frame::new(OpCode::Close))
+    if let Some(mut data) = frame.into_application_data() {
+        if data.as_ref().len() >= 2 {
+            let slice = data.as_ref();
+            let code = u16::from_be_bytes([slice[0], slice[1]]);
+            let reason = std::str::from_utf8(&slice[2 ..])?;
+            debug!("received close frame; code = {}; reason = {}", code, reason);
+            let mut answer = Frame::new(OpCode::Close);
+            let data = match code {
+                1000 ... 1003 | 1007 ... 1011 | 1015 | 3000 ... 4999 => {
+                    data.bytes_mut().truncate(2);
+                    data
+                }
+                _ => base::Data::Binary(1002_u16.to_be_bytes()[..].into())
+            };
+            answer.set_application_data(Some(data));
+            return Ok(answer)
+        }
     }
+    debug!("received close frame");
+    Ok(Frame::new(OpCode::Close))
 }
 
 // Connection error type //////////////////////////////////////////////////////////////////////////
