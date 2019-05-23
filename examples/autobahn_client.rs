@@ -8,7 +8,7 @@
 
 use futures::{future::{self, Either}, prelude::*};
 use log::debug;
-use std::{borrow::Cow, error, io, str::FromStr};
+use std::{error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
 use twist::{base, handshake, connection};
@@ -30,9 +30,7 @@ fn num_of_cases() -> Result<usize, Box<dyn error::Error>> {
     TcpStream::connect(&addr)
         .map_err(|e| Box::new(e) as Box<dyn error::Error>)
         .and_then(|socket| {
-            let host = Cow::Owned("127.0.0.1:9001".into());
-            let resource = Cow::Owned("/getCaseCount".into());
-            let client = handshake::Client::new(host, resource);
+            let client = handshake::Client::new("127.0.0.1:9001", "/getCaseCount");
             tokio::codec::Framed::new(socket, client)
                 .send(())
                 .map_err(|e| Box::new(e) as Box<dyn error::Error>)
@@ -79,9 +77,8 @@ fn run_case(n: usize) -> Result<(), Box<dyn error::Error>> {
     TcpStream::connect(&addr)
         .map_err(|e| Box::new(e) as Box<dyn error::Error>)
         .and_then(move |socket| {
-            let host = Cow::Owned("127.0.0.1:9001".into());
-            let resource = Cow::Owned(format!("/runCase?case={}&agent=foo", n));
-            let client = handshake::Client::new(host, resource);
+            let resource = format!("/runCase?case={}&agent=foo", n);
+            let client = handshake::Client::new("127.0.0.1:9001", resource);
             tokio::codec::Framed::new(socket, client)
                 .send(())
                 .map_err(|e| Box::new(e) as Box<dyn error::Error>)
@@ -125,9 +122,7 @@ fn update_report() -> Result<(), Box<dyn error::Error>> {
     TcpStream::connect(&addr)
         .map_err(|e| Box::new(e) as Box<dyn error::Error>)
         .and_then(|socket| {
-            let host = Cow::Owned("127.0.0.1:9001".into());
-            let resource = Cow::Owned("/updateReports?agent=foo".into());
-            let client = handshake::Client::new(host, resource);
+            let client = handshake::Client::new("127.0.0.1:9001", "/updateReports?agent=foo");
             tokio::codec::Framed::new(socket, client)
                 .send(())
                 .map_err(|e| Box::new(e) as Box<dyn error::Error>)

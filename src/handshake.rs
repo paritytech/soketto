@@ -26,27 +26,30 @@ const SEC_WEBSOCKET_PROTOCOL: Ascii<&str> = Ascii::new("Sec-WebSocket-Protocol")
 
 // Handshake client (initiator) ///////////////////////////////////////////////////////////////////
 
-/// Handshake client codec.
+/// Client handshake codec.
 #[derive(Debug)]
 pub struct Client<'a> {
-    secure: bool,
     host: Cow<'a, str>,
     resource: Cow<'a, str>,
-    origin: Option<&'a str>,
-    nonce: Cow<'a, str>,
-    protocols: SmallVec<[&'a str; 4]>,
-    extensions: SmallVec<[&'a str; 4]>,
+    origin: Option<Cow<'a, str>>,
+    nonce: String,
+    protocols: SmallVec<[Cow<'a, str>; 4]>,
+    extensions: SmallVec<[Cow<'a, str>; 4]>,
 }
 
 impl<'a> Client<'a> {
-    pub fn new(host: Cow<'a, str>, resource: Cow<'a, str>) -> Self {
+    /// Create a new client handshake coded for some host and resource.
+    pub fn new<H, R>(host: H, resource: R) -> Self
+    where
+        H: Into<Cow<'a, str>>,
+        R: Into<Cow<'a, str>>
+    {
         let mut buf = [0; 16];
         rand::thread_rng().fill(&mut buf);
-        let nonce = Cow::Owned(base64::encode(&buf));
+        let nonce = base64::encode(&buf);
         Client {
-            secure: true,
-            host,
-            resource,
+            host: host.into(),
+            resource: resource.into(),
             origin: None,
             nonce,
             protocols: SmallVec::new(),
@@ -54,37 +57,35 @@ impl<'a> Client<'a> {
         }
     }
 
+    /// Get a reference to the nonce created.
     pub fn ws_key(&self) -> &str {
         &self.nonce
     }
 
-    pub fn insecure(&mut self) -> &mut Self {
-        self.secure = false;
+    /// Set the handshake origin header.
+    pub fn set_origin(&mut self, o: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.origin = Some(o.into());
         self
     }
 
-    pub fn set_origin(&mut self, o: &'a str) -> &mut Self {
-        self.origin = Some(o);
+    /// Add a protocol to be included in the handshake.
+    pub fn add_protocol(&mut self, p: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.protocols.push(p.into());
         self
     }
 
-    pub fn add_protocol(&mut self, p: &'a str) -> &mut Self {
-        self.protocols.push(p);
-        self
-    }
-
-    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
-        self.extensions.push(e);
+    /// Add an extension to be included in the handshake.
+    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.extensions.push(e.into());
         self
     }
 }
-
 
 impl<'a> Encoder for Client<'a> {
     type Item = ();
     type Error = Error;
 
-    // encode client handshake request
+    // Encode client handshake request.
     fn encode(&mut self, _: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         buf.extend_from_slice(b"GET ");
         buf.extend_from_slice(self.resource.as_bytes());
@@ -94,7 +95,7 @@ impl<'a> Encoder for Client<'a> {
         buf.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: upgrade");
         buf.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
         buf.extend_from_slice(self.nonce.as_bytes());
-        if let Some(o) = self.origin {
+        if let Some(o) = &self.origin {
             buf.extend_from_slice(b"\r\nOrigin: ");
             buf.extend_from_slice(o.as_bytes())
         }
@@ -122,17 +123,19 @@ impl<'a> Encoder for Client<'a> {
 /// Server handshake response.
 #[derive(Debug)]
 pub struct Response<'a> {
-    protocol: Option<&'a str>,
-    extensions: SmallVec<[&'a str; 4]>
+    protocol: Option<Cow<'a, str>>,
+    extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Response<'a> {
+    /// The protocol the server has selected from the proposed ones.
     pub fn protocol(&self) -> Option<&str> {
-        self.protocol
+        self.protocol.as_ref().map(|p| p.as_ref())
     }
 
-    pub fn extensions(&self) -> &[&str] {
-        &self.extensions
+    /// The extensions the server has selected from the proposed ones.
+    pub fn extensions(&self) -> impl Iterator<Item = &str> {
+        self.extensions.iter().map(|e| e.as_ref())
     }
 }
 
@@ -140,7 +143,7 @@ impl<'a> Decoder for Client<'a> {
     type Item = Response<'a>;
     type Error = Error;
 
-    // decode server handshake response
+    // Decode server handshake response.
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut response = httparse::Response::new(&mut header_buf);
@@ -178,7 +181,7 @@ impl<'a> Decoder for Client<'a> {
         let mut selected_exts = SmallVec::new();
         for e in response.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_EXTENSIONS) {
             match self.extensions.iter().find(|x| x.as_bytes() == e.value) {
-                Some(&x) => selected_exts.push(x),
+                Some(x) => selected_exts.push(x.clone()),
                 None => return Err(Error::UnsolicitedExtension)
             }
         }
@@ -192,8 +195,8 @@ impl<'a> Decoder for Client<'a> {
         let mut selected_proto = None;
 
         if let Some(tp) = their_proto {
-            if let Some(&p) = self.protocols.iter().find(|x| x.as_bytes() == tp.value) {
-                selected_proto = Some(p)
+            if let Some(p) = self.protocols.iter().find(|x| x.as_bytes() == tp.value) {
+                selected_proto = Some(p.clone())
             } else {
                 return Err(Error::UnsolicitedProtocol)
             }
@@ -207,14 +210,15 @@ impl<'a> Decoder for Client<'a> {
 
 // Handshake server (responder) ///////////////////////////////////////////////////////////////////
 
-/// Handshake server codec.
+/// Server handshake codec.
 #[derive(Debug)]
 pub struct Server<'a> {
-    protocols: SmallVec<[&'a str; 4]>,
-    extensions: SmallVec<[&'a str; 4]>
+    protocols: SmallVec<[Cow<'a, str>; 4]>,
+    extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Server<'a> {
+    /// Create a new server handshake codec.
     pub fn new() -> Self {
         Server {
             protocols: SmallVec::new(),
@@ -222,36 +226,41 @@ impl<'a> Server<'a> {
         }
     }
 
-    pub fn add_protocol(&mut self, p: &'a str) -> &mut Self {
-        self.protocols.push(p);
+    /// Add a protocol the server supports.
+    pub fn add_protocol(&mut self, p: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.protocols.push(p.into());
         self
     }
 
-    pub fn add_extension(&mut self, e: &'a str) -> &mut Self {
-        self.extensions.push(e);
+    /// Add an extension the server supports.
+    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.extensions.push(e.into());
         self
     }
 }
 
-/// Client handshake request
+/// Client handshake request.
 #[derive(Debug)]
 pub struct Request<'a> {
     ws_key: SmallVec<[u8; 32]>,
-    protocols: SmallVec<[&'a str; 4]>,
-    extensions: SmallVec<[&'a str; 4]>
+    protocols: SmallVec<[Cow<'a, str>; 4]>,
+    extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Request<'a> {
+    /// A reference to the nonce.
     pub fn key(&self) -> &[u8] {
         &self.ws_key
     }
 
-    pub fn protocols(&self) -> &[&str] {
-        &self.extensions
+    /// The protocols the client is proposing.
+    pub fn protocols(&self) -> impl Iterator<Item = &str> {
+        self.extensions.iter().map(|p| p.as_ref())
     }
 
-    pub fn extensions(&self) -> &[&str] {
-        &self.extensions
+    /// The extensions the client is proposing.
+    pub fn extensions(&self) -> impl Iterator<Item = &str> {
+        self.extensions.iter().map(|e| e.as_ref())
     }
 }
 
@@ -259,7 +268,7 @@ impl<'a> Decoder for Server<'a> {
     type Item = Request<'a>;
     type Error = Error;
 
-    // decode client request
+    // Decode client request.
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut request = httparse::Request::new(&mut header_buf);
@@ -290,15 +299,15 @@ impl<'a> Decoder for Server<'a> {
 
         let mut extensions = SmallVec::new();
         for e in request.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_EXTENSIONS) {
-            if let Some(&x) = self.extensions.iter().find(|x| x.as_bytes() == e.value) {
-                extensions.push(x)
+            if let Some(x) = self.extensions.iter().find(|x| x.as_bytes() == e.value) {
+                extensions.push(x.clone())
             }
         }
 
         let mut protocols = SmallVec::new();
         for p in request.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_PROTOCOL) {
-            if let Some(&x) = self.protocols.iter().find(|x| x.as_bytes() == p.value) {
-                protocols.push(x)
+            if let Some(x) = self.protocols.iter().find(|x| x.as_bytes() == p.value) {
+                protocols.push(x.clone())
             }
         }
 
@@ -317,21 +326,27 @@ pub struct Accept<'a> {
 }
 
 impl<'a> Accept<'a> {
-    pub fn new(key: Cow<'a, [u8]>) -> Self {
+    /// Create a new accept response.
+    ///
+    /// The `key` corresponds to the websocket key (nonce) the client has
+    /// sent in its handshake request.
+    pub fn new(key: impl Into<Cow<'a, [u8]>>) -> Self {
         Accept {
-            key,
+            key: key.into(),
             protocol: None,
             extensions: SmallVec::new()
         }
     }
 
-    pub fn set_protocol(&mut self, p: Cow<'a, str>) -> &mut Self {
-        self.protocol = Some(p);
+    /// Set the protocol the server selected from the proposed ones.
+    pub fn set_protocol(&mut self, p: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.protocol = Some(p.into());
         self
     }
 
-    pub fn add_extension(&mut self, e: Cow<'a, str>) -> &mut Self {
-        self.extensions.push(e);
+    /// Add an extension the server has selected from the proposed ones.
+    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
+        self.extensions.push(e.into());
         self
     }
 }
@@ -339,10 +354,12 @@ impl<'a> Accept<'a> {
 /// Error handshake response the server wants to send to the client.
 #[derive(Debug)]
 pub struct Reject {
+    /// HTTP response status code.
     code: u16
 }
 
 impl Reject {
+    /// Create a new reject response with the given HTTP status code.
     pub fn new(code: u16) -> Self {
         Reject { code }
     }
@@ -352,7 +369,7 @@ impl<'a> Encoder for Server<'a> {
     type Item = Result<Accept<'a>, Reject>;
     type Error = Error;
 
-    // encode server handshake response
+    // Encode server handshake response.
     fn encode(&mut self, answer: Self::Item, buf: &mut BytesMut) -> Result<(), Self::Error> {
         match answer {
             Ok(accept) => {
@@ -396,6 +413,7 @@ impl<'a> Encoder for Server<'a> {
     }
 }
 
+/// Check a set of headers contain a specific one (equality match).
 fn expect_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result<(), Error> {
     with_header(headers, name, move |theirs| {
         let s = str::from_utf8(theirs)?;
@@ -407,6 +425,7 @@ fn expect_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result
     })
 }
 
+/// Pick the header with the given name and apply the given closure to it.
 fn with_header<F, R>(headers: &[httparse::Header], name: &str, f: F) -> Result<R, Error>
 where
     F: Fn(&[u8]) -> Result<R, Error>
@@ -421,6 +440,7 @@ where
 
 // Codec error type ///////////////////////////////////////////////////////////////////////////////
 
+/// Enumeration of possible handshake errors.
 #[derive(Debug)]
 pub enum Error {
     /// An I/O error has been encountered.
