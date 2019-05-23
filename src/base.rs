@@ -1,3 +1,18 @@
+// Copyright (c) 2019 Parity Technologies (UK) Ltd.
+// Copyright (c) 2016 twist developers
+//
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+// option. All files in the project carrying such notice may not be copied,
+// modified, or distributed except according to those terms.
+
+// This file is largely based on the original twist implementation.
+// See [frame/base.rs] and [codec/base.rs].
+//
+// [frame/base.rs]: https://github.com/rustyhorde/twist/blob/449d8b75c2b3c5ca71db2253b0c1a00a818ac3bd/src/frame/base.rs
+// [codec/base.rs]: https://github.com/rustyhorde/twist/blob/449d8b75c2b3c5ca71db2253b0c1a00a818ac3bd/src/codec/base.rs
+
 //! A websocket [base] frame and accompanying tokio codec.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2

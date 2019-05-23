@@ -1,14 +1,12 @@
 [package]
 name = "twist"
 version = "0.7.1"
-authors = ["Jason Ozias <jason.g.ozias@gmail.com>"]
-description = "An implementation of the RFC6455 websocket protocol as a tokio codec."
-documentation = "https://docs.rs/twist"
-homepage = "https://rustyhorde.github.io/twist/"
-keywords = ["tokio", "websocket", "codec", "serverproto"]
+authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
+description = "A websocket protocol implementation as as set of tokio codecs."
+keywords = ["tokio", "websocket", "codec"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/rustyhorde/twist"
+repository = "https://github.com/paritytech/twist"
 edition = "2018"
 
 [dependencies]
