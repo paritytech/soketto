@@ -11,7 +11,7 @@ use log::debug;
 use std::{borrow::Cow, error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
-use twist::{base, handshake, Connection, Mode};
+use twist::{base, handshake, connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -51,7 +51,7 @@ fn num_of_cases() -> Result<usize, Box<dyn error::Error>> {
                         new.read_buf = old.read_buf;
                         new.write_buf = old.write_buf;
                         let framed = Framed::from_parts(new);
-                        Connection::from_framed(framed, Mode::Client)
+                        connection::Connection::from_framed(framed, connection::Mode::Client)
                     };
                     Either::B(framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>))
                 })
@@ -100,7 +100,7 @@ fn run_case(n: usize) -> Result<(), Box<dyn error::Error>> {
                         new.read_buf = old.read_buf;
                         new.write_buf = old.write_buf;
                         let framed = Framed::from_parts(new);
-                        Connection::from_framed(framed, Mode::Client)
+                        connection::Connection::from_framed(framed, connection::Mode::Client)
                     };
                     Either::B(future::ok(connection))
                 })
@@ -146,7 +146,7 @@ fn update_report() -> Result<(), Box<dyn error::Error>> {
                         new.read_buf = old.read_buf;
                         new.write_buf = old.write_buf;
                         let framed = Framed::from_parts(new);
-                        Connection::from_framed(framed, Mode::Client)
+                        connection::Connection::from_framed(framed, connection::Mode::Client)
                     };
                     Either::B(future::poll_fn(move || {
                         framed.close().map_err(|e| Box::new(e) as Box<dyn error::Error>)

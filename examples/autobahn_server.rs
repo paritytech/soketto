@@ -10,7 +10,7 @@ use futures::{future::{self, Either}, prelude::*};
 use std::{borrow::Cow, error, io};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpListener;
-use twist::{base, handshake, Connection, Mode};
+use twist::{base, handshake, connection};
 
 fn main() {
     env_logger::init();
@@ -33,7 +33,7 @@ fn main() {
                                 new.read_buf = old.read_buf;
                                 new.write_buf = old.write_buf;
                                 let framed = Framed::from_parts(new);
-                                Connection::from_framed(framed, Mode::Server)
+                                connection::Connection::from_framed(framed, connection::Mode::Server)
                             });
                         Either::A(f.map_err(|e| Box::new(e) as Box<dyn error::Error + Send>))
                     } else {

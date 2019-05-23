@@ -6,9 +6,14 @@ use std::fmt;
 use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 
+// Connection mode ////////////////////////////////////////////////////////////////////////////////
+
+/// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug)]
 pub enum Mode {
+    /// Client-side of a connection (implies masking of payload data).
     Client,
+    /// Server-side of a connection.
     Server
 }
 
@@ -26,19 +31,25 @@ impl Mode {
     }
 }
 
+// Connection /////////////////////////////////////////////////////////////////////////////////////
+
+/// A `Connection` implements [`Stream`] and [`Sink`] using the [`base::Codec`]
+/// to encode and decode data as websocket base frames.
 #[derive(Debug)]
 pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
     state: Option<State>,
-    is_sending: bool
+    is_sending: bool // Are we sending CONTINUE frames?
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
+    /// Create a new `Connection` from the given resource.
     pub fn new(io: T, mode: Mode) -> Self {
         Connection::from_framed(Framed::new(io, base::Codec::new()), mode)
     }
 
+    /// Create a new `Connection` from an existing [`Framed`] stream/sink.
     pub fn from_framed(framed: Framed<T, base::Codec>, mode: Mode) -> Self {
         Connection {
             mode,
@@ -135,27 +146,43 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
 #[derive(Debug)]
 enum State {
     /// Default state.
+    /// Possible transitions: `Open`, `AnswerPing`, `AnswerClose`, `Finish`, `Closed`.
     Open(Option<base::Data>),
-    /// Flush some frame we started sending.
-    Flush(Option<base::Data>),
-    /// Send a FIN frame to end fragmented message.
-    Finish(Frame, Option<base::Data>),
 
     /// Send a PONG frame as answer to a PING we have received.
+    /// Possible transitions: `AnswerPing`, `Open`.
     AnswerPing(Frame, Option<base::Data>),
 
+    /// Send a FIN frame to end fragmented message.
+    /// Possible transitions: `Finish`, `Open`.
+    Finish(Frame, Option<base::Data>),
+
+    /// Flush some frame we started sending.
+    /// Possible transitions: `Flush`, `Open`.
+    Flush(Option<base::Data>),
+
     /// We want to send a close frame.
+    /// Possible transitions: `SendClose`, `FlushClose`.
     SendClose(Frame),
+
     /// We have sent a close frame and need to flush it.
+    /// Possible transitions: `FlushClose`, `AwaitClose`.
     FlushClose,
+
     /// We have sent a close frame and awaiting a close response.
+    /// Possible transitions: `AwaitClose`, `Closed`.
     AwaitClose,
 
     /// We have received a close frame and want to send a close response.
+    /// Possible transitions: `AnswerClose`, `Closing`.
     AnswerClose(Frame),
+
     /// We have begun sending a close answer frame and need to flush it.
+    /// Possible transitions: `Closing`, `Closed`.
     Closing,
+
     /// We are closed (terminal state).
+    /// Possible transitions: none.
     Closed
 }
 
@@ -204,6 +231,8 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         return Ok(Async::NotReady)
                     }
                 }
+                // We have buffered some data => we are processing a fragmented message
+                // and expect either control frames or a CONTINUE frame.
                 Some(State::Open(Some(mut data))) => match self.framed.poll()? {
                     Async::Ready(Some(frame)) => match frame.opcode() {
                         OpCode::Ping => {
@@ -356,7 +385,9 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         try_ready!(self.poll_complete());
         if let Some(State::Open(_)) = self.state.take() {
             let mut frame = Frame::new(OpCode::Close);
-            frame.set_application_data(Some(base::Data::Binary(1000_u16.to_be_bytes()[..].into())));
+            // code 1000 = normal closure
+            let code =base::Data::Binary(1000_u16.to_be_bytes()[..].into());
+            frame.set_application_data(Some(code));
             self.set_mask(&mut frame);
             try_ready!(self.send_close(frame))
         }
@@ -373,11 +404,14 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
             debug!("received close frame; code = {}; reason = {}", code, reason);
             let mut answer = Frame::new(OpCode::Close);
             let data = match code {
-                1000 ... 1003 | 1007 ... 1011 | 1015 | 3000 ... 4999 => {
+                1000 ... 1003 | 1007 ... 1011 | 1015 | 3000 ... 4999 => { // acceptable codes
                     data.bytes_mut().truncate(2);
                     data
                 }
-                _ => base::Data::Binary(1002_u16.to_be_bytes()[..].into())
+                _ => {
+                    // Other codes are invalid => reply with protocol error (1002).
+                    base::Data::Binary(1002_u16.to_be_bytes()[..].into())
+                }
             };
             answer.set_application_data(Some(data));
             return Ok(answer)
@@ -389,11 +423,16 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
 
 // Connection error type //////////////////////////////////////////////////////////////////////////
 
+/// Connection error cases.
 #[derive(Debug)]
 pub enum Error {
+    /// The base codec errored.
     Codec(base::Error),
+    /// An unexpected opcode as encountered.
     UnexpectedOpCode(OpCode),
+    /// A close reason was not correctly UTF-8 encoded.
     Utf8(std::str::Utf8Error),
+    /// The connection is closed.
     Closed
 }
 

@@ -122,6 +122,7 @@ impl Data {
         }
     }
 
+    /// Get a unique reference to the underlying bytes.
     pub fn bytes_mut(&mut self) -> &mut BytesMut {
         match self {
             Data::Binary(bytes) => bytes,
@@ -625,9 +626,6 @@ mod test {
     use bytes::BytesMut;
     use tokio_codec::Decoder;
 
-    // Bad Frames, should err
-    // Mask bit must be one. 2nd byte must be 0x80 or greater.
-    const _NO_MASK: [u8; 2]          = [0x89, 0x00];
     // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
     const CTRL_PAYLOAD_LEN : [u8; 9] = [0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
