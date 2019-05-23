@@ -21,6 +21,8 @@ use std::{error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
 
+const SOKETTO_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let n = num_of_cases()?;
@@ -85,7 +87,7 @@ fn run_case(n: usize) -> Result<(), Box<dyn error::Error>> {
     TcpStream::connect(&addr)
         .map_err(|e| Box::new(e) as Box<dyn error::Error>)
         .and_then(move |socket| {
-            let resource = format!("/runCase?case={}&agent=foo", n);
+            let resource = format!("/runCase?case={}&agent=soketto-{}", n, SOKETTO_VERSION);
             let client = handshake::Client::new("127.0.0.1:9001", resource);
             tokio::codec::Framed::new(socket, client)
                 .send(())
@@ -130,7 +132,8 @@ fn update_report() -> Result<(), Box<dyn error::Error>> {
     TcpStream::connect(&addr)
         .map_err(|e| Box::new(e) as Box<dyn error::Error>)
         .and_then(|socket| {
-            let client = handshake::Client::new("127.0.0.1:9001", "/updateReports?agent=foo");
+            let resource = format!("/updateReports?agent=soketto-{}", SOKETTO_VERSION);
+            let client = handshake::Client::new("127.0.0.1:9001", resource);
             tokio::codec::Framed::new(socket, client)
                 .send(())
                 .map_err(|e| Box::new(e) as Box<dyn error::Error>)

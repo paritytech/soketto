@@ -19,6 +19,8 @@ use std::{borrow::{Borrow, Cow}, io, fmt, str};
 use tokio_codec::{Decoder, Encoder};
 use unicase::Ascii;
 
+const SOKETTO_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 // Handshake codec ////////////////////////////////////////////////////////////////////////////////
 
 // Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header
@@ -391,6 +393,8 @@ impl<'a> Encoder for Server<'a> {
                     &key_buf[.. n]
                 };
                 buf.extend_from_slice(b"HTTP/1.1 101 Switching Protocols");
+                buf.extend_from_slice(b"\r\nServer: soketto-");
+                buf.extend_from_slice(SOKETTO_VERSION.as_bytes());
                 buf.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: upgrade");
                 buf.extend_from_slice(b"\r\nSec-WebSocket-Accept: ");
                 buf.extend_from_slice(accept_value);
