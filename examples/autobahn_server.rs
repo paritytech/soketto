@@ -15,10 +15,10 @@
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
 use futures::{future::{self, Either}, prelude::*};
+use soketto::{base, handshake, connection};
 use std::{borrow::Cow, error, io};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpListener;
-use twist::{base, handshake, connection};
 
 fn main() {
     env_logger::init();

@@ -1,12 +1,12 @@
 [package]
-name = "twist"
-version = "0.7.1"
+name = "soketto"
+version = "0.1.0"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation as as set of tokio codecs."
 keywords = ["tokio", "websocket", "codec"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/paritytech/twist"
+repository = "https://github.com/paritytech/soketto"
 edition = "2018"
 
 [dependencies]

@@ -16,10 +16,10 @@
 
 use futures::{future::{self, Either}, prelude::*};
 use log::debug;
+use soketto::{base, handshake, connection};
 use std::{error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
-use twist::{base, handshake, connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
