@@ -360,8 +360,8 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         try_ready!(self.poll_complete());
         if let Some(State::Open(_)) = self.state.take() {
             let mut frame = Frame::new(OpCode::Close);
-            // code 1000 = normal closure
-            let code =base::Data::Binary(1000_u16.to_be_bytes()[..].into());
+            // code 1000 means normal closure
+            let code = base::Data::Binary(1000_u16.to_be_bytes()[..].into());
             frame.set_application_data(Some(code));
             self.set_mask(&mut frame);
             try_ready!(self.send_close(frame))
