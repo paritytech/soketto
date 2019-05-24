@@ -19,7 +19,7 @@ use std::{borrow::{Borrow, Cow}, io, fmt, str};
 use tokio_codec::{Decoder, Encoder};
 use unicase::Ascii;
 
-const SOKETTO_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Handshake codec ////////////////////////////////////////////////////////////////////////////////
 
@@ -221,7 +221,7 @@ impl<'a> Decoder for Client<'a> {
 // Handshake server (responder) ///////////////////////////////////////////////////////////////////
 
 /// Server handshake codec.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Server<'a> {
     protocols: SmallVec<[Cow<'a, str>; 4]>,
     extensions: SmallVec<[Cow<'a, str>; 4]>
@@ -230,10 +230,7 @@ pub struct Server<'a> {
 impl<'a> Server<'a> {
     /// Create a new server handshake codec.
     pub fn new() -> Self {
-        Server {
-            protocols: SmallVec::new(),
-            extensions: SmallVec::new()
-        }
+        Server::default()
     }
 
     /// Add a protocol the server supports.

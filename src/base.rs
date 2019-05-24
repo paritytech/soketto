@@ -321,6 +321,8 @@ const EIGHT_EXT: u8 = 127;
 pub struct Codec {
     /// Decode state
     state: Option<DecodeState>,
+    /// Maximum size of payload data per frame.
+    max_data_size: u64,
     /// Bits reserved by extensions.
     reserved_bits: u8
 }
@@ -349,12 +351,34 @@ enum DecodeState {
     }
 }
 
-impl Codec {
-    pub fn new() -> Self {
-        Self {
+impl Default for Codec {
+    fn default() -> Self {
+        Codec {
             state: Some(DecodeState::Start),
+            max_data_size: 256 * 1024 * 1024,
             reserved_bits: 0
         }
+    }
+}
+
+impl Codec {
+    /// Create a new base frame codec.
+    ///
+    /// The codec will support decoding payload lengths up to 256 MiB
+    /// (use `set_max_data_size` to change this value).
+    pub fn new() -> Self {
+        Codec::default()
+    }
+
+    /// Get the configured maximum payload length.
+    pub fn max_data_size(&self) -> u64 {
+        self.max_data_size
+    }
+
+    /// Limit the maximum size of payload data to `size` bytes.
+    pub fn set_max_data_size(&mut self, size: u64) -> &mut Self {
+        self.max_data_size = size;
+        self
     }
 }
 
@@ -439,6 +463,13 @@ impl Decoder for Codec {
 
                     if len > 125 && frame.opcode().is_control() {
                         return Err(Error::InvalidControlFrameLen)
+                    }
+
+                    if len > self.max_data_size {
+                        return Err(Error::PayloadTooLarge {
+                            actual: len,
+                            maximum: self.max_data_size
+                        })
                     }
 
                     self.state = Some(DecodeState::FrameLength { frame, length: len })
@@ -583,6 +614,8 @@ pub enum Error {
     InvalidControlFrameLen,
     /// The reserved bit is invalid.
     InvalidReservedBit(u8),
+    /// The payload length of a frame exceeded the configured maximum.
+    PayloadTooLarge { actual: u64, maximum: u64 },
     /// The codec transitions into an illegal state.
     /// This happens if the codec is used after it has returned an error.
     IllegalCodecState,
@@ -601,6 +634,8 @@ impl fmt::Display for Error {
             Error::IllegalCodecState => f.write_str("illegal codec state"),
             Error::InvalidControlFrameLen => f.write_str("invalid control frame length"),
             Error::InvalidReservedBit(i) => write!(f, "invalid reserved bit: {}", i),
+            Error::PayloadTooLarge { actual, maximum } =>
+                write!(f, "payload to large: len = {}, maximum = {}", actual, maximum),
             Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
@@ -616,6 +651,7 @@ impl std::error::Error for Error {
             | Error::InvalidControlFrameLen
             | Error::InvalidReservedBit(_)
             | Error::IllegalCodecState
+            | Error::PayloadTooLarge {..}
             | Error::__Nonexhaustive => None
         }
     }

@@ -21,7 +21,7 @@ use std::{error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
 
-const SOKETTO_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
