@@ -47,8 +47,7 @@ impl Mode {
 pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
-    state: Option<State>,
-    is_sending: bool // Are we sending CONTINUE frames?
+    state: Option<State>
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
@@ -62,8 +61,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         Connection {
             mode,
             framed,
-            state: Some(State::Open(None)),
-            is_sending: false
+            state: Some(State::Open(None))
         }
     }
 
@@ -139,31 +137,17 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         }
         Ok(Async::NotReady)
     }
-
-    fn finish(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
-        if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-            self.state = Some(State::Finish(frame, buf));
-            return Ok(Async::NotReady)
-        }
-        self.is_sending = false;
-        self.flush(buf)
-    }
-
 }
 
 #[derive(Debug)]
 enum State {
     /// Default state.
-    /// Possible transitions: `Open`, `AnswerPing`, `AnswerClose`, `Finish`, `Closed`.
+    /// Possible transitions: `Open`, `AnswerPing`, `AnswerClose`, `Closed`.
     Open(Option<base::Data>),
 
     /// Send a PONG frame as answer to a PING we have received.
     /// Possible transitions: `AnswerPing`, `Open`.
     AnswerPing(Frame, Option<base::Data>),
-
-    /// Send a FIN frame to end fragmented message.
-    /// Possible transitions: `Finish`, `Open`.
-    Finish(Frame, Option<base::Data>),
 
     /// Flush some frame we started sending.
     /// Possible transitions: `Flush`, `Open`.
@@ -285,7 +269,6 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         return Ok(Async::NotReady)
                     }
                 }
-                Some(State::Finish(frame, buf)) => try_ready!(self.finish(frame, buf)),
                 Some(State::AnswerPing(frame, buf)) => try_ready!(self.answer_ping(frame, buf)),
                 Some(State::SendClose(frame)) => try_ready!(self.send_close(frame)),
                 Some(State::AnswerClose(frame)) => try_ready!(self.answer_close(frame)),
@@ -307,17 +290,11 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         loop {
             match self.state.take() {
                 Some(State::Open(buf)) => {
-                    let mut frame = if self.is_sending {
-                        Frame::new(OpCode::Continue)
+                    let mut frame = if item.is_text() {
+                        Frame::new(OpCode::Text)
                     } else {
-                        self.is_sending = true;
-                        if item.is_text() {
-                            Frame::new(OpCode::Text)
-                        } else {
-                            Frame::new(OpCode::Binary)
-                        }
+                        Frame::new(OpCode::Binary)
                     };
-                    frame.set_fin(false);
                     frame.set_application_data(Some(item));
                     self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
@@ -328,10 +305,6 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                         return Ok(AsyncSink::Ready)
                     }
                 }
-                Some(State::Finish(frame, buf)) =>
-                    if self.finish(frame, buf)?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
                 Some(State::AnswerPing(frame, buf)) =>
                     if self.answer_ping(frame, buf)?.is_not_ready() {
                         return Ok(AsyncSink::NotReady(item))
@@ -367,16 +340,10 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
 
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
         match self.state.take() {
-            Some(State::Open(buf)) =>
-                if self.is_sending {
-                    let mut frame = Frame::new(OpCode::Continue);
-                    self.set_mask(&mut frame);
-                    try_ready!(self.finish(frame, buf))
-                } else {
-                    self.state = Some(State::Open(buf));
-                    try_ready!(self.framed.poll_complete())
-                }
-            Some(State::Finish(frame, buf)) => try_ready!(self.finish(frame, buf)),
+            Some(State::Open(buf)) => {
+                self.state = Some(State::Open(buf));
+                try_ready!(self.framed.poll_complete())
+            }
             Some(State::AnswerPing(frame, buf)) => try_ready!(self.answer_ping(frame, buf)),
             Some(State::AnswerClose(frame)) => try_ready!(self.answer_close(frame)),
             Some(State::Flush(buf)) => try_ready!(self.flush(buf)),
