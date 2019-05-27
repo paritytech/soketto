@@ -48,9 +48,15 @@ fn num_of_cases() -> Result<usize, Box<dyn error::Error>> {
                     framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>)
                 })
                 .and_then(|(response, framed)| {
-                    if response.is_none() {
-                        let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                        return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
+                    match response {
+                        None => {
+                            let e: io::Error = io::ErrorKind::ConnectionAborted.into();
+                            return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
+                        }
+                        Some(handshake::Response::Redirect(r)) => {
+                            unimplemented!("redirect to {} ({})", r.location(), r.status_code())
+                        }
+                        Some(handshake::Response::Accepted(_)) => {}
                     }
                     let framed = {
                         let codec = base::Codec::new();

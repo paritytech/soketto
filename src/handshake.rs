@@ -132,12 +132,21 @@ impl<'a> Encoder for Client<'a> {
 
 /// Server handshake response.
 #[derive(Debug)]
-pub struct Response<'a> {
+pub enum Response<'a> {
+    Accepted(Accepted<'a>),
+    Redirect(Redirect)
+}
+
+/// The server accepted the handshake request.
+#[derive(Debug)]
+pub struct Accepted<'a> {
+    /// The protocol (if any) the server has selected.
     protocol: Option<Cow<'a, str>>,
+    /// The extensions (if any) the server has selected.
     extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
-impl<'a> Response<'a> {
+impl<'a> Accepted<'a> {
     /// The protocol the server has selected from the proposed ones.
     pub fn protocol(&self) -> Option<&str> {
         self.protocol.as_ref().map(|p| p.as_ref())
@@ -146,6 +155,27 @@ impl<'a> Response<'a> {
     /// The extensions the server has selected from the proposed ones.
     pub fn extensions(&self) -> impl Iterator<Item = &str> {
         self.extensions.iter().map(|e| e.as_ref())
+    }
+}
+
+/// The server is redirecting us to another location.
+#[derive(Debug)]
+pub struct Redirect {
+    /// The HTTP response status code.
+    status_code: u16,
+    /// The location URL we should go to.
+    location: String,
+}
+
+impl Redirect {
+    /// The HTTP response status code.
+    pub fn status_code(&self) -> u16 {
+        self.status_code
+    }
+
+    /// The HTTP response location header.
+    pub fn location(&self) -> &str {
+        &self.location
     }
 }
 
@@ -167,8 +197,18 @@ impl<'a> Decoder for Client<'a> {
         if response.version != Some(1) {
             return Err(Error::UnsupportedHttpVersion)
         }
-        if response.code != Some(101) {
-            return Err(Error::UnexpectedStatusCode(response.code.unwrap_or(0)))
+
+        match response.code {
+            Some(101) => (),
+            Some(code@(301 ... 303)) | Some(code@307) | Some(code@308) => { // redirect response
+                let location = with_header(&response.headers, "Location", |loc| {
+                    Ok(String::from(std::str::from_utf8(loc)?))
+                })?;
+                bytes.split_to(offset); // chop off the HTTP part we have processed
+                let response = Redirect { status_code: code, location };
+                return Ok(Some(Response::Redirect(response)))
+            }
+            other => return Err(Error::UnexpectedStatusCode(other.unwrap_or(0)))
         }
 
         expect_header(&response.headers, "Upgrade", "websocket")?;
@@ -214,7 +254,8 @@ impl<'a> Decoder for Client<'a> {
 
         bytes.split_to(offset); // chop off the HTTP part we have processed
 
-        Ok(Some(Response { protocol: selected_proto, extensions: selected_exts }))
+        let response = Accepted { protocol: selected_proto, extensions: selected_exts };
+        Ok(Some(Response::Accepted(response)))
     }
 }
 
