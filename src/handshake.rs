@@ -17,7 +17,6 @@ use sha1::Sha1;
 use smallvec::SmallVec;
 use std::{borrow::{Borrow, Cow}, io, fmt, str};
 use tokio_codec::{Decoder, Encoder};
-use unicase::Ascii;
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -31,8 +30,8 @@ const KEY: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const MAX_NUM_HEADERS: usize = 32;
 
 // Some HTTP headers we need to check during parsing.
-const SEC_WEBSOCKET_EXTENSIONS: Ascii<&str> = Ascii::new("Sec-WebSocket-Extensions");
-const SEC_WEBSOCKET_PROTOCOL: Ascii<&str> = Ascii::new("Sec-WebSocket-Protocol");
+const SEC_WEBSOCKET_EXTENSIONS: &str = "Sec-WebSocket-Extensions";
+const SEC_WEBSOCKET_PROTOCOL: &str = "Sec-WebSocket-Protocol";
 
 // Handshake client (initiator) ///////////////////////////////////////////////////////////////////
 
@@ -217,8 +216,8 @@ impl<'a> Decoder for Client<'a> {
             other => return Err(Error::UnexpectedStatusCode(other.unwrap_or(0)))
         }
 
-        expect_header(&response.headers, "Upgrade", "websocket")?;
-        expect_header(&response.headers, "Connection", "upgrade")?;
+        expect_ascii_header(&response.headers, "Upgrade", "websocket")?;
+        expect_ascii_header(&response.headers, "Connection", "upgrade")?;
 
         let nonce: &str = self.nonce.borrow();
         with_header(&response.headers, "Sec-WebSocket-Accept", move |theirs| {
@@ -235,7 +234,7 @@ impl<'a> Decoder for Client<'a> {
         // Match `Sec-WebSocket-Extensions` headers.
 
         let mut selected_exts = SmallVec::new();
-        for e in response.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_EXTENSIONS) {
+        for e in response.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
             match self.extensions.iter().find(|x| x.as_bytes() == e.value) {
                 Some(x) => selected_exts.push(x.clone()),
                 None => return Err(Error::UnsolicitedExtension)
@@ -246,7 +245,7 @@ impl<'a> Decoder for Client<'a> {
 
         let their_proto = response.headers
             .iter()
-            .find(|h| Ascii::new(h.name) == SEC_WEBSOCKET_PROTOCOL);
+            .find(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_PROTOCOL));
 
         let mut selected_proto = None;
 
@@ -343,23 +342,23 @@ impl<'a> Decoder for Server<'a> {
         // TODO: Host Validation
         with_header(&request.headers, "Host", |_h| Ok(()))?;
 
-        expect_header(&request.headers, "Upgrade", "websocket")?;
-        expect_header(&request.headers, "Connection", "upgrade")?;
-        expect_header(&request.headers, "Sec-WebSocket-Version", "13")?;
+        expect_ascii_header(&request.headers, "Upgrade", "websocket")?;
+        expect_ascii_header(&request.headers, "Connection", "upgrade")?;
+        expect_ascii_header(&request.headers, "Sec-WebSocket-Version", "13")?;
 
         let ws_key = with_header(&request.headers, "Sec-WebSocket-Key", |k| {
             Ok(SmallVec::from(k))
         })?;
 
         let mut extensions = SmallVec::new();
-        for e in request.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_EXTENSIONS) {
+        for e in request.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
             if let Some(x) = self.extensions.iter().find(|x| x.as_bytes() == e.value) {
                 extensions.push(x.clone())
             }
         }
 
         let mut protocols = SmallVec::new();
-        for p in request.headers.iter().filter(|h| Ascii::new(h.name) == SEC_WEBSOCKET_PROTOCOL) {
+        for p in request.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_PROTOCOL)) {
             if let Some(x) = self.protocols.iter().find(|x| x.as_bytes() == p.value) {
                 protocols.push(x.clone())
             }
@@ -470,10 +469,10 @@ impl<'a> Encoder for Server<'a> {
 }
 
 /// Check a set of headers contain a specific one (equality match).
-fn expect_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result<(), Error> {
+fn expect_ascii_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result<(), Error> {
     with_header(headers, name, move |theirs| {
         let s = str::from_utf8(theirs)?;
-        if Ascii::new(s) == Ascii::new(ours) {
+        if s.eq_ignore_ascii_case(ours) {
             Ok(())
         } else {
             Err(Error::UnexpectedHeader(name.into()))
@@ -486,8 +485,7 @@ fn with_header<F, R>(headers: &[httparse::Header], name: &str, f: F) -> Result<R
 where
     F: Fn(&[u8]) -> Result<R, Error>
 {
-    let ascii_name = Ascii::new(name);
-    if let Some(h) = headers.iter().find(move |h| Ascii::new(h.name) == ascii_name) {
+    if let Some(h) = headers.iter().find(move |h| h.name.eq_ignore_ascii_case(name)) {
         f(h.value)
     } else {
         Err(Error::HeaderNotFound(name.into()))
