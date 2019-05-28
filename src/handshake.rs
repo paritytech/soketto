@@ -167,6 +167,12 @@ pub struct Redirect {
     location: String,
 }
 
+impl fmt::Display for Redirect {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "redirect: code = {}, location = \"{}\"", self.status_code, self.location)
+    }
+}
+
 impl Redirect {
     /// The HTTP response status code.
     pub fn status_code(&self) -> u16 {
