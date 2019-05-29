@@ -189,29 +189,34 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                     Async::Ready(Some(frame)) => match frame.opcode() {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
-                            answer.set_application_data(frame.into_application_data());
+                            answer.set_payload_data(frame.into_payload_data());
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, None))
                         }
                         OpCode::Text | OpCode::Binary if frame.is_fin() => {
                             self.state = Some(State::Open(None));
-                            return Ok(Async::Ready(frame.into_application_data()))
+                            return Ok(Async::Ready(frame.into_payload_data()))
                         }
                         OpCode::Text | OpCode::Binary => {
-                            self.state = Some(State::Open(frame.into_application_data()))
-                        }
-                        OpCode::Pong => {
-                            trace!("unexpected pong; ignoring");
-                            self.state = Some(State::Open(None))
-                        }
-                        OpCode::Continue | OpCode::Reserved => {
-                            debug!("unexpected opcode: {}", frame.opcode());
-                            return Err(Error::UnexpectedOpCode(frame.opcode()))
+                            self.state = Some(State::Open(frame.into_payload_data()))
                         }
                         OpCode::Close => {
                             let mut answer = close_answer(frame)?;
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_close(answer))
+                        }
+                        OpCode::Pong => {
+                            trace!("unexpected pong; ignoring");
+                            self.state = Some(State::Open(None))
+                        }
+                        OpCode::Continue => {
+                            debug!("unexpected continue opcode");
+                            return Err(Error::UnexpectedOpCode(OpCode::Continue))
+                        }
+                        reserved => {
+                            debug_assert!(reserved.is_reserved());
+                            debug!("unexpected opcode: {}", reserved);
+                            return Err(Error::UnexpectedOpCode(reserved))
                         }
                     }
                     Async::Ready(None) => {
@@ -229,35 +234,40 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                     Async::Ready(Some(frame)) => match frame.opcode() {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
-                            answer.set_application_data(frame.into_application_data());
+                            answer.set_payload_data(frame.into_payload_data());
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, Some(data)))
                         }
                         OpCode::Continue if frame.is_fin() => {
-                            if let Some(d) = frame.into_application_data() {
+                            if let Some(d) = frame.into_payload_data() {
                                 data.bytes_mut().unsplit(d.into_bytes())
                             }
                             self.state = Some(State::Open(None));
                             return Ok(Async::Ready(Some(data)))
                         }
                         OpCode::Continue => {
-                            if let Some(d) = frame.into_application_data() {
+                            if let Some(d) = frame.into_payload_data() {
                                 data.bytes_mut().unsplit(d.into_bytes())
                             }
                             self.state = Some(State::Open(Some(data)))
-                        }
-                        OpCode::Pong => {
-                            trace!("unexpected pong; ignoring");
-                            self.state = Some(State::Open(Some(data)))
-                        }
-                        OpCode::Text | OpCode::Binary | OpCode::Reserved => {
-                            debug!("unexpected opcode {}", frame.opcode());
-                            return Err(Error::UnexpectedOpCode(frame.opcode()))
                         }
                         OpCode::Close => {
                             let mut answer = close_answer(frame)?;
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_close(answer))
+                        }
+                        OpCode::Pong => {
+                            trace!("unexpected pong; ignoring");
+                            self.state = Some(State::Open(Some(data)))
+                        }
+                        OpCode::Text | OpCode::Binary => {
+                            debug!("unexpected opcode {}", frame.opcode());
+                            return Err(Error::UnexpectedOpCode(frame.opcode()))
+                        }
+                        reserved => {
+                            debug_assert!(reserved.is_reserved());
+                            debug!("unexpected opcode: {}", reserved);
+                            return Err(Error::UnexpectedOpCode(reserved))
                         }
                     }
                     Async::Ready(None) => {
@@ -295,11 +305,11 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                     } else {
                         Frame::new(OpCode::Binary)
                     };
-                    frame.set_application_data(Some(item));
+                    frame.set_payload_data(Some(item));
                     self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
                     if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-                        let data = frame.into_application_data().expect("frame was constructed with Some");
+                        let data = frame.into_payload_data().expect("frame was constructed with Some");
                         return Ok(AsyncSink::NotReady(data))
                     } else {
                         return Ok(AsyncSink::Ready)
@@ -362,7 +372,7 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
             let mut frame = Frame::new(OpCode::Close);
             // code 1000 means normal closure
             let code = base::Data::Binary(1000_u16.to_be_bytes()[..].into());
-            frame.set_application_data(Some(code));
+            frame.set_payload_data(Some(code));
             self.set_mask(&mut frame);
             try_ready!(self.send_close(frame))
         }
@@ -371,7 +381,7 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
 }
 
 fn close_answer(frame: Frame) -> Result<Frame, Error> {
-    if let Some(mut data) = frame.into_application_data() {
+    if let Some(mut data) = frame.into_payload_data() {
         if data.as_ref().len() >= 2 {
             let slice = data.as_ref();
             let code = u16::from_be_bytes([slice[0], slice[1]]);
@@ -388,7 +398,7 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
                     base::Data::Binary(1002_u16.to_be_bytes()[..].into())
                 }
             };
-            answer.set_application_data(Some(data));
+            answer.set_payload_data(Some(data));
             return Ok(answer)
         }
     }

@@ -26,36 +26,56 @@ use tokio_codec::{Decoder, Encoder};
 /// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum OpCode {
-    /// Indicates a continuation frame of a fragmented message.
+    /// A continuation frame of a fragmented message.
     Continue,
-    /// Indicates a text data frame.
+    /// A text data frame.
     Text,
-    /// Indicates a binary data frame.
+    /// A binary data frame.
     Binary,
-    /// Indicates a close control frame.
+    /// A close control frame.
     Close,
-    /// Indicates a ping control frame.
+    /// A ping control frame.
     Ping,
-    /// Indicates a pong control frame.
+    /// A pong control frame.
     Pong,
-    /// Indicates a reserved op code.
-    Reserved
+    /// A reserved op code.
+    Reserved3,
+    /// A reserved op code.
+    Reserved4,
+    /// A reserved op code.
+    Reserved5,
+    /// A reserved op code.
+    Reserved6,
+    /// A reserved op code.
+    Reserved7,
+    /// A reserved op code.
+    Reserved11,
+    /// A reserved op code.
+    Reserved12,
+    /// A reserved op code.
+    Reserved13,
+    /// A reserved op code.
+    Reserved14,
+    /// A reserved op code.
+    Reserved15
 }
 
 impl OpCode {
     /// Is this a control opcode?
     pub fn is_control(self) -> bool {
-        match self {
-            OpCode::Close | OpCode::Ping | OpCode::Pong => true,
-            _ => false
+        if let OpCode::Close | OpCode::Ping | OpCode::Pong = self {
+            true
+        } else {
+            false
         }
     }
 
     /// Is this opcode reserved?
     pub fn is_reserved(self) -> bool {
-        match self {
-            OpCode::Reserved => true,
-            _ => false
+        if let 3 ... 7 | 11 ... 15 = self.into() {
+            true
+        } else {
+            false
         }
     }
 }
@@ -69,7 +89,16 @@ impl fmt::Display for OpCode {
             OpCode::Close => f.write_str("Close"),
             OpCode::Ping => f.write_str("Ping"),
             OpCode::Pong => f.write_str("Pong"),
-            OpCode::Reserved => f.write_str("Reserved")
+            OpCode::Reserved3 => f.write_str("Reserved:3"),
+            OpCode::Reserved4 => f.write_str("Reserved:4"),
+            OpCode::Reserved5 => f.write_str("Reserved:5"),
+            OpCode::Reserved6 => f.write_str("Reserved:6"),
+            OpCode::Reserved7 => f.write_str("Reserved:7"),
+            OpCode::Reserved11 => f.write_str("Reserved:11"),
+            OpCode::Reserved12 => f.write_str("Reserved:12"),
+            OpCode::Reserved13 => f.write_str("Reserved:13"),
+            OpCode::Reserved14 => f.write_str("Reserved:14"),
+            OpCode::Reserved15 => f.write_str("Reserved:15")
         }
     }
 }
@@ -95,10 +124,19 @@ impl TryFrom<u8> for OpCode {
             0 => Ok(OpCode::Continue),
             1 => Ok(OpCode::Text),
             2 => Ok(OpCode::Binary),
+            3 => Ok(OpCode::Reserved3),
+            4 => Ok(OpCode::Reserved4),
+            5 => Ok(OpCode::Reserved5),
+            6 => Ok(OpCode::Reserved6),
+            7 => Ok(OpCode::Reserved7),
             8 => Ok(OpCode::Close),
             9 => Ok(OpCode::Ping),
             10 => Ok(OpCode::Pong),
-            3 ..= 7 | 11 ..= 15 => Ok(OpCode::Reserved),
+            11 => Ok(OpCode::Reserved11),
+            12 => Ok(OpCode::Reserved12),
+            13 => Ok(OpCode::Reserved13),
+            14 => Ok(OpCode::Reserved14),
+            15 => Ok(OpCode::Reserved15),
             _ => Err(UnknownOpCode(()))
         }
     }
@@ -113,7 +151,16 @@ impl From<OpCode> for u8 {
             OpCode::Close => 8,
             OpCode::Ping => 9,
             OpCode::Pong => 10,
-            OpCode::Reserved => 3
+            OpCode::Reserved3 => 3,
+            OpCode::Reserved4 => 4,
+            OpCode::Reserved5 => 5,
+            OpCode::Reserved6 => 6,
+            OpCode::Reserved7 => 7,
+            OpCode::Reserved11 => 11,
+            OpCode::Reserved12 => 12,
+            OpCode::Reserved13 => 13,
+            OpCode::Reserved14 => 14,
+            OpCode::Reserved15 => 15
         }
     }
 }
@@ -191,8 +238,8 @@ pub struct Frame {
     opcode: OpCode,
     /// The `mask`.
     mask: u32,
-    /// The optional application data.
-    application_data: Option<Data>
+    /// The optional payload data.
+    payload_data: Option<Data>
 }
 
 impl Frame {
@@ -206,7 +253,7 @@ impl Frame {
             masked: false,
             opcode: oc,
             mask: 0,
-            application_data: None
+            payload_data: None
         }
     }
 
@@ -287,19 +334,19 @@ impl Frame {
         self
     }
 
-    /// Get the application data.
-    pub fn application_data(&self) -> &[u8] {
-        self.application_data.as_ref().map(|d| d.as_ref()).unwrap_or(&[])
+    /// Get the payload data.
+    pub fn payload_data(&self) -> &[u8] {
+        self.payload_data.as_ref().map(|d| d.as_ref()).unwrap_or(&[])
     }
 
-    /// Consume frame and return application data only.
-    pub fn into_application_data(self) -> Option<Data> {
-        self.application_data
+    /// Consume frame and return payload data only.
+    pub fn into_payload_data(self) -> Option<Data> {
+        self.payload_data
     }
 
-    /// Set the application data.
-    pub fn set_application_data(&mut self, data: Option<Data>) -> &mut Self {
-        self.application_data = data;
+    /// Set the payload data.
+    pub fn set_payload_data(&mut self, data: Option<Data>) -> &mut Self {
+        self.payload_data = data;
         self
     }
 }
@@ -382,7 +429,7 @@ impl Codec {
     }
 }
 
-// Apply the unmasking to the application data.
+// Apply the unmasking to the payload data.
 fn apply_mask(buf: &mut [u8], mask: u32) {
     let mask_buf = mask.to_be_bytes();
     for (byte, &key) in buf.iter_mut().zip(mask_buf.iter().cycle()) {
@@ -489,15 +536,15 @@ impl Decoder for Codec {
                 }
                 Some(DecodeState::Body { mut frame, length: 0, .. }) => {
                     self.state = Some(DecodeState::Start);
-                    if frame.application_data.is_none() {
+                    if frame.payload_data.is_none() {
                         match frame.opcode {
                             OpCode::Binary => {
                                 let d = Data::Binary(BytesMut::new());
-                                frame.set_application_data(Some(d));
+                                frame.set_payload_data(Some(d));
                             }
                             OpCode::Text => {
                                 let d = Data::Text(BytesMut::new());
-                                frame.set_application_data(Some(d));
+                                frame.set_payload_data(Some(d));
                             }
                             _ => ()
                         }
@@ -512,7 +559,7 @@ impl Decoder for Codec {
                         self.state = Some(DecodeState::Body { frame, length });
                         return Ok(None)
                     }
-                    frame.application_data =
+                    frame.payload_data =
                         if let OpCode::Text = frame.opcode {
                             Some(Data::Text(buf.split_to(length as usize)))
                         } else {
@@ -520,7 +567,7 @@ impl Decoder for Codec {
                         };
                     if frame.is_masked() {
                         let mask = frame.mask();
-                        if let Some(ref mut d) = frame.application_data {
+                        if let Some(ref mut d) = frame.payload_data {
                             apply_mask(d.as_mut(), mask)
                         }
                     }
@@ -565,7 +612,7 @@ impl Encoder for Codec {
             second_byte |= 0x80
         }
 
-        let len = frame.application_data().len();
+        let len = frame.payload_data().len();
 
         if len < usize::from(TWO_EXT) {
             second_byte |= len as u8;
@@ -587,7 +634,7 @@ impl Encoder for Codec {
         let mask = frame.mask();
         let is_masked = frame.is_masked();
 
-        if let Some(mut data) = frame.into_application_data() {
+        if let Some(mut data) = frame.into_payload_data() {
             if is_masked {
                 apply_mask(data.as_mut(), mask)
             }
@@ -835,7 +882,7 @@ mod test {
             assert!(!frame.is_rsv2());
             assert!(!frame.is_rsv3());
             assert!(frame.opcode() == OpCode::Ping);
-            assert!(frame.application_data().is_empty())
+            assert!(frame.payload_data().is_empty())
         } else {
             assert!(false)
         }
