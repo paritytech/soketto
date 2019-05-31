@@ -6,10 +6,11 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-use crate::base::{self, Frame, OpCode};
+use crate::{base::{self, Frame, OpCode}, extension::{self, Extension}};
 use log::{debug, trace};
 use futures::{prelude::*, try_ready};
 use rand::RngCore;
+use smallvec::SmallVec;
 use std::fmt;
 use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
@@ -47,7 +48,8 @@ impl Mode {
 pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
-    state: Option<State>
+    state: Option<State>,
+    extensions: SmallVec<[Box<dyn Extension + Send>; 2]>
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
@@ -61,7 +63,18 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         Connection {
             mode,
             framed,
-            state: Some(State::Open(None))
+            state: Some(State::Open(None)),
+            extensions: SmallVec::new()
+        }
+    }
+
+    /// Create a connection builder.
+    pub fn builder(io: T, mode: Mode) -> Builder<T> {
+        Builder {
+            io,
+            mode,
+            codec: base::Codec::new(),
+            extensions: SmallVec::new()
         }
     }
 
@@ -69,6 +82,35 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         if self.mode.is_client() {
             frame.set_masked(true);
             frame.set_mask(rand::thread_rng().next_u32());
+        }
+    }
+}
+
+/// [`Connection`] builder to allow more fine-grained configuration.
+#[derive(Debug)]
+pub struct Builder<T> {
+    io: T,
+    mode: Mode,
+    codec: base::Codec,
+    extensions: SmallVec<[Box<dyn Extension + Send>; 2]>
+}
+
+impl<T: AsyncRead + AsyncWrite> Builder<T> {
+    /// Register an extension.
+    pub fn add_extension(&mut self, ext: Box<dyn Extension + Send>) -> &mut Self {
+        self.extensions.push(ext);
+        let bits = extension::reserved_bits_union(self.extensions.iter());
+        self.codec.set_reserved_bits(bits);
+        self
+    }
+
+    /// Turn this builder into a [`Connection`].
+    pub fn finish(self) -> Connection<T> {
+        Connection {
+            mode: self.mode,
+            framed: Framed::new(self.io, self.codec),
+            state: Some(State::Open(None)),
+            extensions: self.extensions
         }
     }
 }

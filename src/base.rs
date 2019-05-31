@@ -72,10 +72,18 @@ impl OpCode {
 
     /// Is this opcode reserved?
     pub fn is_reserved(self) -> bool {
-        if let 3 ... 7 | 11 ... 15 = self.into() {
-            true
-        } else {
-            false
+        match self {
+            OpCode::Reserved3
+            | OpCode::Reserved4
+            | OpCode::Reserved5
+            | OpCode::Reserved6
+            | OpCode::Reserved7
+            | OpCode::Reserved11
+            | OpCode::Reserved12
+            | OpCode::Reserved13
+            | OpCode::Reserved14
+            | OpCode::Reserved15 => true,
+            _ => false
         }
     }
 }
@@ -427,6 +435,19 @@ impl Codec {
         self.max_data_size = size;
         self
     }
+
+    /// The reserved bits currently configured.
+    pub fn reserved_bits(&self) -> (bool, bool, bool) {
+        let r = self.reserved_bits;
+        (r & 4 == 1, r & 2 == 1, r & 1 == 1)
+    }
+
+    /// Set the reserved bits in use.
+    pub fn set_reserved_bits(&mut self, bits: (bool, bool, bool)) -> &mut Self {
+        let (r1, r2, r3) = bits;
+        self.reserved_bits = (r1 as u8) << 2 | (r2 as u8) << 1 | r3 as u8;
+        self
+    }
 }
 
 // Apply the unmasking to the payload data.
@@ -455,7 +476,7 @@ impl Decoder for Codec {
                     let second = header_bytes[1];
 
                     let fin = first & 0x80 != 0;
-                    let opcode = OpCode::try_from(first & 0x0F)?;
+                    let opcode = OpCode::try_from(first & 0xF)?;
                     if opcode.is_reserved() {
                         return Err(Error::ReservedOpCode)
                     }
@@ -467,19 +488,19 @@ impl Decoder for Codec {
                     frame.set_fin(fin);
 
                     let rsv1 = first & 0x40 != 0;
-                    if rsv1 && (self.reserved_bits & 0x4 == 0) {
+                    if rsv1 && (self.reserved_bits & 4 == 0) {
                         return Err(Error::InvalidReservedBit(1))
                     }
                     frame.set_rsv1(rsv1);
 
                     let rsv2 = first & 0x20 != 0;
-                    if rsv2 && (self.reserved_bits & 0x2 == 0) {
+                    if rsv2 && (self.reserved_bits & 2 == 0) {
                         return Err(Error::InvalidReservedBit(2))
                     }
                     frame.set_rsv2(rsv2);
 
                     let rsv3 = first & 0x10 != 0;
-                    if rsv3 && (self.reserved_bits & 0x1 == 0) {
+                    if rsv3 && (self.reserved_bits & 1 == 0) {
                         return Err(Error::InvalidReservedBit(3))
                     }
                     frame.set_rsv3(rsv3);
