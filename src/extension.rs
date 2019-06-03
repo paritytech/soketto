@@ -12,6 +12,9 @@ use std::{borrow::Cow, error::Error};
 
 /// A websocket extension as per RFC 6455, section 9.
 pub trait Extension: std::fmt::Debug {
+    /// Is this extension enabled?
+    fn is_enabled(&self) -> bool;
+
     /// The name of this extension.
     fn name(&self) -> &str;
 
@@ -39,6 +42,10 @@ pub trait Extension: std::fmt::Debug {
 }
 
 impl<E: Extension + ?Sized> Extension for Box<E> {
+    fn is_enabled(&self) -> bool {
+        (**self).is_enabled()
+    }
+
     fn name(&self) -> &str {
         (**self).name()
     }
@@ -69,10 +76,10 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
 }
 
 /// Extension parameter (used for negotiation).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param<'a> {
     pub(crate) name: Cow<'a, str>,
-    pub(crate) value: Option<Cow<'a, [u8]>>
+    pub(crate) value: Option<Cow<'a, str>>
 }
 
 impl<'a> Param<'a> {
@@ -80,7 +87,7 @@ impl<'a> Param<'a> {
         &self.name
     }
 
-    pub fn value(&self) -> Option<&[u8]> {
+    pub fn value(&self) -> Option<&str> {
         self.value.as_ref().map(|v| v.as_ref())
     }
 }

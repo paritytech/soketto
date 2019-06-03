@@ -49,7 +49,7 @@ pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
     state: Option<State>,
-    extensions: SmallVec<[Box<dyn Extension + Send>; 2]>
+    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
@@ -77,13 +77,20 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         }
     }
 
-    /// Register an extension.
-    pub fn add_extension(&mut self, ext: Box<dyn Extension + Send>) -> &mut Self {
-        self.framed.codec_mut().add_reserved_bits(ext.reserved_bits());
-        if let Some(code) = ext.reserved_opcode() {
-            self.framed.codec_mut().add_reserved_opcode(code);
+    /// Add extensions to this connection.
+    ///
+    /// Only enabled extensions will be considered.
+    pub fn add_extensions<I>(&mut self, extensions: I) -> &mut Self
+    where
+        I: IntoIterator<Item = Box<dyn Extension + Send>>
+    {
+        for e in extensions.into_iter().filter(|e| e.is_enabled()) {
+            self.framed.codec_mut().add_reserved_bits(e.reserved_bits());
+            if let Some(code) = e.reserved_opcode() {
+                self.framed.codec_mut().add_reserved_opcode(code);
+            }
+            self.extensions.push(e)
         }
-        self.extensions.push(ext);
         self
     }
 
