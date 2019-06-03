@@ -6,13 +6,13 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-use crate::{base::{self, Frame, OpCode}, extension::{self, Extension}};
+use crate::{base::{self, Frame, OpCode}, extension::Extension};
+use crate::tokio_framed::{Framed, FramedParts};
 use log::{debug, trace};
 use futures::{prelude::*, try_ready};
 use rand::RngCore;
 use smallvec::SmallVec;
 use std::fmt;
-use tokio_codec::Framed;
 use tokio_io::{AsyncRead, AsyncWrite};
 
 // Connection mode ////////////////////////////////////////////////////////////////////////////////
@@ -55,62 +55,42 @@ pub struct Connection<T> {
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
     /// Create a new `Connection` from the given resource.
     pub fn new(io: T, mode: Mode) -> Self {
-        Connection::from_framed(Framed::new(io, base::Codec::new()), mode)
-    }
-
-    /// Create a new `Connection` from an existing [`Framed`] stream/sink.
-    pub fn from_framed(framed: Framed<T, base::Codec>, mode: Mode) -> Self {
         Connection {
             mode,
-            framed,
+            framed: Framed::new(io, base::Codec::new()),
             state: Some(State::Open(None)),
             extensions: SmallVec::new()
         }
     }
 
-    /// Create a connection builder.
-    pub fn builder(io: T, mode: Mode) -> Builder<T> {
-        Builder {
-            io,
+    /// Create a new `Connection` from an existing [`tokio_codec::Framed`] stream/sink.
+    pub fn from_framed(framed: tokio_codec::Framed<T, base::Codec>, mode: Mode) -> Self {
+        let tokio_codec_parts = framed.into_parts();
+        let mut parts = FramedParts::new(tokio_codec_parts.io, tokio_codec_parts.codec);
+        parts.read_buf = tokio_codec_parts.read_buf;
+        parts.write_buf = tokio_codec_parts.write_buf;
+        Connection {
             mode,
-            codec: base::Codec::new(),
+            framed: Framed::from_parts(parts),
+            state: Some(State::Open(None)),
             extensions: SmallVec::new()
         }
+    }
+
+    /// Register an extension.
+    pub fn add_extension(&mut self, ext: Box<dyn Extension + Send>) -> &mut Self {
+        self.framed.codec_mut().add_reserved_bits(ext.reserved_bits());
+        if let Some(code) = ext.reserved_opcode() {
+            self.framed.codec_mut().add_reserved_opcode(code);
+        }
+        self.extensions.push(ext);
+        self
     }
 
     fn set_mask(&self, frame: &mut Frame) {
         if self.mode.is_client() {
             frame.set_masked(true);
             frame.set_mask(rand::thread_rng().next_u32());
-        }
-    }
-}
-
-/// [`Connection`] builder to allow more fine-grained configuration.
-#[derive(Debug)]
-pub struct Builder<T> {
-    io: T,
-    mode: Mode,
-    codec: base::Codec,
-    extensions: SmallVec<[Box<dyn Extension + Send>; 2]>
-}
-
-impl<T: AsyncRead + AsyncWrite> Builder<T> {
-    /// Register an extension.
-    pub fn add_extension(&mut self, ext: Box<dyn Extension + Send>) -> &mut Self {
-        self.extensions.push(ext);
-        let bits = extension::reserved_bits_union(self.extensions.iter());
-        self.codec.set_reserved_bits(bits);
-        self
-    }
-
-    /// Turn this builder into a [`Connection`].
-    pub fn finish(self) -> Connection<T> {
-        Connection {
-            mode: self.mode,
-            framed: Framed::new(self.io, self.codec),
-            state: Some(State::Open(None)),
-            extensions: self.extensions
         }
     }
 }
@@ -228,7 +208,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
         loop {
             match self.state.take() {
                 Some(State::Open(None)) => match self.framed.poll()? {
-                    Async::Ready(Some(frame)) => match frame.opcode() {
+                    Async::Ready(Some(mut frame)) => match frame.opcode() {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_payload_data(frame.into_payload_data());
@@ -237,9 +217,15 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                         }
                         OpCode::Text | OpCode::Binary if frame.is_fin() => {
                             self.state = Some(State::Open(None));
+                            for e in &mut self.extensions {
+                                e.decode(&mut frame).map_err(Error::Extension)?
+                            }
                             return Ok(Async::Ready(frame.into_payload_data()))
                         }
                         OpCode::Text | OpCode::Binary => {
+                            for e in &mut self.extensions {
+                                e.decode(&mut frame).map_err(Error::Extension)?
+                            }
                             self.state = Some(State::Open(frame.into_payload_data()))
                         }
                         OpCode::Close => {
@@ -273,7 +259,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                 // We have buffered some data => we are processing a fragmented message
                 // and expect either control frames or a CONTINUE frame.
                 Some(State::Open(Some(mut data))) => match self.framed.poll()? {
-                    Async::Ready(Some(frame)) => match frame.opcode() {
+                    Async::Ready(Some(mut frame)) => match frame.opcode() {
                         OpCode::Ping => {
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_payload_data(frame.into_payload_data());
@@ -281,6 +267,9 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             try_ready!(self.answer_ping(answer, Some(data)))
                         }
                         OpCode::Continue if frame.is_fin() => {
+                            for e in &mut self.extensions {
+                                e.decode(&mut frame).map_err(Error::Extension)?
+                            }
                             if let Some(d) = frame.into_payload_data() {
                                 data.bytes_mut().unsplit(d.into_bytes())
                             }
@@ -288,6 +277,9 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             return Ok(Async::Ready(Some(data)))
                         }
                         OpCode::Continue => {
+                            for e in &mut self.extensions {
+                                e.decode(&mut frame).map_err(Error::Extension)?
+                            }
                             if let Some(d) = frame.into_payload_data() {
                                 data.bytes_mut().unsplit(d.into_bytes())
                             }
@@ -350,6 +342,9 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                     frame.set_payload_data(Some(item));
                     self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
+                    for e in self.extensions.iter_mut().rev() {
+                        e.encode(&mut frame).map_err(Error::Extension)?
+                    }
                     if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
                         let data = frame.into_payload_data().expect("frame was constructed with Some");
                         return Ok(AsyncSink::NotReady(data))
@@ -455,6 +450,8 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
 pub enum Error {
     /// The base codec errored.
     Codec(base::Error),
+    /// An extension produced an error while encoding or decoding.
+    Extension(Box<dyn std::error::Error + Send>),
     /// An unexpected opcode as encountered.
     UnexpectedOpCode(OpCode),
     /// A close reason was not correctly UTF-8 encoded.
@@ -467,6 +464,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Codec(e) => write!(f, "codec error: {}", e),
+            Error::Extension(e) => write!(f, "extension error: {}", e),
             Error::UnexpectedOpCode(c) => write!(f, "unexpected opcode: {}", c),
             Error::Utf8(e) => write!(f, "utf-8 error: {}", e),
             Error::Closed => f.write_str("connection closed")
@@ -478,6 +476,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Error::Codec(e) => Some(e),
+            Error::Extension(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnexpectedOpCode(_)
             | Error::Closed => None

@@ -15,9 +15,6 @@ pub trait Extension: std::fmt::Debug {
     /// The name of this extension.
     fn name(&self) -> &str;
 
-    /// The scope this extension applies to.
-    fn scope(&self) -> Scope;
-
     /// The parameters this extension wants to send for negotiation.
     fn params(&self) -> &[Param];
 
@@ -44,10 +41,6 @@ pub trait Extension: std::fmt::Debug {
 impl<E: Extension + ?Sized> Extension for Box<E> {
     fn name(&self) -> &str {
         (**self).name()
-    }
-
-    fn scope(&self) -> Scope {
-        (**self).scope()
     }
 
     fn params(&self) -> &[Param] {
@@ -92,28 +85,3 @@ impl<'a> Param<'a> {
     }
 }
 
-/// The scope an extension applies to, i.e. when it should be invoked.
-#[derive(Debug, Clone)]
-pub enum Scope {
-    /// Frame and Message scope.
-    All,
-    /// Frame scope.
-    Frame,
-    /// Message scope, i.e. after fragmented frames have been processed.
-    Message,
-}
-
-pub(crate) fn reserved_bits_union<'a, I, E>(exts: I) -> (bool, bool, bool)
-where
-    I: Iterator<Item = &'a E>,
-    E: Extension + 'a
-{
-    let mut union = (false, false, false);
-    for e in exts {
-        let (r1, r2, r3) = e.reserved_bits();
-        union.0 |= r1;
-        union.1 |= r2;
-        union.2 |= r3
-    }
-    union
-}

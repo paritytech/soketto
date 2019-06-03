@@ -378,8 +378,10 @@ pub struct Codec {
     state: Option<DecodeState>,
     /// Maximum size of payload data per frame.
     max_data_size: u64,
-    /// Bits reserved by extensions.
-    reserved_bits: u8
+    /// Bits reserved by an extension.
+    reserved_bits: u8,
+    /// OpCodes reserved by an extension.
+    reserved_opcodes: u8
 }
 
 #[derive(Debug)]
@@ -411,7 +413,8 @@ impl Default for Codec {
         Codec {
             state: Some(DecodeState::Start),
             max_data_size: 256 * 1024 * 1024,
-            reserved_bits: 0
+            reserved_bits: 0,
+            reserved_opcodes: 0
         }
     }
 }
@@ -436,17 +439,42 @@ impl Codec {
         self
     }
 
+    /// Is the given reserved opcode configured?
+    pub fn has_reserved_opcode(&self, code: OpCode) -> bool {
+        if !code.is_reserved() {
+            return false
+        }
+        self.reserved_opcodes & u8::from(code) != 0
+    }
+
+    /// Add the reserved opcode.
+    pub fn add_reserved_opcode(&mut self, code: OpCode) -> &mut Self {
+        assert!(code.is_reserved());
+        self.reserved_opcodes |= u8::from(code);
+        self
+    }
+
+    /// Reset reserved opcodes.
+    pub fn clear_reserved_opcodes(&mut self) {
+        self.reserved_opcodes = 0
+    }
+
     /// The reserved bits currently configured.
     pub fn reserved_bits(&self) -> (bool, bool, bool) {
         let r = self.reserved_bits;
         (r & 4 == 1, r & 2 == 1, r & 1 == 1)
     }
 
-    /// Set the reserved bits in use.
-    pub fn set_reserved_bits(&mut self, bits: (bool, bool, bool)) -> &mut Self {
+    /// Add to the reserved bits in use.
+    pub fn add_reserved_bits(&mut self, bits: (bool, bool, bool)) -> &mut Self {
         let (r1, r2, r3) = bits;
-        self.reserved_bits = (r1 as u8) << 2 | (r2 as u8) << 1 | r3 as u8;
+        self.reserved_bits |= (r1 as u8) << 2 | (r2 as u8) << 1 | r3 as u8;
         self
+    }
+
+    /// Reset the reserved bits.
+    pub fn clear_reserved_bits(&mut self) {
+        self.reserved_bits = 0
     }
 }
 
@@ -477,7 +505,7 @@ impl Decoder for Codec {
 
                     let fin = first & 0x80 != 0;
                     let opcode = OpCode::try_from(first & 0xF)?;
-                    if opcode.is_reserved() {
+                    if opcode.is_reserved() && !self.has_reserved_opcode(opcode) {
                         return Err(Error::ReservedOpCode)
                     }
                     if opcode.is_control() && !fin {
