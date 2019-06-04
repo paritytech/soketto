@@ -379,7 +379,7 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
             debug!("received close frame; code = {}; reason = {}", code, reason);
             let mut answer = Frame::new(OpCode::Close);
             let data = match code {
-                1000 ... 1003 | 1007 ... 1011 | 1015 | 3000 ... 4999 => { // acceptable codes
+                1000 ..= 1003 | 1007 ..= 1011 | 1015 | 3000 ..= 4999 => { // acceptable codes
                     data.bytes_mut().truncate(2);
                     data
                 }

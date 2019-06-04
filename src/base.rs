@@ -98,7 +98,7 @@ impl TryFrom<u8> for OpCode {
             8 => Ok(OpCode::Close),
             9 => Ok(OpCode::Ping),
             10 => Ok(OpCode::Pong),
-            3 ... 7 | 11 ... 15 => Ok(OpCode::Reserved),
+            3 ..= 7 | 11 ..= 15 => Ok(OpCode::Reserved),
             _ => Err(UnknownOpCode(()))
         }
     }

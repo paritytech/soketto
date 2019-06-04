@@ -205,7 +205,7 @@ impl<'a> Decoder for Client<'a> {
 
         match response.code {
             Some(101) => (),
-            Some(code@(301 ... 303)) | Some(code@307) | Some(code@308) => { // redirect response
+            Some(code@(301 ..= 303)) | Some(code@307) | Some(code@308) => { // redirect response
                 let location = with_header(&response.headers, "Location", |loc| {
                     Ok(String::from(std::str::from_utf8(loc)?))
                 })?;
@@ -308,7 +308,7 @@ impl<'a> Request<'a> {
 
     /// The protocols the client is proposing.
     pub fn protocols(&self) -> impl Iterator<Item = &str> {
-        self.extensions.iter().map(|p| p.as_ref())
+        self.protocols.iter().map(|p| p.as_ref())
     }
 
     /// The extensions the client is proposing.
