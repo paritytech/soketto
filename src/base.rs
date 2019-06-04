@@ -342,9 +342,14 @@ impl Frame {
         self
     }
 
-    /// Get the payload data.
-    pub fn payload_data(&self) -> &[u8] {
-        self.payload_data.as_ref().map(|d| d.as_ref()).unwrap_or(&[])
+    /// Get a reference to the payload data.
+    pub fn payload_data(&self) -> Option<&Data> {
+        self.payload_data.as_ref()
+    }
+
+    /// Get a mutable reference to the payload data.
+    pub fn payload_data_mut(&mut self) -> Option<&mut Data> {
+        self.payload_data.as_mut()
     }
 
     /// Consume frame and return payload data only.
@@ -661,7 +666,7 @@ impl Encoder for Codec {
             second_byte |= 0x80
         }
 
-        let len = frame.payload_data().len();
+        let len = frame.payload_data().map(|d| d.as_ref().len()).unwrap_or(0);
 
         if len < usize::from(TWO_EXT) {
             second_byte |= len as u8;
@@ -931,7 +936,7 @@ mod test {
             assert!(!frame.is_rsv2());
             assert!(!frame.is_rsv3());
             assert!(frame.opcode() == OpCode::Ping);
-            assert!(frame.payload_data().is_empty())
+            assert!(frame.payload_data().is_none())
         } else {
             assert!(false)
         }

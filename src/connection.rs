@@ -105,6 +105,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
     fn answer_ping(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
+        trace!("answering ping");
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerPing(frame, buf));
             return Ok(Async::NotReady)
@@ -113,6 +114,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn answer_close(&mut self, frame: Frame) -> Poll<(), Error> {
+        trace!("answering close");
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerClose(frame));
             return Ok(Async::NotReady)
@@ -121,6 +123,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn send_close(&mut self, frame: Frame) -> Poll<(), Error> {
+        trace!("sending close");
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::SendClose(frame));
             return Ok(Async::NotReady)
@@ -129,6 +132,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn flush_close(&mut self) -> Poll<(), Error> {
+        trace!("flushing close");
         if self.framed.poll_complete()?.is_not_ready() {
             self.state = Some(State::FlushClose);
             return Ok(Async::NotReady)
@@ -138,6 +142,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn flush(&mut self, buf: Option<base::Data>) -> Poll<(), Error> {
+        trace!("flushing");
         if self.framed.poll_complete()?.is_not_ready() {
             self.state = Some(State::Flush(buf));
             return Ok(Async::NotReady)
@@ -147,6 +152,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn closing(&mut self) -> Poll<(), Error> {
+        trace!("closing");
         if self.framed.poll_complete()?.is_not_ready() {
             self.state = Some(State::Closing);
             return Ok(Async::NotReady)
@@ -156,6 +162,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn await_close(&mut self) -> Poll<(), Error> {
+        trace!("awaiting close");
         match self.framed.poll()? {
             Async::Ready(Some(frame)) =>
                 if let OpCode::Close = frame.opcode() {
@@ -218,25 +225,31 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                 Some(State::Open(None)) => match self.framed.poll()? {
                     Async::Ready(Some(mut frame)) => match frame.opcode() {
                         OpCode::Ping => {
+                            trace!("received: {}", frame.opcode());
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_payload_data(frame.into_payload_data());
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, None))
                         }
                         OpCode::Text | OpCode::Binary if frame.is_fin() => {
+                            trace!("received: {} (fin)", frame.opcode());
                             self.state = Some(State::Open(None));
                             for e in &mut self.extensions {
+                                trace!("decoding with extension: {}", e.name());
                                 e.decode(&mut frame).map_err(Error::Extension)?
                             }
                             return Ok(Async::Ready(frame.into_payload_data()))
                         }
                         OpCode::Text | OpCode::Binary => {
+                            trace!("received: {} (fragment)", frame.opcode());
                             for e in &mut self.extensions {
+                                trace!("decoding with extension: {}", e.name());
                                 e.decode(&mut frame).map_err(Error::Extension)?
                             }
                             self.state = Some(State::Open(frame.into_payload_data()))
                         }
                         OpCode::Close => {
+                            trace!("received: {}", frame.opcode());
                             let mut answer = close_answer(frame)?;
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_close(answer))
@@ -269,13 +282,16 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                 Some(State::Open(Some(mut data))) => match self.framed.poll()? {
                     Async::Ready(Some(mut frame)) => match frame.opcode() {
                         OpCode::Ping => {
+                            trace!("received: {}", frame.opcode());
                             let mut answer = Frame::new(OpCode::Pong);
                             answer.set_payload_data(frame.into_payload_data());
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_ping(answer, Some(data)))
                         }
                         OpCode::Continue if frame.is_fin() => {
+                            trace!("received: {} (fin)", frame.opcode());
                             for e in &mut self.extensions {
+                                trace!("decoding with extension: {}", e.name());
                                 e.decode(&mut frame).map_err(Error::Extension)?
                             }
                             if let Some(d) = frame.into_payload_data() {
@@ -285,7 +301,9 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             return Ok(Async::Ready(Some(data)))
                         }
                         OpCode::Continue => {
+                            trace!("received: {} (fragment)", frame.opcode());
                             for e in &mut self.extensions {
+                                trace!("decoding with extension: {}", e.name());
                                 e.decode(&mut frame).map_err(Error::Extension)?
                             }
                             if let Some(d) = frame.into_payload_data() {
@@ -294,6 +312,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             self.state = Some(State::Open(Some(data)))
                         }
                         OpCode::Close => {
+                            trace!("received: {}", frame.opcode());
                             let mut answer = close_answer(frame)?;
                             self.set_mask(&mut answer);
                             try_ready!(self.answer_close(answer))
@@ -351,8 +370,10 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
                     self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
                     for e in self.extensions.iter_mut().rev() {
+                        trace!("encoding with extension: {}", e.name());
                         e.encode(&mut frame).map_err(Error::Extension)?
                     }
+                    trace!("send: {} (fin = {})", frame.opcode(), frame.is_fin());
                     if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
                         let data = frame.into_payload_data().expect("frame was constructed with Some");
                         return Ok(AsyncSink::NotReady(data))
