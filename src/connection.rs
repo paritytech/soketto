@@ -85,6 +85,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         I: IntoIterator<Item = Box<dyn Extension + Send>>
     {
         for e in extensions.into_iter().filter(|e| e.is_enabled()) {
+            debug!("using extension: {}", e.name());
             self.framed.codec_mut().add_reserved_bits(e.reserved_bits());
             if let Some(code) = e.reserved_opcode() {
                 self.framed.codec_mut().add_reserved_opcode(code);

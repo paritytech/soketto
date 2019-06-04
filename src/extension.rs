@@ -78,17 +78,29 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
 /// Extension parameter (used for negotiation).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param<'a> {
-    pub(crate) name: Cow<'a, str>,
-    pub(crate) value: Option<Cow<'a, str>>
+    name: Cow<'a, str>,
+    value: Option<Cow<'a, str>>
 }
 
 impl<'a> Param<'a> {
+    pub fn new(name: impl Into<Cow<'a, str>>) -> Self{
+        Param {
+            name: name.into(),
+            value: None
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
 
     pub fn value(&self) -> Option<&str> {
         self.value.as_ref().map(|v| v.as_ref())
+    }
+
+    pub fn set_value(&mut self, value: Option<impl Into<Cow<'a, str>>>) -> &mut Self {
+        self.value = value.map(Into::into);
+        self
     }
 }
 

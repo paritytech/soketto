@@ -421,7 +421,7 @@ impl<'a> Encoder for Server<'a> {
                     buf.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
                     buf.extend_from_slice(p.as_bytes())
                 }
-                append_extensions(&self.extensions, buf);
+                append_extensions(self.extensions.iter().filter(|e| e.is_enabled()), buf);
                 buf.extend_from_slice(b"\r\n\r\n")
             }
             Err(reject) => {
@@ -473,10 +473,9 @@ fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str
                     let mut key_value = p.split('=');
                     if let Some(key) = key_value.next().map(str::trim) {
                         let val = key_value.next().map(|v| v.trim().trim_matches('"'));
-                        params.push(Param {
-                            name: key.into(),
-                            value: val.map(Cow::Borrowed)
-                        });
+                        let mut p = Param::new(key);
+                        p.set_value(val);
+                        params.push(p)
                     }
                 }
                 ext.configure(&params).map_err(Error::Extension)?
@@ -487,8 +486,11 @@ fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str
 }
 
 // Write all extensions to the given buffer.
-fn append_extensions(extensions: &[Box<dyn Extension + Send>], buf: &mut BytesMut) {
-    let mut iter = extensions.iter().peekable();
+fn append_extensions<'a, I>(extensions: I, buf: &mut BytesMut)
+where
+    I: IntoIterator<Item = &'a Box<dyn Extension + Send>>
+{
+    let mut iter = extensions.into_iter().peekable();
 
     if iter.peek().is_some() {
         buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ")
