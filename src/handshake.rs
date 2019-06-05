@@ -11,6 +11,7 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 use bytes::BytesMut;
+use crate::extension::{Param, Extension};
 use http::StatusCode;
 use rand::Rng;
 use sha1::Sha1;
@@ -43,7 +44,7 @@ pub struct Client<'a> {
     origin: Option<Cow<'a, str>>,
     nonce: String,
     protocols: SmallVec<[Cow<'a, str>; 4]>,
-    extensions: SmallVec<[Cow<'a, str>; 4]>,
+    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>
 }
 
 impl<'a> Client<'a> {
@@ -84,9 +85,14 @@ impl<'a> Client<'a> {
     }
 
     /// Add an extension to be included in the handshake.
-    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
-        self.extensions.push(e.into());
+    pub fn add_extension(&mut self, e: Box<dyn Extension + Send>) -> &mut Self {
+        self.extensions.push(e);
         self
+    }
+
+    /// Get back all extensions.
+    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> {
+        self.extensions.drain()
     }
 }
 
@@ -116,14 +122,7 @@ impl<'a> Encoder for Client<'a> {
             }
             buf.extend_from_slice(last.as_bytes())
         }
-        if let Some((last, prefix)) = self.extensions.split_last() {
-            buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ");
-            for p in prefix {
-                buf.extend_from_slice(p.as_bytes());
-                buf.extend_from_slice(b",")
-            }
-            buf.extend_from_slice(last.as_bytes())
-        }
+        append_extensions(&self.extensions, buf);
         buf.extend_from_slice(b"\r\nSec-WebSocket-Version: 13\r\n\r\n");
         Ok(())
     }
@@ -141,19 +140,12 @@ pub enum Response<'a> {
 pub struct Accepted<'a> {
     /// The protocol (if any) the server has selected.
     protocol: Option<Cow<'a, str>>,
-    /// The extensions (if any) the server has selected.
-    extensions: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Accepted<'a> {
     /// The protocol the server has selected from the proposed ones.
     pub fn protocol(&self) -> Option<&str> {
         self.protocol.as_ref().map(|p| p.as_ref())
-    }
-
-    /// The extensions the server has selected from the proposed ones.
-    pub fn extensions(&self) -> impl Iterator<Item = &str> {
-        self.extensions.iter().map(|e| e.as_ref())
     }
 }
 
@@ -231,14 +223,10 @@ impl<'a> Decoder for Client<'a> {
             Ok(())
         })?;
 
-        // Match `Sec-WebSocket-Extensions` headers.
+        // Parse `Sec-WebSocket-Extensions` headers.
 
-        let mut selected_exts = SmallVec::new();
-        for e in response.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
-            match self.extensions.iter().find(|x| x.as_bytes() == e.value) {
-                Some(x) => selected_exts.push(x.clone()),
-                None => return Err(Error::UnsolicitedExtension)
-            }
+        for h in response.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
+            configure_extensions(&mut self.extensions, std::str::from_utf8(h.value)?)?
         }
 
         // Match `Sec-WebSocket-Protocol` header.
@@ -259,7 +247,7 @@ impl<'a> Decoder for Client<'a> {
 
         bytes.split_to(offset); // chop off the HTTP part we have processed
 
-        let response = Accepted { protocol: selected_proto, extensions: selected_exts };
+        let response = Accepted { protocol: selected_proto };
         Ok(Some(Response::Accepted(response)))
     }
 }
@@ -270,7 +258,7 @@ impl<'a> Decoder for Client<'a> {
 #[derive(Debug, Default)]
 pub struct Server<'a> {
     protocols: SmallVec<[Cow<'a, str>; 4]>,
-    extensions: SmallVec<[Cow<'a, str>; 4]>
+    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>
 }
 
 impl<'a> Server<'a> {
@@ -286,9 +274,14 @@ impl<'a> Server<'a> {
     }
 
     /// Add an extension the server supports.
-    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
-        self.extensions.push(e.into());
+    pub fn add_extension(&mut self, e: Box<dyn Extension + Send>) -> &mut Self {
+        self.extensions.push(e);
         self
+    }
+
+    /// Get back all extensions.
+    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> {
+        self.extensions.drain()
     }
 }
 
@@ -296,8 +289,7 @@ impl<'a> Server<'a> {
 #[derive(Debug)]
 pub struct Request<'a> {
     ws_key: SmallVec<[u8; 32]>,
-    protocols: SmallVec<[Cow<'a, str>; 4]>,
-    extensions: SmallVec<[Cow<'a, str>; 4]>
+    protocols: SmallVec<[Cow<'a, str>; 4]>
 }
 
 impl<'a> Request<'a> {
@@ -309,11 +301,6 @@ impl<'a> Request<'a> {
     /// The protocols the client is proposing.
     pub fn protocols(&self) -> impl Iterator<Item = &str> {
         self.protocols.iter().map(|p| p.as_ref())
-    }
-
-    /// The extensions the client is proposing.
-    pub fn extensions(&self) -> impl Iterator<Item = &str> {
-        self.extensions.iter().map(|e| e.as_ref())
     }
 }
 
@@ -350,11 +337,8 @@ impl<'a> Decoder for Server<'a> {
             Ok(SmallVec::from(k))
         })?;
 
-        let mut extensions = SmallVec::new();
-        for e in request.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
-            if let Some(x) = self.extensions.iter().find(|x| x.as_bytes() == e.value) {
-                extensions.push(x.clone())
-            }
+        for h in request.headers.iter().filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)) {
+            configure_extensions(&mut self.extensions, std::str::from_utf8(h.value)?)?
         }
 
         let mut protocols = SmallVec::new();
@@ -366,7 +350,7 @@ impl<'a> Decoder for Server<'a> {
 
         bytes.split_to(offset); // chop off the HTTP part we have processed
 
-        Ok(Some(Request { ws_key, protocols, extensions }))
+        Ok(Some(Request { ws_key, protocols }))
     }
 }
 
@@ -374,8 +358,7 @@ impl<'a> Decoder for Server<'a> {
 #[derive(Debug)]
 pub struct Accept<'a> {
     key: Cow<'a, [u8]>,
-    protocol: Option<Cow<'a, str>>,
-    extensions: SmallVec<[Cow<'a, str>; 4]>
+    protocol: Option<Cow<'a, str>>
 }
 
 impl<'a> Accept<'a> {
@@ -386,20 +369,13 @@ impl<'a> Accept<'a> {
     pub fn new(key: impl Into<Cow<'a, [u8]>>) -> Self {
         Accept {
             key: key.into(),
-            protocol: None,
-            extensions: SmallVec::new()
+            protocol: None
         }
     }
 
     /// Set the protocol the server selected from the proposed ones.
     pub fn set_protocol(&mut self, p: impl Into<Cow<'a, str>>) -> &mut Self {
         self.protocol = Some(p.into());
-        self
-    }
-
-    /// Add an extension the server has selected from the proposed ones.
-    pub fn add_extension(&mut self, e: impl Into<Cow<'a, str>>) -> &mut Self {
-        self.extensions.push(e.into());
         self
     }
 }
@@ -445,14 +421,7 @@ impl<'a> Encoder for Server<'a> {
                     buf.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
                     buf.extend_from_slice(p.as_bytes())
                 }
-                if let Some((last, prefix)) = accept.extensions.split_last() {
-                    buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ");
-                    for p in prefix {
-                        buf.extend_from_slice(p.as_bytes());
-                        buf.extend_from_slice(b",")
-                    }
-                    buf.extend_from_slice(last.as_bytes())
-                }
+                append_extensions(self.extensions.iter().filter(|e| e.is_enabled()), buf);
                 buf.extend_from_slice(b"\r\n\r\n")
             }
             Err(reject) => {
@@ -492,6 +461,57 @@ where
     }
 }
 
+// Configure all extensions with parsed parameters.
+fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str) -> Result<(), Error> {
+    for e in line.split(',') {
+        let mut ext_parts = e.split(';');
+        if let Some(name) = ext_parts.next() {
+            let name = name.trim();
+            if let Some(ext) = extensions.iter_mut().find(|x| x.name().eq_ignore_ascii_case(name)) {
+                let mut params = SmallVec::<[Param; 4]>::new();
+                for p in ext_parts {
+                    let mut key_value = p.split('=');
+                    if let Some(key) = key_value.next().map(str::trim) {
+                        let val = key_value.next().map(|v| v.trim().trim_matches('"'));
+                        let mut p = Param::new(key);
+                        p.set_value(val);
+                        params.push(p)
+                    }
+                }
+                ext.configure(&params).map_err(Error::Extension)?
+            }
+        }
+    }
+    Ok(())
+}
+
+// Write all extensions to the given buffer.
+fn append_extensions<'a, I>(extensions: I, buf: &mut BytesMut)
+where
+    I: IntoIterator<Item = &'a Box<dyn Extension + Send>>
+{
+    let mut iter = extensions.into_iter().peekable();
+
+    if iter.peek().is_some() {
+        buf.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ")
+    }
+
+    while let Some(e) = iter.next() {
+        buf.extend_from_slice(e.name().as_bytes());
+        for p in e.params() {
+            buf.extend_from_slice(b";");
+            buf.extend_from_slice(p.name().as_bytes());
+            if let Some(v) = p.value() {
+                buf.extend_from_slice(b"=");
+                buf.extend_from_slice(v.as_bytes())
+            }
+        }
+        if iter.peek().is_some() {
+            buf.extend_from_slice(b", ")
+        }
+    }
+}
+
 // Codec error type ///////////////////////////////////////////////////////////////////////////////
 
 /// Enumeration of possible handshake errors.
@@ -515,8 +535,10 @@ pub enum Error {
     UnsolicitedExtension,
     /// The server returned a protocol we did not ask for.
     UnsolicitedProtocol,
+    /// An extension produced an error while encoding or decoding.
+    Extension(crate::BoxError),
     /// The HTTP entity could not be parsed successfully.
-    Http(Box<dyn std::error::Error + Send + 'static>),
+    Http(crate::BoxError),
     /// UTF-8 decoding failed.
     Utf8(std::str::Utf8Error),
 
@@ -533,6 +555,7 @@ impl fmt::Display for Error {
             Error::UnexpectedHeader(n) => write!(f, "header {} had unexpected value", n),
             Error::Utf8(e) => write!(f, "utf-8 decoding error: {}", e),
             Error::UnexpectedStatusCode(c) => write!(f, "unexpected response status: {}", c),
+            Error::Extension(e) => write!(f, "extension error: {}", e),
             Error::UnsupportedHttpVersion => f.write_str("http version was not 1.1"),
             Error::InvalidRequestMethod => f.write_str("handshake not a GET request"),
             Error::InvalidSecWebSocketAccept => f.write_str("websocket key mismatch"),
@@ -549,6 +572,7 @@ impl std::error::Error for Error {
             Error::Io(e) => Some(e),
             Error::Utf8(e) => Some(e),
             Error::Http(e) => Some(&**e),
+            Error::Extension(e) => Some(&**e),
             Error::HeaderNotFound(_)
             | Error::UnexpectedHeader(_)
             | Error::UnexpectedStatusCode(_)
