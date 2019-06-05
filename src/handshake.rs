@@ -536,9 +536,9 @@ pub enum Error {
     /// The server returned a protocol we did not ask for.
     UnsolicitedProtocol,
     /// An extension produced an error while encoding or decoding.
-    Extension(Box<dyn std::error::Error + Send>),
+    Extension(crate::BoxError),
     /// The HTTP entity could not be parsed successfully.
-    Http(Box<dyn std::error::Error + Send + 'static>),
+    Http(crate::BoxError),
     /// UTF-8 decoding failed.
     Utf8(std::str::Utf8Error),
 

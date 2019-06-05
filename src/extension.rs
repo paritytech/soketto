@@ -12,7 +12,7 @@
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455#section-9
 
 use crate::base::{Frame, OpCode};
-use std::{borrow::Cow, error::Error};
+use std::borrow::Cow;
 
 /// A websocket extension as per RFC 6455, section 9.
 ///
@@ -54,13 +54,13 @@ pub trait Extension: std::fmt::Debug {
     fn params(&self) -> &[Param];
 
     /// Configure this extension with the parameters received from negotiation.
-    fn configure(&mut self, params: &[Param]) -> Result<(), Box<dyn Error + Send>>;
+    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError>;
 
     /// Encode the given frame.
-    fn encode(&mut self, f: &mut Frame) -> Result<(), Box<dyn Error + Send>>;
+    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
 
     /// Decode the given frame.
-    fn decode(&mut self, f: &mut Frame) -> Result<(), Box<dyn Error + Send>>;
+    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
 
     /// The reserved bits this extension uses.
     fn reserved_bits(&self) -> (bool, bool, bool) {
@@ -86,15 +86,15 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).params()
     }
 
-    fn configure(&mut self, params: &[Param]) -> Result<(), Box<dyn Error + Send>> {
+    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, f: &mut Frame) -> Result<(), Box<dyn Error + Send>> {
+    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
         (**self).encode(f)
     }
 
-    fn decode(&mut self, f: &mut Frame) -> Result<(), Box<dyn Error + Send>> {
+    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
         (**self).decode(f)
     }
 

@@ -18,3 +18,5 @@ pub mod handshake;
 pub mod connection;
 
 mod tokio_framed;
+
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;

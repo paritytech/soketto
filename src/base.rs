@@ -701,6 +701,7 @@ impl Encoder for Codec {
 
 // Codec error type ///////////////////////////////////////////////////////////////////////////////
 
+/// Error cases the base frame decoder may encounter.
 #[derive(Debug)]
 pub enum Error {
     /// An I/O error has been encountered.

@@ -506,7 +506,7 @@ pub enum Error {
     /// The base codec errored.
     Codec(base::Error),
     /// An extension produced an error while encoding or decoding.
-    Extension(Box<dyn std::error::Error + Send>),
+    Extension(crate::BoxError),
     /// An unexpected opcode as encountered.
     UnexpectedOpCode(OpCode),
     /// A close reason was not correctly UTF-8 encoded.
