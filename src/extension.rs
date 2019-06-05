@@ -7,10 +7,42 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+//! Defines a trait for websocket extensions as per [RFC 6455][rfc6455].
+//!
+//! [rfc6455]: https://tools.ietf.org/html/rfc6455#section-9
+
 use crate::base::{Frame, OpCode};
 use std::{borrow::Cow, error::Error};
 
 /// A websocket extension as per RFC 6455, section 9.
+///
+/// Extensions are invoked during handshake and subsequently during base
+/// frame encoding and decoding. The invocation during handshake differs
+/// on client and server side.
+///
+/// # Server
+///
+/// 1. All extensions should consider themselves as disabled but available.
+/// 2. When receiving a handshake request from a client, for each extension
+/// with a matching name, [`Extension::configure`] will be applied to the
+/// request parameters. The extension may internally enable itself.
+/// 3. When sending back the response, for each extension whose
+/// [`Extension::is_enabled`] returns true, the extension name and its
+/// parameters (as returned by [`Extension::params`]) will be included in the
+/// response.
+///
+/// # Client
+///
+/// 1. All extensions should consider themselves as disabled but available.
+/// 2. When creating the handshake request, all extensions and its parameters
+/// (as returned by [`Extension::params`]) will be included in the request.
+/// 3. When receiving the response from the server, for every extension with
+/// a matching name in the response, [`Extension::configure`] will be applied
+/// to the response parameters. The extension may internally enable itself.
+///
+/// After this handshake phase, extensions have been configured are potentially
+/// enabled. Enabled extensions can then be used for further base frame
+/// processing.
 pub trait Extension: std::fmt::Debug {
     /// Is this extension enabled?
     fn is_enabled(&self) -> bool;
