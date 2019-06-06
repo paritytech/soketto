@@ -6,6 +6,10 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+//! Deflate compression extension mostly conformant with [RFC 7692][rfc7692].
+//!
+//! [rfc7692]: https://tools.ietf.org/html/rfc7692
+
 use crate::{
     base::{Data, Header, OpCode},
     connection::Mode,
@@ -15,6 +19,10 @@ use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use log::debug;
 use smallvec::SmallVec;
 
+/// The deflate extension type.
+///
+/// The extension does currently not support max. window bits other than the
+/// default, which is 15 and will ask for no context takeover during handshake.
 #[derive(Debug)]
 pub struct Deflate {
     mode: Mode,
@@ -27,6 +35,7 @@ pub struct Deflate {
 }
 
 impl Deflate {
+    /// Create a new deflate extension either on client or server side.
     pub fn new(mode: Mode) -> Self {
         let client_params = match mode {
             Mode::Server => SmallVec::new(),
