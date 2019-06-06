@@ -227,11 +227,11 @@ impl AsMut<[u8]> for Data {
     }
 }
 
-// Frame //////////////////////////////////////////////////////////////////////////////////////////
+// Frame header ///////////////////////////////////////////////////////////////////////////////////
 
-/// A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
+/// A websocket base frame header, i.e. everything but the payload.
 #[derive(Debug, Clone)]
-pub struct Frame {
+pub struct Header {
     /// The `fin` flag.
     fin: bool,
     /// The `rsv1` flag.
@@ -246,22 +246,19 @@ pub struct Frame {
     opcode: OpCode,
     /// The `mask`.
     mask: u32,
-    /// The optional payload data.
-    payload_data: Option<Data>
 }
 
-impl Frame {
-    /// Create a new frame with a given [`OpCode`].
+impl Header {
+    /// Create a new frame header with a given [`OpCode`].
     pub fn new(oc: OpCode) -> Self {
-        Frame {
+        Header {
             fin: true,
             rsv1: false,
             rsv2: false,
             rsv3: false,
             masked: false,
             opcode: oc,
-            mask: 0,
-            payload_data: None
+            mask: 0
         }
     }
 
@@ -341,6 +338,39 @@ impl Frame {
         self.mask = mask;
         self
     }
+}
+
+// Frame //////////////////////////////////////////////////////////////////////////////////////////
+
+/// A websocket [base](https://tools.ietf.org/html/rfc6455#section-5.2) frame.
+#[derive(Debug, Clone)]
+pub struct Frame {
+    /// A base frame header.
+    header: Header,
+    /// The optional payload data.
+    payload_data: Option<Data>
+}
+
+impl Frame {
+    /// Create a new frame with a given [`OpCode`].
+    pub fn new(oc: OpCode) -> Self {
+        Frame {
+            header: Header::new(oc),
+            payload_data: None
+        }
+    }
+
+    pub fn into_parts(self) -> (Header, Option<Data>) {
+        (self.header, self.payload_data)
+    }
+
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    pub fn header_mut(&mut self) -> &mut Header {
+        &mut self.header
+    }
 
     /// Get a reference to the payload data.
     pub fn payload_data(&self) -> Option<&Data> {
@@ -352,15 +382,23 @@ impl Frame {
         self.payload_data.as_mut()
     }
 
-    /// Consume frame and return payload data only.
-    pub fn into_payload_data(self) -> Option<Data> {
-        self.payload_data
-    }
-
     /// Set the payload data.
     pub fn set_payload_data(&mut self, data: Option<Data>) -> &mut Self {
         self.payload_data = data;
         self
+    }
+
+    pub fn take_payload_data(&mut self) -> Option<Data> {
+        self.payload_data.take()
+    }
+}
+
+impl From<Header> for Frame {
+    fn from(h: Header) -> Self {
+        Frame {
+            header: h,
+            payload_data: None
+        }
     }
 }
 
@@ -384,9 +422,7 @@ pub struct Codec {
     /// Maximum size of payload data per frame.
     max_data_size: u64,
     /// Bits reserved by an extension.
-    reserved_bits: u8,
-    /// OpCodes reserved by an extension.
-    reserved_opcodes: u8
+    reserved_bits: u8
 }
 
 #[derive(Debug)]
@@ -418,8 +454,7 @@ impl Default for Codec {
         Codec {
             state: Some(DecodeState::Start),
             max_data_size: 256 * 1024 * 1024,
-            reserved_bits: 0,
-            reserved_opcodes: 0
+            reserved_bits: 0
         }
     }
 }
@@ -442,26 +477,6 @@ impl Codec {
     pub fn set_max_data_size(&mut self, size: u64) -> &mut Self {
         self.max_data_size = size;
         self
-    }
-
-    /// Is the given reserved opcode configured?
-    pub fn has_reserved_opcode(&self, code: OpCode) -> bool {
-        if !code.is_reserved() {
-            return false
-        }
-        self.reserved_opcodes & u8::from(code) != 0
-    }
-
-    /// Add the reserved opcode.
-    pub fn add_reserved_opcode(&mut self, code: OpCode) -> &mut Self {
-        assert!(code.is_reserved());
-        self.reserved_opcodes |= u8::from(code);
-        self
-    }
-
-    /// Reset reserved opcodes.
-    pub fn clear_reserved_opcodes(&mut self) {
-        self.reserved_opcodes = 0
     }
 
     /// The reserved bits currently configured.
@@ -510,7 +525,7 @@ impl Decoder for Codec {
 
                     let fin = first & 0x80 != 0;
                     let opcode = OpCode::try_from(first & 0xF)?;
-                    if opcode.is_reserved() && !self.has_reserved_opcode(opcode) {
+                    if opcode.is_reserved() {
                         return Err(Error::ReservedOpCode)
                     }
                     if opcode.is_control() && !fin {
@@ -518,26 +533,26 @@ impl Decoder for Codec {
                     }
 
                     let mut frame = Frame::new(opcode);
-                    frame.set_fin(fin);
+                    frame.header_mut().set_fin(fin);
 
                     let rsv1 = first & 0x40 != 0;
                     if rsv1 && (self.reserved_bits & 4 == 0) {
                         return Err(Error::InvalidReservedBit(1))
                     }
-                    frame.set_rsv1(rsv1);
+                    frame.header_mut().set_rsv1(rsv1);
 
                     let rsv2 = first & 0x20 != 0;
                     if rsv2 && (self.reserved_bits & 2 == 0) {
                         return Err(Error::InvalidReservedBit(2))
                     }
-                    frame.set_rsv2(rsv2);
+                    frame.header_mut().set_rsv2(rsv2);
 
                     let rsv3 = first & 0x10 != 0;
                     if rsv3 && (self.reserved_bits & 1 == 0) {
                         return Err(Error::InvalidReservedBit(3))
                     }
-                    frame.set_rsv3(rsv3);
-                    frame.set_masked(second & 0x80 != 0);
+                    frame.header_mut().set_rsv3(rsv3);
+                    frame.header_mut().set_masked(second & 0x80 != 0);
 
                     self.state = Some(DecodeState::FrameStart { frame, length_code: second & 0x7F })
                 }
@@ -562,7 +577,7 @@ impl Decoder for Codec {
                         n => u64::from(n)
                     };
 
-                    if len > 125 && frame.opcode().is_control() {
+                    if len > 125 && frame.header().opcode().is_control() {
                         return Err(Error::InvalidControlFrameLen)
                     }
 
@@ -576,7 +591,7 @@ impl Decoder for Codec {
                     self.state = Some(DecodeState::FrameLength { frame, length: len })
                 }
                 Some(DecodeState::FrameLength { mut frame, length }) => {
-                    if !frame.is_masked() {
+                    if !frame.header().is_masked() {
                         self.state = Some(DecodeState::Body { frame, length });
                         continue
                     }
@@ -584,14 +599,14 @@ impl Decoder for Codec {
                         self.state = Some(DecodeState::FrameLength { frame, length });
                         return Ok(None)
                     }
-                    frame.set_mask(u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]));
+                    frame.header_mut().set_mask(u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]));
                     buf.split_to(4);
                     self.state = Some(DecodeState::Body { frame, length })
                 }
                 Some(DecodeState::Body { mut frame, length: 0, .. }) => {
                     self.state = Some(DecodeState::Start);
                     if frame.payload_data.is_none() {
-                        match frame.opcode {
+                        match frame.header().opcode() {
                             OpCode::Binary => {
                                 let d = Data::Binary(BytesMut::new());
                                 frame.set_payload_data(Some(d));
@@ -614,13 +629,13 @@ impl Decoder for Codec {
                         return Ok(None)
                     }
                     frame.payload_data =
-                        if let OpCode::Text = frame.opcode {
+                        if let OpCode::Text = frame.header().opcode() {
                             Some(Data::Text(buf.split_to(length as usize)))
                         } else {
                             Some(Data::Binary(buf.split_to(length as usize)))
                         };
-                    if frame.is_masked() {
-                        let mask = frame.mask();
+                    if frame.header().is_masked() {
+                        let mask = frame.header().mask();
                         if let Some(ref mut d) = frame.payload_data {
                             apply_mask(d.as_mut(), mask)
                         }
@@ -642,27 +657,27 @@ impl Encoder for Codec {
         buf.reserve(2);
 
         let mut first_byte = 0_u8;
-        if frame.is_fin() {
+        if frame.header().is_fin() {
             first_byte |= 0x80
         }
-        if frame.is_rsv1() {
+        if frame.header().is_rsv1() {
             first_byte |= 0x40
         }
-        if frame.is_rsv2() {
+        if frame.header().is_rsv2() {
             first_byte |= 0x20
         }
-        if frame.is_rsv3() {
+        if frame.header().is_rsv3() {
             first_byte |= 0x10
         }
 
-        let opcode: u8 = frame.opcode().into();
+        let opcode: u8 = frame.header().opcode().into();
         first_byte |= opcode;
 
         buf.put(first_byte);
 
         let mut second_byte = 0_u8;
 
-        if frame.is_masked() {
+        if frame.header().is_masked() {
             second_byte |= 0x80
         }
 
@@ -681,14 +696,14 @@ impl Encoder for Codec {
             buf.extend_from_slice(&len.to_be_bytes())
         }
 
-        if frame.is_masked() {
-            buf.extend_from_slice(&frame.mask().to_be_bytes())
+        if frame.header().is_masked() {
+            buf.extend_from_slice(&frame.header().mask().to_be_bytes())
         }
 
-        let mask = frame.mask();
-        let is_masked = frame.is_masked();
+        let mask = frame.header().mask();
+        let is_masked = frame.header().is_masked();
 
-        if let Some(mut data) = frame.into_payload_data() {
+        if let Some(mut data) = frame.payload_data {
             if is_masked {
                 apply_mask(data.as_mut(), mask)
             }
@@ -932,11 +947,11 @@ mod test {
     #[test]
     fn decode_ping_no_data() {
         if let Ok(Some(frame)) = decode(&PING_NO_DATA) {
-            assert!(frame.is_fin());
-            assert!(!frame.is_rsv1());
-            assert!(!frame.is_rsv2());
-            assert!(!frame.is_rsv3());
-            assert!(frame.opcode() == OpCode::Ping);
+            assert!(frame.header().is_fin());
+            assert!(!frame.header().is_rsv1());
+            assert!(!frame.header().is_rsv2());
+            assert!(!frame.header().is_rsv3());
+            assert!(frame.header().opcode() == OpCode::Ping);
             assert!(frame.payload_data().is_none())
         } else {
             assert!(false)

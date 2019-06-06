@@ -14,7 +14,7 @@
 #[cfg(feature = "deflate")]
 pub mod deflate;
 
-use crate::base::{Frame, OpCode};
+use crate::base::{Data, Header};
 use std::{borrow::Cow, fmt};
 
 /// A websocket extension as per RFC 6455, section 9.
@@ -60,19 +60,14 @@ pub trait Extension: std::fmt::Debug {
     fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError>;
 
     /// Encode the given frame.
-    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
+    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
     /// Decode the given frame.
-    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
+    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
     /// The reserved bits this extension uses.
     fn reserved_bits(&self) -> (bool, bool, bool) {
         (false, false, false)
-    }
-
-    /// The reserved opcode of this extension (must be one of `OpCode::Reserved*`).
-    fn reserved_opcode(&self) -> Option<OpCode> {
-        None
     }
 }
 
@@ -93,20 +88,16 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        (**self).encode(f)
+    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        (**self).encode(h, d)
     }
 
-    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        (**self).decode(f)
+    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        (**self).decode(h, d)
     }
 
     fn reserved_bits(&self) -> (bool, bool, bool) {
         (**self).reserved_bits()
-    }
-
-    fn reserved_opcode(&self) -> Option<OpCode> {
-        (**self).reserved_opcode()
     }
 }
 

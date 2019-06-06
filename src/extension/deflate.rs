@@ -6,24 +6,51 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-use crate::{base::{Data, Frame, OpCode}, extension::{Extension, Param}};
-use log::trace;
+use crate::{
+    base::{Data, Header, OpCode},
+    connection::Mode,
+    extension::{Extension, Param}
+};
+use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
+use log::debug;
 use smallvec::SmallVec;
-use std::{fmt, io};
 
 #[derive(Debug)]
 pub struct Deflate {
+    mode: Mode,
     enabled: bool,
-    params: SmallVec<[Param<'static>; 2]>
+    buffer: Vec<u8>,
+    client_params: SmallVec<[Param<'static>; 2]>,
+    server_params: SmallVec<[Param<'static>; 2]>,
+    client_max_window_bits: u8,
+    server_max_window_bits: u8
 }
 
 impl Deflate {
-    pub fn new() -> Self {
+    pub fn new(mode: Mode) -> Self {
         Deflate {
+            mode,
             enabled: false,
-            params: SmallVec::new()
+            buffer: Vec::new(),
+            client_params: SmallVec::new(),
+            server_params: SmallVec::new(),
+            client_max_window_bits: 15,
+            server_max_window_bits: 15
         }
     }
+
+//// Not supported yet:
+//    pub fn set_max_server_bits(&mut self, max: u8) -> &mut Self {
+//        assert!(max >= 8 && max <= 15, "max. window bits have to be within [8, 15]");
+//        self.server_max_window_bits = max;
+//        self
+//    }
+//
+//    pub fn set_max_client_bits(&mut self, max: u8) -> &mut Self {
+//        assert!(max >= 8 && max <= 15, "max. window bits have to be within [8, 15]");
+//        self.client_max_window_bits = max;
+//        self
+//    }
 }
 
 impl Extension for Deflate {
@@ -36,27 +63,51 @@ impl Extension for Deflate {
     }
 
     fn params(&self) -> &[Param] {
-        &self.params
+        match self.mode {
+            Mode::Client => &self.client_params,
+            Mode::Server => &self.server_params
+        }
     }
 
     fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
-        for p in params {
-            match p.name() {
-                "client_no_context_takeover" => {
-                    // Not necessary to include a response.
+        self.enabled = false;
+        match self.mode {
+            Mode::Server => {
+                self.server_params.clear();
+                for p in params {
+                    match p.name() {
+                        "client_max_window_bits" => {} // Not necessary to include a response.
+                        "server_max_window_bits" => {
+                            if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
+                                //// Once we support window bits < 15 this can be done:
+                                // if v < 8 || v > 15 {
+                                if v != 15 {
+                                    debug!("unacceptable server_max_window_bits: {:?}", v);
+                                    return Ok(())
+                                }
+                                let mut x = Param::new("server_max_window_bits");
+                                x.set_value(Some(v.to_string()));
+                                self.server_params.push(x);
+                                self.server_max_window_bits = v;
+                            } else {
+                                debug!("invalid server_max_window_bits: {:?}", p.value());
+                                return Ok(())
+                            }
+                        }
+                        "client_no_context_takeover" =>
+                            self.server_params.push(Param::new("client_no_context_takeover")),
+                        "server_no_context_takeover" =>
+                            self.server_params.push(Param::new("server_no_context_takeover")),
+                        _ => {
+                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            return Ok(())
+                        }
+                    }
                 }
-                "client_max_window_bits" => {
-                    // Not necessary to include a response.
-                }
-                "server_no_context_takeover" => {
-                    self.params.push(Param::new("server_no_context_takeover"))
-                }
-                "server_max_window_bits" => {
-                    let mut x = Param::new("server_max_window_bits");
-                    x.set_value(p.value().map(String::from));
-                    self.params.push(x)
-                }
-                _ => return Err(Error::UnknownParameter(p.clone().acquire()).into())
+            }
+            Mode::Client => {
+                self.client_params.clear();
+                // TODO
             }
         }
         self.enabled = true;
@@ -67,95 +118,52 @@ impl Extension for Deflate {
         (true, false, false)
     }
 
-    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        if !f.is_rsv1() {
-            return Ok(())
+    fn decode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        match hdr.opcode() {
+            OpCode::Binary | OpCode::Text if hdr.is_rsv1() && hdr.is_fin() => {}
+            OpCode::Continue if hdr.is_fin() => {}
+            _ => return Ok(())
         }
-        if let Some(bytes) = f.payload_data_mut().map(|d| d.bytes_mut()) {
-            trace!("to decode: {:02x?}", &bytes[..]);
-            bytes.extend_from_slice(&[0, 0, 0xFF, 0xFF]);
-            let mut d = flate2::Decompress::new(false);
-            let mut v = Vec::with_capacity(bytes.len() * 2);
-            d.decompress_vec(bytes, &mut v, flate2::FlushDecompress::Sync)?;
-            match f.opcode() {
-                OpCode::Text => {
-                    trace!("decoded text: {:?}", std::str::from_utf8(&v));
-                    f.set_payload_data(Some(Data::Text(v.into())));
-                }
-                OpCode::Binary => {
-                    f.set_payload_data(Some(Data::Binary(v.into())));
-                }
-                _ => unreachable!()
+        if let Some(data) = data {
+            data.bytes_mut().extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
+            self.buffer.clear();
+            let mut d = Decompress::new(false);
+            while (d.total_in() as usize) < data.as_ref().len() {
+                let off = d.total_in() as usize;
+                self.buffer.reserve(data.as_ref().len() - off);
+                d.decompress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushDecompress::Sync)?;
             }
-            f.set_rsv1(false);
+            data.bytes_mut().clear();
+            data.bytes_mut().extend_from_slice(&self.buffer);
+            hdr.set_rsv1(false);
         }
         Ok(())
     }
 
-    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        if let OpCode::Text | OpCode::Binary = f.opcode() {
-            // ok
-        } else {
-            return Ok(())
+    fn encode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        match hdr.opcode() {
+            OpCode::Text | OpCode::Binary => {},
+            _ => return Ok(())
         }
-        if let Some(bytes) = f.payload_data().map(|d| d.as_ref()) {
-            if f.opcode() == OpCode::Text {
-                trace!("to encode: {:?}", std::str::from_utf8(bytes));
-            } else {
-                trace!("to encode: {:02x?}", &bytes[..]);
+        if let Some(data) = data {
+            let mut c = Compress::new(Compression::fast(), false);
+            self.buffer.clear();
+            while (c.total_in() as usize) < data.as_ref().len() {
+                let off = c.total_in() as usize;
+                self.buffer.reserve(data.as_ref().len() - off);
+                c.compress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushCompress::Sync)?;
             }
-            let mut d = flate2::Compress::new(flate2::Compression::fast(), false);
-            let mut v = Vec::with_capacity(bytes.len() * 2);
-            d.compress_vec(bytes, &mut v, flate2::FlushCompress::Sync)?;
-            let n = v.len() - 4;
-            v.truncate(n);
-            trace!("encoded: {:02x?}", v);
-            match f.opcode() {
-                OpCode::Text => {
-                    f.set_payload_data(Some(Data::Text(v.into())));
-                }
-                OpCode::Binary => {
-                    f.set_payload_data(Some(Data::Binary(v.into())));
-                }
-                _ => unreachable!()
+            if self.buffer.capacity() - self.buffer.len() < 5 {
+                self.buffer.reserve(5); // Make room for the trailing end bytes
+                c.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)?;
             }
-            f.set_rsv1(true);
+            let n = self.buffer.len() - 4;
+            self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
+            data.bytes_mut().clear();
+            data.bytes_mut().extend_from_slice(&self.buffer);
+            hdr.set_rsv1(true);
         }
         Ok(())
-    }
-}
-
-// Error //////////////////////////////////////////////////////////////////////////////////////////
-
-/// Enumeration of possible deflate errors.
-#[derive(Debug)]
-pub enum Error {
-    /// An I/O error has been encountered.
-    Io(io::Error),
-    UnknownParameter(Param<'static>),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Io(e) => write!(f, "i/o error: {}", e),
-            Error::UnknownParameter(p) => write!(f, "unknown parameter: {}", p),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Io(e) => Some(e),
-            Error::UnknownParameter(_) => None
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::Io(e)
     }
 }
 

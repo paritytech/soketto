@@ -32,7 +32,8 @@ fn new_server<'a>() -> handshake::Server<'a> {
 #[cfg(feature = "deflate")]
 fn new_server<'a>() -> handshake::Server<'a> {
     let mut server = handshake::Server::new();
-    server.add_extension(Box::new(soketto::extension::deflate::Deflate::new()));
+    let deflate = soketto::extension::deflate::Deflate::new(Mode::Server);
+    server.add_extension(Box::new(deflate));
     server
 
 }
