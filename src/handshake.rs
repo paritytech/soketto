@@ -499,7 +499,7 @@ where
     while let Some(e) = iter.next() {
         buf.extend_from_slice(e.name().as_bytes());
         for p in e.params() {
-            buf.extend_from_slice(b";");
+            buf.extend_from_slice(b"; ");
             buf.extend_from_slice(p.name().as_bytes());
             if let Some(v) = p.value() {
                 buf.extend_from_slice(b"=");

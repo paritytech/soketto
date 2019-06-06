@@ -9,9 +9,13 @@ readme = "README.md"
 repository = "https://github.com/paritytech/soketto"
 edition = "2018"
 
+[features]
+deflate = ["flate2"]
+
 [dependencies]
 base64 = "0.10.1"
 bytes = "0.4.12"
+flate2 = { version = "1.0.7", features = ["zlib"], default-features = false, optional = true }
 futures = "0.1.26"
 http = "0.1.17"
 httparse = "1.3.3"
