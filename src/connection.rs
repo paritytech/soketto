@@ -11,7 +11,7 @@
 
 use crate::{base::{self, Data, Frame, Header, OpCode}, extension::Extension};
 use crate::tokio_framed::{Framed, FramedParts};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use futures::{prelude::*, try_ready};
 use rand::RngCore;
 use smallvec::SmallVec;
@@ -52,7 +52,8 @@ pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
     state: Option<State>,
-    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>
+    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
+    max_buffer_size: usize
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
@@ -62,7 +63,8 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
             mode,
             framed: Framed::new(io, base::Codec::new()),
             state: Some(State::Open(None)),
-            extensions: SmallVec::new()
+            extensions: SmallVec::new(),
+            max_buffer_size: 256 * 1024 * 1024
         }
     }
 
@@ -76,7 +78,8 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
             mode,
             framed: Framed::from_parts(parts),
             state: Some(State::Open(None)),
-            extensions: SmallVec::new()
+            extensions: SmallVec::new(),
+            max_buffer_size: 256 * 1024 * 1024
         }
     }
 
@@ -92,6 +95,15 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
             self.framed.codec_mut().add_reserved_bits(e.reserved_bits());
             self.extensions.push(e)
         }
+        self
+    }
+
+    /// Set the maximum buffer size in bytes.
+    ///
+    /// Messages with payload data greater than the configured maximum
+    /// will trigger an error.
+    pub fn set_max_buffer_size(&mut self, max: usize) -> &mut Self {
+        self.max_buffer_size = max;
         self
     }
 
@@ -281,6 +293,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             OpCode::Continue if frame.header().is_fin() => {
                                 let (mut hdr, dat) = frame.into_parts();
                                 if let Some(d) = dat {
+                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
                                     data.bytes_mut().unsplit(d.into_bytes())
                                 }
                                 let mut data = Some(data);
@@ -291,6 +304,7 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             OpCode::Continue => {
                                 let (mut hdr, dat) = frame.into_parts();
                                 if let Some(d) = dat {
+                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
                                     data.bytes_mut().unsplit(d.into_bytes())
                                 }
                                 let mut data = Some(data);
@@ -485,6 +499,16 @@ where
     Ok(())
 }
 
+fn ensure_max_buffer_size(maximum: usize, current: &Data, new: &Data) -> Result<(), Error> {
+    let size = current.as_ref().len() + new.as_ref().len();
+    if size > maximum {
+        let e = Error::MessageTooLarge { actual: size, maximum };
+        warn!("{}", e);
+        return Err(e)
+    }
+    Ok(())
+}
+
 // Connection error type //////////////////////////////////////////////////////////////////////////
 
 /// Connection error cases.
@@ -498,8 +522,14 @@ pub enum Error {
     UnexpectedOpCode(OpCode),
     /// A close reason was not correctly UTF-8 encoded.
     Utf8(std::str::Utf8Error),
+    /// The total message payload data size exceeds the configured maximum.
+    MessageTooLarge { actual: usize, maximum: usize },
     /// The connection is closed.
-    Closed
+    Closed,
+
+    #[doc(hidden)]
+    __Nonexhaustive
+
 }
 
 impl fmt::Display for Error {
@@ -509,7 +539,10 @@ impl fmt::Display for Error {
             Error::Extension(e) => write!(f, "extension error: {}", e),
             Error::UnexpectedOpCode(c) => write!(f, "unexpected opcode: {}", c),
             Error::Utf8(e) => write!(f, "utf-8 error: {}", e),
-            Error::Closed => f.write_str("connection closed")
+            Error::MessageTooLarge { actual, maximum } =>
+                write!(f, "message to large: len >= {}, maximum = {}", actual, maximum),
+            Error::Closed => f.write_str("connection closed"),
+            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
 }
@@ -521,7 +554,9 @@ impl std::error::Error for Error {
             Error::Extension(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnexpectedOpCode(_)
-            | Error::Closed => None
+            | Error::MessageTooLarge {..}
+            | Error::Closed
+            | Error::__Nonexhaustive => None
         }
     }
 }
