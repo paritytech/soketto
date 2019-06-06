@@ -28,11 +28,19 @@ pub struct Deflate {
 
 impl Deflate {
     pub fn new(mode: Mode) -> Self {
+        let client_params = match mode {
+            Mode::Server => SmallVec::new(),
+            Mode::Client => {
+                let mut params = SmallVec::new();
+                params.push(Param::new("server_no_context_takeover"));
+                params
+            }
+        };
         Deflate {
             mode,
             enabled: false,
             buffer: Vec::new(),
-            client_params: SmallVec::new(),
+            client_params,
             server_params: SmallVec::new(),
             client_max_window_bits: 15,
             server_max_window_bits: 15
@@ -106,8 +114,22 @@ impl Extension for Deflate {
                 }
             }
             Mode::Client => {
-                self.client_params.clear();
-                // TODO
+                let mut server_no_context_takeover = false;
+                for p in params {
+                    match p.name() {
+                        "server_no_context_takeover" => server_no_context_takeover = true,
+                        "server_max_window_bits" => {}
+                        "client_no_context_takeover" => {} // must be supported
+                        _ => {
+                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            return Ok(())
+                        }
+                    }
+                }
+                if !server_no_context_takeover {
+                    debug!("{}: server did not confirm no context takeover", self.name());
+                    return Ok(())
+                }
             }
         }
         self.enabled = true;
