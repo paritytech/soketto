@@ -1,6 +1,6 @@
 [package]
 name = "soketto"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation as as set of tokio codecs."
 keywords = ["tokio", "websocket", "codec"]
@@ -8,6 +8,9 @@ license = "Apache-2.0 OR MIT"
 readme = "README.md"
 repository = "https://github.com/paritytech/soketto"
 edition = "2018"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 deflate = ["flate2"]
