@@ -9,9 +9,9 @@
 //! A [`futures::Stream`] + [`futures::Sink`] implementation which produces
 //! and consumes [`base::Data`] items.
 
-use crate::{base::{self, Frame, OpCode}, extension::Extension};
+use crate::{base::{self, Data, Frame, Header, OpCode}, extension::Extension};
 use crate::tokio_framed::{Framed, FramedParts};
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use futures::{prelude::*, try_ready};
 use rand::RngCore;
 use smallvec::SmallVec;
@@ -52,7 +52,8 @@ pub struct Connection<T> {
     mode: Mode,
     framed: Framed<T, base::Codec>,
     state: Option<State>,
-    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>
+    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
+    max_buffer_size: usize
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
@@ -62,7 +63,8 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
             mode,
             framed: Framed::new(io, base::Codec::new()),
             state: Some(State::Open(None)),
-            extensions: SmallVec::new()
+            extensions: SmallVec::new(),
+            max_buffer_size: 256 * 1024 * 1024
         }
     }
 
@@ -76,7 +78,8 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
             mode,
             framed: Framed::from_parts(parts),
             state: Some(State::Open(None)),
-            extensions: SmallVec::new()
+            extensions: SmallVec::new(),
+            max_buffer_size: 256 * 1024 * 1024
         }
     }
 
@@ -90,25 +93,31 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         for e in extensions.into_iter().filter(|e| e.is_enabled()) {
             debug!("using extension: {}", e.name());
             self.framed.codec_mut().add_reserved_bits(e.reserved_bits());
-            if let Some(code) = e.reserved_opcode() {
-                self.framed.codec_mut().add_reserved_opcode(code);
-            }
             self.extensions.push(e)
         }
         self
     }
 
+    /// Set the maximum buffer size in bytes.
+    ///
+    /// Messages with payload data greater than the configured maximum
+    /// will trigger an error.
+    pub fn set_max_buffer_size(&mut self, max: usize) -> &mut Self {
+        self.max_buffer_size = max;
+        self
+    }
+
     fn set_mask(&self, frame: &mut Frame) {
         if self.mode.is_client() {
-            frame.set_masked(true);
-            frame.set_mask(rand::thread_rng().next_u32());
+            frame.header_mut().set_masked(true);
+            frame.header_mut().set_mask(rand::thread_rng().next_u32());
         }
     }
 }
 
 impl<T: AsyncRead + AsyncWrite> Connection<T> {
     fn answer_ping(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
-        trace!("answering ping");
+        trace!("answering ping: {:?}", frame.header());
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerPing(frame, buf));
             return Ok(Async::NotReady)
@@ -117,7 +126,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn answer_close(&mut self, frame: Frame) -> Poll<(), Error> {
-        trace!("answering close");
+        trace!("answering close: {:?}", frame.header());
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::AnswerClose(frame));
             return Ok(Async::NotReady)
@@ -126,7 +135,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     }
 
     fn send_close(&mut self, frame: Frame) -> Poll<(), Error> {
-        trace!("sending close");
+        trace!("sending close: {:?}", frame.header());
         if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
             self.state = Some(State::SendClose(frame));
             return Ok(Async::NotReady)
@@ -168,7 +177,7 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
         trace!("awaiting close");
         match self.framed.poll()? {
             Async::Ready(Some(frame)) =>
-                if let OpCode::Close = frame.opcode() {
+                if let OpCode::Close = frame.header().opcode() {
                     self.state = Some(State::Closed);
                     return Ok(Async::Ready(()))
                 }
@@ -226,48 +235,41 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
         loop {
             match self.state.take() {
                 Some(State::Open(None)) => match self.framed.poll()? {
-                    Async::Ready(Some(mut frame)) => match frame.opcode() {
-                        OpCode::Text | OpCode::Binary if frame.is_fin() => {
-                            trace!("received: {} (fin)", frame.opcode());
-                            self.state = Some(State::Open(None));
-                            decode_with_extensions(&mut frame, &mut self.extensions)?;
-                            return Ok(Async::Ready(frame.into_payload_data()))
-                        }
-                        OpCode::Text | OpCode::Binary => {
-                            trace!("received: {} (fragment)", frame.opcode());
-                            decode_with_extensions(&mut frame, &mut self.extensions)?;
-                            self.state = Some(State::Open(frame.into_payload_data()))
-                        }
-                        OpCode::Ping => {
-                            trace!("received: {}", frame.opcode());
-                            let mut answer = Frame::new(OpCode::Pong);
-                            answer.set_payload_data(frame.into_payload_data());
-                            self.set_mask(&mut answer);
-                            try_ready!(self.answer_ping(answer, None))
-                        }
-                        OpCode::Close => {
-                            trace!("received: {}", frame.opcode());
-                            let mut answer = close_answer(frame)?;
-                            self.set_mask(&mut answer);
-                            try_ready!(self.answer_close(answer))
-                        }
-                        OpCode::Pong => {
-                            trace!("unexpected Pong; ignoring");
-                            self.state = Some(State::Open(None))
-                        }
-                        OpCode::Continue => {
-                            debug!("unexpected Continue opcode");
-                            return Err(Error::UnexpectedOpCode(OpCode::Continue))
-                        }
-                        reserved => {
-                            debug_assert!(reserved.is_reserved());
-                            let mut matching_exts = self.extensions
-                                .iter_mut()
-                                .filter(|e| e.reserved_opcode() == Some(reserved))
-                                .peekable();
-                            if matching_exts.peek().is_some() {
-                                decode_with_extensions(&mut frame, matching_exts)?;
-                            } else {
+                    Async::Ready(Some(mut frame)) => {
+                        trace!("received: {:?}", frame.header());
+                        match frame.header().opcode() {
+                            OpCode::Text | OpCode::Binary if frame.header().is_fin() => {
+                                self.state = Some(State::Open(None));
+                                let (mut h, mut d) = frame.into_parts();
+                                decode_with_extensions(&mut h, &mut d, &mut self.extensions)?;
+                                return Ok(Async::Ready(d))
+                            }
+                            OpCode::Text | OpCode::Binary => {
+                                let (mut h, mut d) = frame.into_parts();
+                                decode_with_extensions(&mut h, &mut d, &mut self.extensions)?;
+                                self.state = Some(State::Open(d))
+                            }
+                            OpCode::Ping => {
+                                let mut answer = Frame::new(OpCode::Pong);
+                                answer.set_payload_data(frame.take_payload_data());
+                                self.set_mask(&mut answer);
+                                try_ready!(self.answer_ping(answer, None))
+                            }
+                            OpCode::Close => {
+                                let mut answer = close_answer(frame)?;
+                                self.set_mask(&mut answer);
+                                try_ready!(self.answer_close(answer))
+                            }
+                            OpCode::Pong => {
+                                trace!("unexpected Pong; ignoring");
+                                self.state = Some(State::Open(None))
+                            }
+                            OpCode::Continue => {
+                                debug!("unexpected Continue opcode");
+                                return Err(Error::UnexpectedOpCode(OpCode::Continue))
+                            }
+                            reserved => {
+                                debug_assert!(reserved.is_reserved());
                                 debug!("unexpected opcode: {}", reserved);
                                 return Err(Error::UnexpectedOpCode(reserved))
                             }
@@ -285,54 +287,51 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                 // We have buffered some data => we are processing a fragmented message
                 // and expect either control frames or a CONTINUE frame.
                 Some(State::Open(Some(mut data))) => match self.framed.poll()? {
-                    Async::Ready(Some(mut frame)) => match frame.opcode() {
-                        OpCode::Continue if frame.is_fin() => {
-                            trace!("received: {} (fin)", frame.opcode());
-                            decode_with_extensions(&mut frame, &mut self.extensions)?;
-                            if let Some(d) = frame.into_payload_data() {
-                                data.bytes_mut().unsplit(d.into_bytes())
+                    Async::Ready(Some(mut frame)) => {
+                        trace!("received: {:?}", frame.header());
+                        match frame.header().opcode() {
+                            OpCode::Continue if frame.header().is_fin() => {
+                                let (mut hdr, dat) = frame.into_parts();
+                                if let Some(d) = dat {
+                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
+                                    data.bytes_mut().unsplit(d.into_bytes())
+                                }
+                                let mut data = Some(data);
+                                decode_with_extensions(&mut hdr, &mut data, &mut self.extensions)?;
+                                self.state = Some(State::Open(None));
+                                return Ok(Async::Ready(data))
                             }
-                            self.state = Some(State::Open(None));
-                            return Ok(Async::Ready(Some(data)))
-                        }
-                        OpCode::Continue => {
-                            trace!("received: {} (fragment)", frame.opcode());
-                            decode_with_extensions(&mut frame, &mut self.extensions)?;
-                            if let Some(d) = frame.into_payload_data() {
-                                data.bytes_mut().unsplit(d.into_bytes())
+                            OpCode::Continue => {
+                                let (mut hdr, dat) = frame.into_parts();
+                                if let Some(d) = dat {
+                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
+                                    data.bytes_mut().unsplit(d.into_bytes())
+                                }
+                                let mut data = Some(data);
+                                decode_with_extensions(&mut hdr, &mut data, &mut self.extensions)?;
+                                self.state = Some(State::Open(data))
                             }
-                            self.state = Some(State::Open(Some(data)))
-                        }
-                        OpCode::Ping => {
-                            trace!("received: {}", frame.opcode());
-                            let mut answer = Frame::new(OpCode::Pong);
-                            answer.set_payload_data(frame.into_payload_data());
-                            self.set_mask(&mut answer);
-                            try_ready!(self.answer_ping(answer, Some(data)))
-                        }
-                        OpCode::Close => {
-                            trace!("received: {}", frame.opcode());
-                            let mut answer = close_answer(frame)?;
-                            self.set_mask(&mut answer);
-                            try_ready!(self.answer_close(answer))
-                        }
-                        OpCode::Pong => {
-                            trace!("unexpected Pong; ignoring");
-                            self.state = Some(State::Open(Some(data)))
-                        }
-                        OpCode::Text | OpCode::Binary => {
-                            debug!("unexpected opcode {}", frame.opcode());
-                            return Err(Error::UnexpectedOpCode(frame.opcode()))
-                        }
-                        reserved => {
-                            debug_assert!(reserved.is_reserved());
-                            let mut matching_exts = self.extensions
-                                .iter_mut()
-                                .filter(|e| e.reserved_opcode() == Some(reserved))
-                                .peekable();
-                            if matching_exts.peek().is_some() {
-                                decode_with_extensions(&mut frame, matching_exts)?;
-                            } else {
+                            OpCode::Ping => {
+                                let mut answer = Frame::new(OpCode::Pong);
+                                answer.set_payload_data(frame.take_payload_data());
+                                self.set_mask(&mut answer);
+                                try_ready!(self.answer_ping(answer, Some(data)))
+                            }
+                            OpCode::Close => {
+                                let mut answer = close_answer(frame)?;
+                                self.set_mask(&mut answer);
+                                try_ready!(self.answer_close(answer))
+                            }
+                            OpCode::Pong => {
+                                trace!("unexpected Pong; ignoring");
+                                self.state = Some(State::Open(Some(data)))
+                            }
+                            OpCode::Text | OpCode::Binary => {
+                                debug!("unexpected opcode {}", frame.header().opcode());
+                                return Err(Error::UnexpectedOpCode(frame.header().opcode()))
+                            }
+                            reserved => {
+                                debug_assert!(reserved.is_reserved());
                                 debug!("unexpected opcode: {}", reserved);
                                 return Err(Error::UnexpectedOpCode(reserved))
                             }
@@ -368,18 +367,20 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
         loop {
             match self.state.take() {
                 Some(State::Open(buf)) => {
-                    let mut frame = if item.is_text() {
-                        Frame::new(OpCode::Text)
+                    let mut header = if item.is_text() {
+                        Header::new(OpCode::Text)
                     } else {
-                        Frame::new(OpCode::Binary)
+                        Header::new(OpCode::Binary)
                     };
-                    frame.set_payload_data(Some(item));
-                    encode_with_extensions(&mut frame, &mut self.extensions)?;
+                    let mut data = Some(item);
+                    encode_with_extensions(&mut header, &mut data, &mut self.extensions)?;
+                    let mut frame = Frame::from(header);
+                    frame.set_payload_data(data);
                     self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
-                    trace!("send: {} (fin = {})", frame.opcode(), frame.is_fin());
-                    if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-                        let data = frame.into_payload_data().expect("frame was constructed with Some");
+                    trace!("send: {:?}", frame.header());
+                    if let AsyncSink::NotReady(mut frame) = self.framed.start_send(frame)? {
+                        let data = frame.take_payload_data().expect("frame was constructed with Some");
                         return Ok(AsyncSink::NotReady(data))
                     } else {
                         return Ok(AsyncSink::Ready)
@@ -450,8 +451,8 @@ impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
     }
 }
 
-fn close_answer(frame: Frame) -> Result<Frame, Error> {
-    if let Some(mut data) = frame.into_payload_data() {
+fn close_answer(mut frame: Frame) -> Result<Frame, Error> {
+    if let Some(mut data) = frame.take_payload_data() {
         if data.as_ref().len() >= 2 {
             let slice = data.as_ref();
             let code = u16::from_be_bytes([slice[0], slice[1]]);
@@ -476,24 +477,34 @@ fn close_answer(frame: Frame) -> Result<Frame, Error> {
     Ok(Frame::new(OpCode::Close))
 }
 
-fn decode_with_extensions<'a, I>(frame: &mut Frame, extensions: I) -> Result<(), Error>
+fn decode_with_extensions<'a, I>(h: &mut Header, d: &mut Option<Data>, exts: I) -> Result<(), Error>
 where
     I: IntoIterator<Item = &'a mut Box<dyn Extension + Send>>
 {
-    for e in extensions {
+    for e in exts {
         trace!("decoding with extension: {}", e.name());
-        e.decode(frame).map_err(Error::Extension)?
+        e.decode(h, d).map_err(Error::Extension)?
     }
     Ok(())
 }
 
-fn encode_with_extensions<'a, I>(frame: &mut Frame, extensions: I) -> Result<(), Error>
+fn encode_with_extensions<'a, I>(h: &mut Header, d: &mut Option<Data>, exts: I) -> Result<(), Error>
 where
     I: IntoIterator<Item = &'a mut Box<dyn Extension + Send>>
 {
-    for e in extensions {
+    for e in exts {
         trace!("encoding with extension: {}", e.name());
-        e.encode(frame).map_err(Error::Extension)?
+        e.encode(h, d).map_err(Error::Extension)?
+    }
+    Ok(())
+}
+
+fn ensure_max_buffer_size(maximum: usize, current: &Data, new: &Data) -> Result<(), Error> {
+    let size = current.as_ref().len() + new.as_ref().len();
+    if size > maximum {
+        let e = Error::MessageTooLarge { actual: size, maximum };
+        warn!("{}", e);
+        return Err(e)
     }
     Ok(())
 }
@@ -511,8 +522,14 @@ pub enum Error {
     UnexpectedOpCode(OpCode),
     /// A close reason was not correctly UTF-8 encoded.
     Utf8(std::str::Utf8Error),
+    /// The total message payload data size exceeds the configured maximum.
+    MessageTooLarge { actual: usize, maximum: usize },
     /// The connection is closed.
-    Closed
+    Closed,
+
+    #[doc(hidden)]
+    __Nonexhaustive
+
 }
 
 impl fmt::Display for Error {
@@ -522,7 +539,10 @@ impl fmt::Display for Error {
             Error::Extension(e) => write!(f, "extension error: {}", e),
             Error::UnexpectedOpCode(c) => write!(f, "unexpected opcode: {}", c),
             Error::Utf8(e) => write!(f, "utf-8 error: {}", e),
-            Error::Closed => f.write_str("connection closed")
+            Error::MessageTooLarge { actual, maximum } =>
+                write!(f, "message to large: len >= {}, maximum = {}", actual, maximum),
+            Error::Closed => f.write_str("connection closed"),
+            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
 }
@@ -534,7 +554,9 @@ impl std::error::Error for Error {
             Error::Extension(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnexpectedOpCode(_)
-            | Error::Closed => None
+            | Error::MessageTooLarge {..}
+            | Error::Closed
+            | Error::__Nonexhaustive => None
         }
     }
 }

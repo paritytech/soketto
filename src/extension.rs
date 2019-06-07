@@ -7,12 +7,15 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-//! Defines a trait for websocket extensions as per [RFC 6455][rfc6455].
+//! Websocket extensions as per [RFC 6455][rfc6455].
 //!
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455#section-9
 
-use crate::base::{Frame, OpCode};
-use std::borrow::Cow;
+#[cfg(feature = "deflate")]
+pub mod deflate;
+
+use crate::base::{Data, Header};
+use std::{borrow::Cow, fmt};
 
 /// A websocket extension as per RFC 6455, section 9.
 ///
@@ -40,9 +43,9 @@ use std::borrow::Cow;
 /// a matching name in the response, [`Extension::configure`] will be applied
 /// to the response parameters. The extension may internally enable itself.
 ///
-/// After this handshake phase, extensions have been configured are potentially
-/// enabled. Enabled extensions can then be used for further base frame
-/// processing.
+/// After this handshake phase, extensions have been configured and are
+/// potentially enabled. Enabled extensions can then be used for further base
+/// frame processing.
 pub trait Extension: std::fmt::Debug {
     /// Is this extension enabled?
     fn is_enabled(&self) -> bool;
@@ -56,20 +59,18 @@ pub trait Extension: std::fmt::Debug {
     /// Configure this extension with the parameters received from negotiation.
     fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError>;
 
-    /// Encode the given frame.
-    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
+    /// Encode a frame, given as frame header and payload data.
+    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
-    /// Decode the given frame.
-    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError>;
+    /// Decode a frame.
+    ///
+    /// The frame header is given, as well as the accumulated payload data, i.e.
+    /// the concatenated payload data of all message fragments.
+    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
     /// The reserved bits this extension uses.
     fn reserved_bits(&self) -> (bool, bool, bool) {
         (false, false, false)
-    }
-
-    /// The reserved opcode of this extension (must be one of `OpCode::Reserved*`).
-    fn reserved_opcode(&self) -> Option<OpCode> {
-        None
     }
 }
 
@@ -90,20 +91,16 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        (**self).encode(f)
+    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        (**self).encode(h, d)
     }
 
-    fn decode(&mut self, f: &mut Frame) -> Result<(), crate::BoxError> {
-        (**self).decode(f)
+    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
+        (**self).decode(h, d)
     }
 
     fn reserved_bits(&self) -> (bool, bool, bool) {
         (**self).reserved_bits()
-    }
-
-    fn reserved_opcode(&self) -> Option<OpCode> {
-        (**self).reserved_opcode()
     }
 }
 
@@ -114,7 +111,18 @@ pub struct Param<'a> {
     value: Option<Cow<'a, str>>
 }
 
+impl<'a> fmt::Display for Param<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(v) = &self.value {
+            write!(f, "{} = {}", self.name, v)
+        } else {
+            write!(f, "{}", self.name)
+        }
+    }
+}
+
 impl<'a> Param<'a> {
+    /// Create a new parameter with the given name.
     pub fn new(name: impl Into<Cow<'a, str>>) -> Self{
         Param {
             name: name.into(),
@@ -122,17 +130,28 @@ impl<'a> Param<'a> {
         }
     }
 
+    /// Access the parameter name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Access the optional parameter value.
     pub fn value(&self) -> Option<&str> {
         self.value.as_ref().map(|v| v.as_ref())
     }
 
+    /// Set the parameter to the given value.
     pub fn set_value(&mut self, value: Option<impl Into<Cow<'a, str>>>) -> &mut Self {
         self.value = value.map(Into::into);
         self
+    }
+
+    /// Turn this parameter into one that owns its values.
+    pub fn acquire(self) -> Param<'static> {
+        Param {
+            name: Cow::Owned(self.name.into_owned()),
+            value: self.value.map(|v| Cow::Owned(v.into_owned()))
+        }
     }
 }
 
