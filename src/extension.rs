@@ -43,9 +43,9 @@ use std::{borrow::Cow, fmt};
 /// a matching name in the response, [`Extension::configure`] will be applied
 /// to the response parameters. The extension may internally enable itself.
 ///
-/// After this handshake phase, extensions have been configured are potentially
-/// enabled. Enabled extensions can then be used for further base frame
-/// processing.
+/// After this handshake phase, extensions have been configured and are
+/// potentially enabled. Enabled extensions can then be used for further base
+/// frame processing.
 pub trait Extension: std::fmt::Debug {
     /// Is this extension enabled?
     fn is_enabled(&self) -> bool;
@@ -59,10 +59,13 @@ pub trait Extension: std::fmt::Debug {
     /// Configure this extension with the parameters received from negotiation.
     fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError>;
 
-    /// Encode the given frame.
+    /// Encode a frame, given as frame header and payload data.
     fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
-    /// Decode the given frame.
+    /// Decode a frame.
+    ///
+    /// The frame header is given, as well as the accumulated payload data, i.e.
+    /// the concatenated payload data of all message fragments.
     fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
 
     /// The reserved bits this extension uses.
