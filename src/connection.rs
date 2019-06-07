@@ -21,7 +21,7 @@ use tokio_io::{AsyncRead, AsyncWrite};
 // Connection mode ////////////////////////////////////////////////////////////////////////////////
 
 /// Is the [`Connection`] used by a client or server?
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Client-side of a connection (implies masking of payload data).
     Client,
