@@ -482,7 +482,7 @@ impl Codec {
     /// The reserved bits currently configured.
     pub fn reserved_bits(&self) -> (bool, bool, bool) {
         let r = self.reserved_bits;
-        (r & 4 == 1, r & 2 == 1, r & 1 == 1)
+        (r & 4 == 4, r & 2 == 2, r & 1 == 1)
     }
 
     /// Add to the reserved bits in use.
@@ -790,8 +790,9 @@ impl From<UnknownOpCode> for Error {
 
 #[cfg(test)]
 mod test {
-    use super::{Frame, OpCode, Codec};
     use bytes::BytesMut;
+    use quickcheck::QuickCheck;
+    use super::{Frame, OpCode, Codec};
     use tokio_codec::Decoder;
 
     // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
@@ -956,5 +957,16 @@ mod test {
         } else {
             assert!(false)
         }
+    }
+
+    #[test]
+    fn reserved_bits() {
+        fn property(bits: (bool, bool, bool)) -> bool {
+            let mut c = Codec::default();
+            assert_eq!((false, false, false), c.reserved_bits());
+            c.add_reserved_bits(bits);
+            bits == c.reserved_bits()
+        }
+        QuickCheck::new().quickcheck(property as fn((bool, bool, bool)) -> bool)
     }
 }

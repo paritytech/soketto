@@ -1,6 +1,6 @@
 [package]
 name = "soketto"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation as as set of tokio codecs."
 keywords = ["tokio", "websocket", "codec"]
@@ -18,7 +18,7 @@ deflate = ["flate2"]
 [dependencies]
 base64 = "0.10.1"
 bytes = "0.4.12"
-flate2 = { version = "1.0.7", features = ["zlib"], default-features = false, optional = true }
+flate2 = { version = "1.0.8", features = ["zlib"], default-features = false, optional = true }
 futures = "0.1.26"
 http = "0.1.17"
 httparse = "1.3.3"
@@ -31,4 +31,5 @@ tokio-io = "0.1.12"
 
 [dev-dependencies]
 env_logger = "0.6.1"
+quickcheck = "0.8.5"
 tokio = "0.1.20"

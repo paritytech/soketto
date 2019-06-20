@@ -16,7 +16,7 @@
 
 use futures::{future::{self, Either}, prelude::*};
 use log::debug;
-use soketto::{base, handshake, connection::{self, Connection, Mode}};
+use soketto::{base, handshake, connection::{self, Connection}};
 use std::{borrow::Cow, error, io, str::FromStr};
 use tokio::codec::{Framed, FramedParts};
 use tokio::net::TcpStream;
@@ -177,7 +177,7 @@ fn new_client<'a>(path: impl Into<Cow<'a, str>>) -> handshake::Client<'a> {
 #[cfg(feature = "deflate")]
 fn new_client<'a>(path: impl Into<Cow<'a, str>>) -> handshake::Client<'a> {
     let mut client = handshake::Client::new("127.0.0.1:9001", path);
-    let deflate = soketto::extension::deflate::Deflate::new(Mode::Client);
+    let deflate = soketto::extension::deflate::Deflate::new(connection::Mode::Client);
     client.add_extension(Box::new(deflate));
     client
 }

@@ -19,6 +19,12 @@ use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use log::debug;
 use smallvec::SmallVec;
 
+const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
+const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
+
+const CLIENT_NO_CONTEXT_TAKEOVER: &str = "client_no_context_takeover";
+const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
+
 /// The deflate extension type.
 ///
 /// The extension does currently not support max. window bits other than the
@@ -28,20 +34,21 @@ pub struct Deflate {
     mode: Mode,
     enabled: bool,
     buffer: Vec<u8>,
-    client_params: SmallVec<[Param<'static>; 2]>,
-    server_params: SmallVec<[Param<'static>; 2]>,
-    client_max_window_bits: u8,
-    server_max_window_bits: u8
+    params: SmallVec<[Param<'static>; 2]>,
+    our_max_window_bits: u8,
+    their_max_window_bits: u8
 }
 
 impl Deflate {
     /// Create a new deflate extension either on client or server side.
     pub fn new(mode: Mode) -> Self {
-        let client_params = match mode {
+        let params = match mode {
             Mode::Server => SmallVec::new(),
             Mode::Client => {
                 let mut params = SmallVec::new();
-                params.push(Param::new("server_no_context_takeover"));
+                params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER));
+                params.push(Param::new(CLIENT_NO_CONTEXT_TAKEOVER));
+                params.push(Param::new(CLIENT_MAX_WINDOW_BITS));
                 params
             }
         };
@@ -49,25 +56,71 @@ impl Deflate {
             mode,
             enabled: false,
             buffer: Vec::new(),
-            client_params,
-            server_params: SmallVec::new(),
-            client_max_window_bits: 15,
-            server_max_window_bits: 15
+            params,
+            our_max_window_bits: 15,
+            their_max_window_bits: 15
         }
     }
 
-//// Not supported yet:
-//    pub fn set_max_server_bits(&mut self, max: u8) -> &mut Self {
-//        assert!(max >= 8 && max <= 15, "max. window bits have to be within [8, 15]");
-//        self.server_max_window_bits = max;
-//        self
-//    }
-//
-//    pub fn set_max_client_bits(&mut self, max: u8) -> &mut Self {
-//        assert!(max >= 8 && max <= 15, "max. window bits have to be within [8, 15]");
-//        self.client_max_window_bits = max;
-//        self
-//    }
+    /// Set the server's max. window bits.
+    ///
+    /// The value must be within 9 ..= 15.
+    /// The extension must be in client mode.
+    ///
+    /// By including this parameter, a client limits the LZ77 sliding window
+    /// size that the server will use to compress messages. A server accepts
+    /// by including the "server_max_window_bits" extension parameter in the
+    /// response with the same or smaller value as the offer.
+    pub fn set_max_server_window_bits(&mut self, max: u8) {
+        assert!(self.mode == Mode::Client, "setting max. server window bits requires client mode");
+        assert!(max > 8 && max <= 15, "max. server window bits have to be within 9 ..= 15");
+        self.their_max_window_bits = max; // upper bound of the server's window
+        let mut p = Param::new(SERVER_MAX_WINDOW_BITS);
+        p.set_value(Some(max.to_string()));
+        self.params.push(p)
+    }
+
+    /// Set the client's max. window bits.
+    ///
+    /// The value must be within 9 ..= 15.
+    /// The extension must be in client mode.
+    ///
+    /// The parameter informs the server that even if it doesn't include the
+    /// "client_max_window_bits" extension parameter in the response with a
+    /// value greater than the one in the negotiation offer or if it doesn't
+    /// include the extension parameter at all, the client is not going to
+    /// use an LZ77 sliding window size greater than one given here.
+    /// The server may also respond with a smaller value which allows the client
+    /// to reduce its sliding window even more.
+    pub fn set_max_client_window_bits(&mut self, max: u8) {
+        assert!(self.mode == Mode::Client, "setting max. client window bits requires client mode");
+        assert!(max > 8 && max <= 15, "max. client window bits have to be within 9 ..= 15");
+        self.our_max_window_bits = max; // upper bound of the client's window
+        if let Some(p) = self.params.iter_mut().find(|p| p.name() == CLIENT_MAX_WINDOW_BITS) {
+            p.set_value(Some(max.to_string()));
+        } else {
+            let mut p = Param::new(CLIENT_MAX_WINDOW_BITS);
+            p.set_value(Some(max.to_string()));
+            self.params.push(p)
+        }
+    }
+
+    fn set_their_max_window_bits(&mut self, p: &Param, expected: Option<u8>) -> Result<(), ()> {
+        if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
+            if v < 8 || v > 15 {
+                debug!("invalid {}: {} (expected range: 8 ..= 15)", p.name(), v);
+                return Err(())
+            }
+            if let Some(x) = expected {
+                if v > x {
+                    debug!("invalid {}: {} (expected: {} <= {})", p.name(), v, v, x);
+                    return Err(())
+                }
+            }
+            self.their_max_window_bits = std::cmp::max(9, v);
+        }
+        Ok(())
+    }
 }
 
 impl Extension for Deflate {
@@ -80,41 +133,41 @@ impl Extension for Deflate {
     }
 
     fn params(&self) -> &[Param] {
-        match self.mode {
-            Mode::Client => &self.client_params,
-            Mode::Server => &self.server_params
-        }
+        &self.params
     }
 
     fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
-        self.enabled = false;
         match self.mode {
             Mode::Server => {
-                self.server_params.clear();
+                self.params.clear();
                 for p in params {
                     match p.name() {
-                        "client_max_window_bits" => {} // Not necessary to include a response.
-                        "server_max_window_bits" => {
+                        CLIENT_MAX_WINDOW_BITS =>
+                            if self.set_their_max_window_bits(&p, None).is_err() {
+                                // we just accept the client's offer as is => no need to reply
+                                return Ok(())
+                            }
+                        SERVER_MAX_WINDOW_BITS => {
                             if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
-                                //// Once we support window bits < 15 this can be done:
-                                // if v < 8 || v > 15 {
-                                if v != 15 {
-                                    debug!("unacceptable server_max_window_bits: {:?}", v);
+                                // The RFC allows 8 to 15 bits, but due to zlib limitations we
+                                // only support 9 to 15.
+                                if v < 9 || v > 15 {
+                                    debug!("unacceptable server_max_window_bits: {}", v);
                                     return Ok(())
                                 }
-                                let mut x = Param::new("server_max_window_bits");
+                                let mut x = Param::new(SERVER_MAX_WINDOW_BITS);
                                 x.set_value(Some(v.to_string()));
-                                self.server_params.push(x);
-                                self.server_max_window_bits = v;
+                                self.params.push(x);
+                                self.our_max_window_bits = v;
                             } else {
                                 debug!("invalid server_max_window_bits: {:?}", p.value());
                                 return Ok(())
                             }
                         }
-                        "client_no_context_takeover" =>
-                            self.server_params.push(Param::new("client_no_context_takeover")),
-                        "server_no_context_takeover" =>
-                            self.server_params.push(Param::new("server_no_context_takeover")),
+                        CLIENT_NO_CONTEXT_TAKEOVER =>
+                            self.params.push(Param::new(CLIENT_NO_CONTEXT_TAKEOVER)),
+                        SERVER_NO_CONTEXT_TAKEOVER =>
+                            self.params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER)),
                         _ => {
                             debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
@@ -126,9 +179,25 @@ impl Extension for Deflate {
                 let mut server_no_context_takeover = false;
                 for p in params {
                     match p.name() {
-                        "server_no_context_takeover" => server_no_context_takeover = true,
-                        "server_max_window_bits" => {}
-                        "client_no_context_takeover" => {} // must be supported
+                        SERVER_NO_CONTEXT_TAKEOVER => server_no_context_takeover = true,
+                        CLIENT_NO_CONTEXT_TAKEOVER => {} // must be supported
+                        SERVER_MAX_WINDOW_BITS => {
+                            let expected = Some(self.their_max_window_bits);
+                            if self.set_their_max_window_bits(&p, expected).is_err() {
+                                return Ok(())
+                            }
+                        }
+                        CLIENT_MAX_WINDOW_BITS =>
+                            if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
+                                if v < 8 || v > 15 {
+                                    debug!("unacceptable client_max_window_bits: {}", v);
+                                    return Ok(())
+                                }
+                                use std::cmp::{min, max};
+                                // Due to zlib limitations we have to use 9 as a lower bound
+                                // here, even if the server allowed us to go down to 8 bits.
+                                self.our_max_window_bits = min(self.our_max_window_bits, max(9, v));
+                            }
                         _ => {
                             debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
@@ -158,7 +227,7 @@ impl Extension for Deflate {
         if let Some(data) = data {
             data.bytes_mut().extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
             self.buffer.clear();
-            let mut d = Decompress::new(false);
+            let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
             while (d.total_in() as usize) < data.as_ref().len() {
                 let off = d.total_in() as usize;
                 self.buffer.reserve(data.as_ref().len() - off);
@@ -177,7 +246,7 @@ impl Extension for Deflate {
             _ => return Ok(())
         }
         if let Some(data) = data {
-            let mut c = Compress::new(Compression::fast(), false);
+            let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
             self.buffer.clear();
             while (c.total_in() as usize) < data.as_ref().len() {
                 let off = c.total_in() as usize;
