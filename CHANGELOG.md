@@ -1,3 +1,8 @@
+# 0.2.1
+
+- The DEFLATE extension now allows custom maximum window bits for client and server.
+- Fix handling of reserved bits in base codec.
+
 # 0.2.0
 
 - Change `Extension` trait and add an optional DEFLATE extension (RFC 7692).
