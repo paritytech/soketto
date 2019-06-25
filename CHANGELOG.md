@@ -1,3 +1,8 @@
+# 0.2.2
+
+- Improved handshake header matching which is now more robust and can cope with
+  repeated header names and comma separated values.
+
 # 0.2.1
 
 - The DEFLATE extension now allows custom maximum window bits for client and server.

@@ -1,6 +1,6 @@
 [package]
 name = "soketto"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation as as set of tokio codecs."
 keywords = ["tokio", "websocket", "codec"]
