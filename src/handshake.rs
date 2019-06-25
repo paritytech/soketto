@@ -198,7 +198,7 @@ impl<'a> Decoder for Client<'a> {
         match response.code {
             Some(101) => (),
             Some(code@(301 ..= 303)) | Some(code@307) | Some(code@308) => { // redirect response
-                let location = with_header(&response.headers, "Location", |loc| {
+                let location = with_first_header(&response.headers, "Location", |loc| {
                     Ok(String::from(std::str::from_utf8(loc)?))
                 })?;
                 bytes.split_to(offset); // chop off the HTTP part we have processed
@@ -208,11 +208,11 @@ impl<'a> Decoder for Client<'a> {
             other => return Err(Error::UnexpectedStatusCode(other.unwrap_or(0)))
         }
 
-        expect_ascii_header(&response.headers, "Upgrade", "websocket")?;
-        expect_ascii_header(&response.headers, "Connection", "upgrade")?;
+        expect_ascii_header(response.headers, "Upgrade", "websocket")?;
+        expect_ascii_header(response.headers, "Connection", "upgrade")?;
 
         let nonce: &str = self.nonce.borrow();
-        with_header(&response.headers, "Sec-WebSocket-Accept", move |theirs| {
+        with_first_header(&response.headers, "Sec-WebSocket-Accept", |theirs| {
             let mut digest = Sha1::new();
             digest.update(nonce.as_bytes());
             digest.update(KEY);
@@ -327,13 +327,13 @@ impl<'a> Decoder for Server<'a> {
         }
 
         // TODO: Host Validation
-        with_header(&request.headers, "Host", |_h| Ok(()))?;
+        with_first_header(&request.headers, "Host", |_h| Ok(()))?;
 
-        expect_ascii_header(&request.headers, "Upgrade", "websocket")?;
-        expect_ascii_header(&request.headers, "Connection", "upgrade")?;
-        expect_ascii_header(&request.headers, "Sec-WebSocket-Version", "13")?;
+        expect_ascii_header(request.headers, "Upgrade", "websocket")?;
+        expect_ascii_header(request.headers, "Connection", "upgrade")?;
+        expect_ascii_header(request.headers, "Sec-WebSocket-Version", "13")?;
 
-        let ws_key = with_header(&request.headers, "Sec-WebSocket-Key", |k| {
+        let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
             Ok(SmallVec::from(k))
         })?;
 
@@ -437,24 +437,44 @@ impl<'a> Encoder for Server<'a> {
     }
 }
 
-/// Check a set of headers contain a specific one (equality match).
+/// Check a set of headers contains a specific one.
 fn expect_ascii_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result<(), Error> {
-    with_header(headers, name, move |theirs| {
-        let s = str::from_utf8(theirs)?;
-        if s.eq_ignore_ascii_case(ours) {
-            Ok(())
-        } else {
-            Err(Error::UnexpectedHeader(name.into()))
-        }
-    })
+    enum State {
+        Init, // Start state
+        Name, // Header name found
+        Match // Header value matches
+    }
+
+    headers.iter()
+        .filter(|h| h.name.eq_ignore_ascii_case(name))
+        .fold(Ok(State::Init), |result, header| {
+            if let Ok(State::Match) = result {
+                return result
+            }
+            if str::from_utf8(header.value)?
+                .split(',')
+                .find(|v| v.trim().eq_ignore_ascii_case(ours))
+                .is_some()
+            {
+                return Ok(State::Match)
+            }
+            Ok(State::Name)
+        })
+        .and_then(|state| {
+            match state {
+                State::Init => Err(Error::HeaderNotFound(name.into())),
+                State::Name => Err(Error::UnexpectedHeader(name.into())),
+                State::Match => Ok(())
+            }
+        })
 }
 
-/// Pick the header with the given name and apply the given closure to it.
-fn with_header<F, R>(headers: &[httparse::Header], name: &str, f: F) -> Result<R, Error>
+/// Pick the first header with the given name and apply the given closure to it.
+fn with_first_header<F, R>(headers: &[httparse::Header], name: &str, f: F) -> Result<R, Error>
 where
     F: Fn(&[u8]) -> Result<R, Error>
 {
-    if let Some(h) = headers.iter().find(move |h| h.name.eq_ignore_ascii_case(name)) {
+    if let Some(h) = headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)) {
         f(h.value)
     } else {
         Err(Error::HeaderNotFound(name.into()))
@@ -595,5 +615,36 @@ impl From<io::Error> for Error {
 impl From<str::Utf8Error> for Error {
     fn from(e: str::Utf8Error) -> Self {
         Error::Utf8(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expect_ascii_header;
+
+    #[test]
+    fn header_match() {
+        let headers = &[
+            httparse::Header { name: "foo", value: b"a,b,c,d" },
+            httparse::Header { name: "foo", value: b"x" },
+            httparse::Header { name: "foo", value: b"y, z, a" },
+            httparse::Header { name: "bar", value: b"xxx" },
+            httparse::Header { name: "bar", value: b"sdfsdf 423 42 424" },
+            httparse::Header { name: "baz", value: b"123" }
+        ];
+
+        assert!(expect_ascii_header(headers, "foo", "a").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "b").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "c").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "d").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "x").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "y").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "z").is_ok());
+        assert!(expect_ascii_header(headers, "foo", "a").is_ok());
+        assert!(expect_ascii_header(headers, "bar", "xxx").is_ok());
+        assert!(expect_ascii_header(headers, "bar", "sdfsdf 423 42 424").is_ok());
+        assert!(expect_ascii_header(headers, "baz", "123").is_ok());
+        assert!(expect_ascii_header(headers, "baz", "???").is_err());
+        assert!(expect_ascii_header(headers, "???", "x").is_err());
     }
 }
