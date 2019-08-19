@@ -91,7 +91,7 @@ impl<'a> Client<'a> {
     }
 
     /// Get back all extensions.
-    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> {
+    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
         self.extensions.drain()
     }
 }
@@ -280,7 +280,7 @@ impl<'a> Server<'a> {
     }
 
     /// Get back all extensions.
-    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> {
+    pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
         self.extensions.drain()
     }
 }
