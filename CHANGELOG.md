@@ -1,3 +1,7 @@
+# 0.2.3
+
+- Maintenance release.
+
 # 0.2.2
 
 - Improved handshake header matching which is now more robust and can cope with
