@@ -10,14 +10,18 @@
 //!
 //! [rfc7692]: https://tools.ietf.org/html/rfc7692
 
+use bytes::{BufMut, BytesMut};
 use crate::{
-    base::{Data, Header, OpCode},
+    BoxedError,
+    as_u64,
+    base::{Header, OpCode},
     connection::Mode,
     extension::{Extension, Param}
 };
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
-use log::debug;
+use log::{debug, trace};
 use smallvec::SmallVec;
+use std::convert::TryInto;
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -33,10 +37,11 @@ const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
 pub struct Deflate {
     mode: Mode,
     enabled: bool,
-    buffer: Vec<u8>,
+    buffer: BytesMut,
     params: SmallVec<[Param<'static>; 2]>,
     our_max_window_bits: u8,
-    their_max_window_bits: u8
+    their_max_window_bits: u8,
+    await_last_fragment: bool
 }
 
 impl Deflate {
@@ -55,10 +60,11 @@ impl Deflate {
         Deflate {
             mode,
             enabled: false,
-            buffer: Vec::new(),
+            buffer: BytesMut::new(),
             params,
             our_max_window_bits: 15,
-            their_max_window_bits: 15
+            their_max_window_bits: 15,
+            await_last_fragment: false
         }
     }
 
@@ -136,7 +142,7 @@ impl Extension for Deflate {
         &self.params
     }
 
-    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
+    fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError> {
         match self.mode {
             Mode::Server => {
                 self.params.clear();
@@ -218,51 +224,91 @@ impl Extension for Deflate {
         (true, false, false)
     }
 
-    fn decode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        match hdr.opcode() {
-            OpCode::Binary | OpCode::Text if hdr.is_rsv1() && hdr.is_fin() => {}
-            OpCode::Continue if hdr.is_fin() => {}
-            _ => return Ok(())
-        }
-        if let Some(data) = data {
-            data.bytes_mut().extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
-            self.buffer.clear();
-            let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
-            while (d.total_in() as usize) < data.as_ref().len() {
-                let off = d.total_in() as usize;
-                self.buffer.reserve(data.as_ref().len() - off);
-                d.decompress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushDecompress::Sync)?;
+    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        match header.opcode() {
+            OpCode::Binary | OpCode::Text if header.is_rsv1() => {
+                if !header.is_fin() {
+                    self.await_last_fragment = true;
+                    trace!("deflate: not decoding {}; awaiting last fragment", header);
+                    return Ok(())
+                }
+                trace!("deflate: decoding {}", header)
             }
-            data.bytes_mut().clear();
-            data.bytes_mut().extend_from_slice(&self.buffer);
-            hdr.set_rsv1(false);
+            OpCode::Continue if header.is_fin() && self.await_last_fragment => {
+                self.await_last_fragment = false;
+                trace!("deflate: decoding {}", header)
+            }
+            _ => {
+                trace!("deflate: not decoding {}", header);
+                return Ok(())
+            }
         }
+
+        if data.is_empty() {
+            return Ok(())
+        }
+
+        data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
+
+        self.buffer.clear();
+
+        let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
+        while d.total_in() < as_u64(data.len()) {
+            let off: usize = d.total_in().try_into()?;
+            self.buffer.reserve(data.len() - off);
+            let n = d.total_out();
+            unsafe {
+                d.decompress(&data[off ..], self.buffer.bytes_mut(), FlushDecompress::Sync)?;
+                self.buffer.advance_mut((d.total_out() - n).try_into()?);
+            }
+        }
+
+        std::mem::swap(&mut self.buffer, data);
+        header.set_rsv1(false);
+        header.set_payload_len(data.len());
+
         Ok(())
     }
 
-    fn encode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        match hdr.opcode() {
-            OpCode::Text | OpCode::Binary => {},
-            _ => return Ok(())
+    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        if let OpCode::Binary | OpCode::Text = header.opcode() {
+            trace!("deflate: encoding {}", header)
+        } else {
+            trace!("deflate: not encoding {}", header);
+            return Ok(())
         }
-        if let Some(data) = data {
-            let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
-            self.buffer.clear();
-            while (c.total_in() as usize) < data.as_ref().len() {
-                let off = c.total_in() as usize;
-                self.buffer.reserve(data.as_ref().len() - off);
-                c.compress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushCompress::Sync)?;
-            }
-            if self.buffer.capacity() - self.buffer.len() < 5 {
-                self.buffer.reserve(5); // Make room for the trailing end bytes
-                c.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)?;
-            }
-            let n = self.buffer.len() - 4;
-            self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
-            data.bytes_mut().clear();
-            data.bytes_mut().extend_from_slice(&self.buffer);
-            hdr.set_rsv1(true);
+
+        if data.is_empty() {
+            return Ok(())
         }
+
+        self.buffer.clear();
+
+        let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
+        while c.total_in() < as_u64(data.len()) {
+            let off: usize = c.total_in().try_into()?;
+            self.buffer.reserve(data.len() - off);
+            let n = c.total_out();
+            unsafe {
+                c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                self.buffer.advance_mut((c.total_out() - n).try_into()?)
+            }
+        }
+        if self.buffer.remaining_mut() < 5 {
+            self.buffer.reserve(5); // Make room for the trailing end bytes
+            unsafe {
+                let n = c.total_out();
+                c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                self.buffer.advance_mut((c.total_out() - n).try_into()?)
+            }
+        }
+
+        let n = self.buffer.len() - 4;
+        self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
+        std::mem::swap(&mut self.buffer, data);
+        header.set_rsv1(true);
+        header.set_payload_len(data.len());
+
         Ok(())
     }
 }

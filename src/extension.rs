@@ -14,7 +14,8 @@
 #[cfg(feature = "deflate")]
 pub mod deflate;
 
-use crate::base::{Data, Header};
+use bytes::BytesMut;
+use crate::{BoxedError, base::Header};
 use std::{borrow::Cow, fmt};
 
 /// A websocket extension as per RFC 6455, section 9.
@@ -57,16 +58,16 @@ pub trait Extension: std::fmt::Debug {
     fn params(&self) -> &[Param];
 
     /// Configure this extension with the parameters received from negotiation.
-    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError>;
+    fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError>;
 
     /// Encode a frame, given as frame header and payload data.
-    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
+    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError>;
 
     /// Decode a frame.
     ///
     /// The frame header is given, as well as the accumulated payload data, i.e.
     /// the concatenated payload data of all message fragments.
-    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError>;
+    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError>;
 
     /// The reserved bits this extension uses.
     fn reserved_bits(&self) -> (bool, bool, bool) {
@@ -87,16 +88,16 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).params()
     }
 
-    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
+    fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        (**self).encode(h, d)
+    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        (**self).encode(header, data)
     }
 
-    fn decode(&mut self, h: &mut Header, d: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        (**self).decode(h, d)
+    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        (**self).decode(header, data)
     }
 
     fn reserved_bits(&self) -> (bool, bool, bool) {

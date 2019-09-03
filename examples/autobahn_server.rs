@@ -14,75 +14,56 @@
 //
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
-use futures::{future::{self, Either}, prelude::*};
-use soketto::{
-    base,
-    handshake,
-    connection::{Connection, Mode},
-};
-use std::{borrow::Cow, error, io};
-use tokio::codec::{Framed, FramedParts};
-use tokio::net::TcpListener;
+use async_std::{net::{TcpListener, TcpStream}, prelude::*, task};
+use soketto::{BoxedError, connection, handshake};
+
+fn main() -> Result<(), BoxedError> {
+    env_logger::init();
+    task::block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:9001").await?;
+        let mut incoming = listener.incoming();
+        while let Some(s) = incoming.next().await {
+            let mut s = new_server(s?);
+            let key = {
+                let req = s.receive_request().await?;
+                req.into_key()
+            };
+            let accept = handshake::server::Response::Accept { key: &key, protocol: None };
+            s.send_response(&accept).await?;
+            let mut c = s.into_connection(true);
+            c.validate_utf8(true);
+            loop {
+                match c.receive().await {
+                    Ok((mut data, is_text)) => {
+                        if is_text {
+                            c.send_text(&mut data).await?
+                        } else {
+                            c.send_binary(&mut data).await?
+                        }
+                    }
+                    Err(connection::Error::Closed) => break,
+                    Err(e) => {
+                        log::error!("connection error: {}", e);
+                        break
+                    }
+                }
+            }
+        }
+        Ok(())
+    })
+}
 
 #[cfg(not(feature = "deflate"))]
-fn new_server<'a>() -> handshake::Server<'a> {
-    handshake::Server::new()
+fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
+    handshake::Server::new(socket)
 }
 
 #[cfg(feature = "deflate")]
-fn new_server<'a>() -> handshake::Server<'a> {
-    let mut server = handshake::Server::new();
-    let deflate = soketto::extension::deflate::Deflate::new(Mode::Server);
+fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
+    let mut server = handshake::Server::new(socket);
+    let deflate = soketto::extension::deflate::Deflate::new(soketto::connection::Mode::Server);
     server.add_extension(Box::new(deflate));
     server
 
-}
-
-fn main() {
-    env_logger::init();
-    let addr = "127.0.0.1:9001".parse().unwrap();
-    let listener = TcpListener::bind(&addr).expect("TCP listener binds");
-    let server = listener.incoming()
-        .map_err(|e| eprintln!("accept failed = {:?}", e))
-        .for_each(|socket| {
-            let future = tokio::codec::Framed::new(socket, new_server())
-                .into_future()
-                .map_err(|(e, _)| Box::new(e) as Box<dyn error::Error + Send>)
-                .and_then(|(request, framed)| {
-                    if let Some(r) = request {
-                        let f = framed.send(Ok(handshake::Accept::new(Cow::Owned(r.key().into()))))
-                            .map(|framed| {
-                                let codec = base::Codec::new();
-                                let mut old = framed.into_parts();
-                                let mut new = FramedParts::new(old.io, codec);
-                                new.read_buf = old.read_buf;
-                                new.write_buf = old.write_buf;
-                                let framed = Framed::from_parts(new);
-                                let mut conn = Connection::from_framed(framed, Mode::Server);
-                                conn.add_extensions(old.codec.drain_extensions());
-                                conn
-                            });
-                        Either::A(f.map_err(|e| Box::new(e) as Box<dyn error::Error + Send>))
-                    } else {
-                        let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                        Either::B(future::err(Box::new(e) as Box<dyn error::Error + Send>))
-                    }
-                })
-                .and_then(|connection| {
-                    let (sink, stream) = connection.split();
-                    let sink = sink.with(|data: base::Data| {
-                        if data.is_text() {
-                            std::str::from_utf8(data.as_ref())?;
-                        }
-                        Ok(data)
-                    });
-                    stream.forward(sink)
-                        .and_then(|(_stream, mut sink)| future::poll_fn(move || sink.close()))
-                        .map_err(|e| Box::new(e) as Box<dyn error::Error + Send>)
-                });
-            tokio::spawn(future.map_err(|e| eprintln!("{:?}", e)))
-        });
-
-    tokio::run(server)
 }
 
