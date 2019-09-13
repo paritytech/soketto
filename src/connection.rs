@@ -71,11 +71,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         }
     }
 
+    /// Set a custom buffer to use.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = b;
         self
     }
 
+    /// Extract the internal buffer bytes.
     pub fn take_buffer(&mut self) -> BytesMut {
         self.buffer.take()
     }
@@ -124,7 +126,31 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         Ok(())
     }
 
+    /// Flush the socket buffer.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        if self.is_closed {
+            return Ok(())
+        }
+        self.socket.flush().await?;
+        Ok(())
+    }
+
+    /// Send a close message and close the connection.
+    pub async fn close(&mut self) -> Result<(), Error> {
+        if self.is_closed {
+            return Ok(())
+        }
+        let mut header = Header::new(OpCode::Close);
+        let mut code = 1000_u16.to_be_bytes(); // 1000 = normal closure
+        self.write(&mut header, &mut code[..]).await?;
+        self.socket.flush().await?;
+        self.is_closed = true;
+        Ok(())
+    }
+
     /// Send arbitrary websocket frames.
+    ///
+    /// Before sending, extensions will be applied to header and payload data.
     async fn send(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), Error> {
         if self.is_closed {
             debug!("can not send, connection is closed");
@@ -134,15 +160,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             trace!("encoding with extension: {}", e.name());
             e.encode(header, data).map_err(Error::Extension)?
         }
-        write(self.mode, &mut self.codec, &mut self.socket, header, data, false).await?;
+        self.write(header, data).await?;
         Ok(())
     }
 
-    pub async fn flush(&mut self) -> Result<(), Error> {
-        if self.is_closed {
-            return Ok(())
+    /// Write final header and payload data to socket.
+    ///
+    /// The data will be masked if necessary.
+    /// No extensions will be applied to header and payload data.
+    async fn write(&mut self, header: &mut Header, data: &mut [u8]) -> Result<(), Error> {
+        if self.mode.is_client() {
+            header.set_masked(true);
+            header.set_mask(rand::random());
+            self.codec.apply_mask(&header, data)
         }
-        self.socket.flush().await?;
+        header.set_payload_len(data.len());
+        trace!("send: {}", header);
+        let header_bytes = self.codec.encode_header(&header);
+        self.socket.write_all(header_bytes).await?;
+        if !data.is_empty() {
+            self.socket.write_all(data).await?;
+        }
         Ok(())
     }
 
@@ -248,56 +286,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         }
     }
 
-    fn decode_with_extensions(&mut self, header: &mut Header) -> Result<(), Error> {
-        for e in &mut self.extensions {
-            trace!("decoding with extension: {}", e.name());
-            e.decode(header, &mut self.message).map_err(Error::Extension)?
-        }
-        Ok(())
-    }
-
-    /// Answer incoming control frames.
-    async fn on_control(&mut self, header: &Header, data: &mut BytesMut) -> Result<(), Error> {
-        debug_assert_eq!(data.len(), header.payload_len());
-        match header.opcode() {
-            OpCode::Ping => {
-                let mut answer = Header::new(OpCode::Pong);
-                let codec = &mut self.codec;
-                let sockt = &mut self.socket;
-                write(self.mode, codec, sockt, &mut answer, data, true).await?;
-                Ok(())
-            }
-            OpCode::Pong => Ok(()),
-            OpCode::Close => {
-                let codec = &mut self.codec;
-                let sockt = &mut self.socket;
-                let (mut header, code) = close_answer(data)?;
-                if let Some(c) = code {
-                    let mut data = c.to_be_bytes();
-                    write(self.mode, codec, sockt, &mut header, &mut data[..], true).await?
-                } else {
-                    write(self.mode, codec, sockt, &mut header, &mut [], true).await?
-                }
-                self.is_closed = true;
-                Ok(())
-            }
-            OpCode::Binary
-            | OpCode::Text
-            | OpCode::Continue
-            | OpCode::Reserved3
-            | OpCode::Reserved4
-            | OpCode::Reserved5
-            | OpCode::Reserved6
-            | OpCode::Reserved7
-            | OpCode::Reserved11
-            | OpCode::Reserved12
-            | OpCode::Reserved13
-            | OpCode::Reserved14
-            | OpCode::Reserved15 => Err(Error::UnexpectedOpCode(header.opcode()))
-        }
-    }
-
-    /// Read the next frame header from the socket.
+    /// Read the next frame header.
     async fn receive_header(&mut self) -> Result<Header, Error> {
         loop {
             match self.codec.decode_header(&self.buffer)? {
@@ -319,56 +308,56 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         }
     }
 
-    /// Send a close message and close the connection.
-    pub async fn close(&mut self) -> Result<(), Error> {
-        if self.is_closed {
-            return Ok(())
+    /// Answer incoming control frames.
+    async fn on_control(&mut self, header: &Header, data: &mut BytesMut) -> Result<(), Error> {
+        debug_assert_eq!(data.len(), header.payload_len());
+        match header.opcode() {
+            OpCode::Ping => {
+                let mut answer = Header::new(OpCode::Pong);
+                self.write(&mut answer, data).await?;
+                self.socket.flush().await?;
+                Ok(())
+            }
+            OpCode::Pong => Ok(()),
+            OpCode::Close => {
+                let (mut header, code) = close_answer(data)?;
+                if let Some(c) = code {
+                    let mut data = c.to_be_bytes();
+                    self.write(&mut header, &mut data[..]).await?
+                } else {
+                    self.write(&mut header, &mut []).await?
+                }
+                self.socket.flush().await?;
+                self.is_closed = true;
+                Ok(())
+            }
+            OpCode::Binary
+            | OpCode::Text
+            | OpCode::Continue
+            | OpCode::Reserved3
+            | OpCode::Reserved4
+            | OpCode::Reserved5
+            | OpCode::Reserved6
+            | OpCode::Reserved7
+            | OpCode::Reserved11
+            | OpCode::Reserved12
+            | OpCode::Reserved13
+            | OpCode::Reserved14
+            | OpCode::Reserved15 => Err(Error::UnexpectedOpCode(header.opcode()))
         }
+    }
 
-        let mut header = Header::new(OpCode::Close);
-        let mut code = 1000_u16.to_be_bytes(); // 1000 = normal closure
-        let codec = &mut self.codec;
-        let sockt = &mut self.socket;
-        write(self.mode, codec, sockt, &mut header, &mut code[..], true).await?;
-        self.is_closed = true;
+    /// Apply all extensions to the given header and the internal message buffer.
+    fn decode_with_extensions(&mut self, header: &mut Header) -> Result<(), Error> {
+        for e in &mut self.extensions {
+            trace!("decoding with extension: {}", e.name());
+            e.decode(header, &mut self.message).map_err(Error::Extension)?
+        }
         Ok(())
     }
 }
 
-/// Write header and data to socket.
-///
-/// Not a method due to borrowing issues in relation to the
-/// `control_buffer` field.
-async fn write<T>
-    ( mode: Mode
-    , codec: &mut base::Codec
-    , socket: &mut T
-    , header: &mut Header
-    , data: &mut [u8]
-    , flush: bool
-    ) -> Result<(), Error>
-where
-    T: AsyncWrite + Unpin
-{
-    if mode.is_client() {
-        header.set_masked(true);
-        header.set_mask(rand::random());
-        codec.apply_mask(&header, data)
-    }
-    header.set_payload_len(data.len());
-    let header_bytes = codec.encode_header(&header);
-    trace!("send: {}", header);
-    socket.write_all(header_bytes).await?;
-    if !data.is_empty() {
-        socket.write_all(data).await?;
-    }
-    if flush {
-        socket.flush().await?
-    }
-    Ok(())
-}
-
-/// Derive a response to an incoming close frame.
+/// Create a close frame based on the given data.
 fn close_answer(data: &[u8]) -> Result<(Header, Option<u16>), Error> {
     let answer = Header::new(OpCode::Close);
     if data.len() < 2 {
