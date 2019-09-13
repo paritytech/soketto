@@ -216,6 +216,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                     }
                 }
                 let mut data = self.buffer.split_to(header.payload_len());
+                self.codec.apply_mask(&header, &mut data);
                 self.on_control(&header, &mut data).await?;
                 continue
             }
