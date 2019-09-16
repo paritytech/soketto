@@ -13,10 +13,9 @@ use crate::{Parsing, base::{self, Header, OpCode}, extension::Extension};
 use log::{debug, trace, warn};
 use futures::prelude::*;
 use smallvec::SmallVec;
-use static_assertions::const_assert;
 use std::{fmt, io};
 
-const BLOCK_SIZE: usize = 8 * 1024;
+const BLOCK_SIZE: usize = 16 * 1024;
 
 /// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -192,10 +191,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Receive the next websocket message.
     ///
-    /// Fragmented messages will be concatenated into `data`.
-    /// The `bool` indicates if the data is textual (when `true`) or binary
-    /// (when `false`). If `Connection::validate_utf8` is `true` and the
-    /// return value is `Ok(true)`, `data` will be valid UTF-8.
+    /// Fragmented messages will be concatenated and returned as on block.
+    /// The `bool` indicates if the data is textual (if `true`) or binary
+    /// (if `false`). If `Connection::validate_utf8` is `true` textual data
+    /// is checked for well-formed UTF-8 encoding before returned.
     pub async fn receive(&mut self) -> Result<(BytesMut, bool), Error> {
         let mut first_fragment_opcode = None;
         loop {
@@ -210,39 +209,23 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             // Handle control frames.
             if header.opcode().is_control() {
                 debug_assert!(header.payload_len() < 126); // ensured by `base::Codec`
-                if self.buffer.len() < header.payload_len() {
-                    const_assert!(min_block_size; BLOCK_SIZE > 125);
-                    self.buffer.reserve(BLOCK_SIZE)
-                }
-                while self.buffer.len() < header.payload_len() {
-                    unsafe {
-                        let n = self.reader.read(self.buffer.bytes_mut()).await?;
-                        self.buffer.advance_mut(n);
-                        trace!("read {} bytes", n)
-                    }
-                }
+                self.read_buffer(&header).await?;
                 let mut data = self.buffer.split_to(header.payload_len());
                 self.codec.apply_mask(&header, &mut data);
                 self.on_control(&header, &mut data).await?;
                 continue
             }
 
-            if self.message.len() + header.payload_len() > self.max_message_size {
-                warn!("accumulated message exceeds maximum");
+            // Check if total message does not exceed maximum.
+            if header.payload_len() + self.message.len() > self.max_message_size {
+                warn!("accumulated message length exceeds maximum");
                 return Err(Error::MessageTooLarge {
                     current: self.message.len() + header.payload_len(),
                     maximum: self.max_message_size
                 })
             }
 
-            while self.buffer.len() < header.payload_len() {
-                self.buffer.reserve(std::cmp::max(BLOCK_SIZE, header.payload_len()));
-                unsafe {
-                    let n = self.reader.read(self.buffer.bytes_mut()).await?;
-                    self.buffer.advance_mut(n);
-                    trace!("read {} bytes", n)
-                }
-            }
+            self.read_buffer(&header).await?;
             self.codec.apply_mask(&header, &mut self.buffer[.. header.payload_len()]);
             self.message.unsplit(self.buffer.split_to(header.payload_len()));
 
@@ -302,9 +285,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                     return Ok(header)
                 }
                 Parsing::NeedMore(n) => {
-                    if self.buffer.remaining_mut() < n {
-                        self.buffer.reserve(BLOCK_SIZE)
-                    }
+                    self.buffer.reserve(n);
                     unsafe {
                         let n = self.reader.read(self.buffer.bytes_mut()).await?;
                         self.buffer.advance_mut(n);
@@ -313,6 +294,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 }
             }
         }
+    }
+
+    async fn read_buffer(&mut self, header: &Header) -> Result<(), Error> {
+        if header.payload_len() > self.buffer.len() {
+            let to_read = header.payload_len() - self.buffer.len();
+            self.buffer.reserve(to_read);
+            unsafe {
+                self.reader.read_exact(&mut self.buffer.bytes_mut()[.. to_read]).await?;
+                self.buffer.advance_mut(to_read);
+                trace!("read {} bytes", to_read)
+            }
+        }
+        Ok(())
     }
 
     /// Answer incoming control frames.
