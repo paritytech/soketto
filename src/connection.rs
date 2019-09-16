@@ -43,9 +43,10 @@ impl Mode {
 
 /// A persistent websocket connection.
 #[derive(Debug)]
-pub struct Connection<T> {
+pub struct Connection<T: AsyncWrite> {
     mode: Mode,
-    socket: T,
+    reader: futures::io::ReadHalf<T>,
+    writer: futures::io::BufWriter<futures::io::WriteHalf<T>>,
     codec: base::Codec,
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     validate_utf8: bool,
@@ -58,9 +59,11 @@ pub struct Connection<T> {
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Create a new `Connection` from the given socket.
     pub fn new(socket: T, mode: Mode) -> Self {
+        let (r, w) = socket.split();
         Connection {
             mode,
-            socket,
+            reader: r,
+            writer: futures::io::BufWriter::with_capacity(BLOCK_SIZE, w),
             codec: base::Codec::default(),
             extensions: SmallVec::new(),
             validate_utf8: false,
@@ -131,7 +134,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         if self.is_closed {
             return Ok(())
         }
-        self.socket.flush().await?;
+        self.writer.flush().await?;
         Ok(())
     }
 
@@ -143,7 +146,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         let mut header = Header::new(OpCode::Close);
         let mut code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut code[..]).await?;
-        self.socket.flush().await?;
+        self.writer.flush().await?;
         self.is_closed = true;
         Ok(())
     }
@@ -177,9 +180,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         header.set_payload_len(data.len());
         trace!("send: {}", header);
         let header_bytes = self.codec.encode_header(&header);
-        self.socket.write_all(header_bytes).await?;
+        self.writer.write_all(header_bytes).await?;
         if !data.is_empty() {
-            self.socket.write_all(data).await?;
+            self.writer.write_all(data).await?;
         }
         Ok(())
     }
@@ -210,7 +213,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 }
                 while self.buffer.len() < header.payload_len() {
                     unsafe {
-                        let n = self.socket.read(self.buffer.bytes_mut()).await?;
+                        let n = self.reader.read(self.buffer.bytes_mut()).await?;
                         self.buffer.advance_mut(n);
                         trace!("read {} bytes", n)
                     }
@@ -232,7 +235,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             while self.buffer.len() < header.payload_len() {
                 self.buffer.reserve(std::cmp::max(BLOCK_SIZE, header.payload_len()));
                 unsafe {
-                    let n = self.socket.read(self.buffer.bytes_mut()).await?;
+                    let n = self.reader.read(self.buffer.bytes_mut()).await?;
                     self.buffer.advance_mut(n);
                     trace!("read {} bytes", n)
                 }
@@ -300,7 +303,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                         self.buffer.reserve(BLOCK_SIZE)
                     }
                     unsafe {
-                        let n = self.socket.read(self.buffer.bytes_mut()).await?;
+                        let n = self.reader.read(self.buffer.bytes_mut()).await?;
                         self.buffer.advance_mut(n);
                         trace!("read {} bytes", n)
                     }
@@ -316,7 +319,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             OpCode::Ping => {
                 let mut answer = Header::new(OpCode::Pong);
                 self.write(&mut answer, data).await?;
-                self.socket.flush().await?;
+                self.writer.flush().await?;
                 Ok(())
             }
             OpCode::Pong => Ok(()),
@@ -328,7 +331,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 } else {
                     self.write(&mut header, &mut []).await?
                 }
-                self.socket.flush().await?;
+                self.writer.flush().await?;
                 self.is_closed = true;
                 Ok(())
             }

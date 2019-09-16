@@ -40,6 +40,7 @@ fn main() -> Result<(), BoxedError> {
                         } else {
                             c.send_binary(&mut data).await?
                         }
+                        c.flush().await?
                     }
                     Err(connection::Error::Closed) => break,
                     Err(e) => {

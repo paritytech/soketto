@@ -57,12 +57,14 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     c.validate_utf8(true);
     loop {
         match c.receive().await {
-            Ok((mut payload, is_text)) =>
+            Ok((mut payload, is_text)) => {
                 if is_text {
                     c.send_text(&mut payload).await?
                 } else {
                     c.send_binary(&mut payload).await?
                 }
+                c.flush().await?
+            }
             Err(connection::Error::Closed) => return Ok(()),
             Err(e) => return Err(e.into())
         }
