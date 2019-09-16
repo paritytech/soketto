@@ -29,7 +29,7 @@ use super::{
     with_first_header
 };
 
-const BLOCK_SIZE: usize = 8192;
+const BLOCK_SIZE: usize = 8 * 1024;
 
 /// Websocket client handshake.
 #[derive(Debug)]

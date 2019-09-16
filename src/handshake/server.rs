@@ -30,7 +30,7 @@ use super::{
     with_first_header
 };
 
-const BLOCK_SIZE: usize = 8192;
+const BLOCK_SIZE: usize = 8 * 1024;
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Websocket handshake client.

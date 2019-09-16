@@ -16,7 +16,7 @@ use smallvec::SmallVec;
 use static_assertions::const_assert;
 use std::{fmt, io};
 
-const BLOCK_SIZE: usize = 8192;
+const BLOCK_SIZE: usize = 8 * 1024;
 
 /// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -131,6 +131,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Flush the socket buffer.
     pub async fn flush(&mut self) -> Result<(), Error> {
+        trace!("flushing connection");
         if self.is_closed {
             return Ok(())
         }
@@ -140,13 +141,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Send a close message and close the connection.
     pub async fn close(&mut self) -> Result<(), Error> {
+        trace!("closing connection");
         if self.is_closed {
             return Ok(())
         }
         let mut header = Header::new(OpCode::Close);
         let mut code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut code[..]).await?;
-        self.writer.flush().await?;
+        self.writer.close().await?;
         self.is_closed = true;
         Ok(())
     }
@@ -184,6 +186,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         if !data.is_empty() {
             self.writer.write_all(data).await?;
         }
+        trace!("wrote {} bytes", header_bytes.len() + data.len());
         Ok(())
     }
 
@@ -331,7 +334,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 } else {
                     self.write(&mut header, &mut []).await?
                 }
-                self.writer.flush().await?;
+                self.writer.close().await?;
                 self.is_closed = true;
                 Ok(())
             }
