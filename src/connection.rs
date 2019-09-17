@@ -49,9 +49,9 @@ pub struct Connection<T> {
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     validate_utf8: bool,
     is_closed: bool,
-    rbuffer: BytesMut,
-    wbuffer: BytesMut,
-    message: BytesMut,
+    rbuffer: BytesMut, // read buffer
+    wbuffer: BytesMut, // write buffer
+    message: BytesMut, // message buffer (concatenated fragment payloads)
     max_message_size: usize
 }
 
@@ -198,9 +198,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Receive the next websocket message.
     ///
-    /// Fragmented messages will be concatenated and returned as on block.
-    /// The `bool` indicates if the data is textual (if `true`) or binary
-    /// (if `false`). If `Connection::validate_utf8` is `true` textual data
+    /// Fragmented messages will be concatenated and returned as one block.
+    /// The `bool` indicates if the data is textual (`true`) or binary
+    /// (`false`). If `Connection::validate_utf8` is `true` textual data
     /// is checked for well-formed UTF-8 encoding before returned.
     pub async fn receive(&mut self) -> Result<(BytesMut, bool), Error> {
         let mut first_fragment_opcode = None;
@@ -215,7 +215,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
             // Handle control frames.
             if header.opcode().is_control() {
-                debug_assert!(header.payload_len() < 126); // ensured by `base::Codec`
+                debug_assert!(header.payload_len() <= base::MAX_CTRL_BODY_SIZE);
                 self.read_buffer(&header).await?;
                 let mut data = self.rbuffer.split_to(header.payload_len());
                 self.codec.apply_mask(&header, &mut data);
@@ -285,19 +285,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Read the next frame header.
     async fn receive_header(&mut self) -> Result<Header, Error> {
+        if self.rbuffer.len() < base::MAX_HEADER_SIZE
+            && self.rbuffer.remaining_mut() < base::MAX_HEADER_SIZE
+        {
+            // We may not have enough data in our read buffer and there may
+            // not be enough capacity to read the next header, so reserve
+            // some extra space to make sure we can read as much.
+            self.rbuffer.reserve(BLOCK_SIZE)
+        }
+
         loop {
             match self.codec.decode_header(&self.rbuffer)? {
                 Parsing::Done { value: header, offset } => {
+                    debug_assert!(offset <= base::MAX_HEADER_SIZE);
                     self.rbuffer.split_to(offset);
                     return Ok(header)
                 }
-                Parsing::NeedMore(n) => {
-                    self.rbuffer.reserve(n);
-                    unsafe {
-                        let n = self.socket.read(self.rbuffer.bytes_mut()).await?;
-                        self.rbuffer.advance_mut(n);
-                        trace!("read {} bytes", n)
-                    }
+                Parsing::NeedMore(_) => {
+                    crate::read::<_, Error>(&mut self.socket, &mut self.rbuffer).await?
                 }
             }
         }
@@ -305,15 +310,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Read more data into read buffer if necessary.
     async fn read_buffer(&mut self, header: &Header) -> Result<(), Error> {
-        if header.payload_len() > self.rbuffer.len() {
-            let to_read = header.payload_len() - self.rbuffer.len();
-            self.rbuffer.reserve(to_read);
-            unsafe {
-                self.socket.read_exact(&mut self.rbuffer.bytes_mut()[.. to_read]).await?;
-                self.rbuffer.advance_mut(to_read);
-                trace!("read {} bytes", to_read)
-            }
+        if header.payload_len() <= self.rbuffer.len() {
+            return Ok(()) // We have enough data in our buffer.
         }
+
+        // We need to read data from the socket.
+        // Ensure we have enough capacity and ask for at least a single block
+        // so that we read a substantial amount.
+        self.rbuffer.reserve(std::cmp::max(BLOCK_SIZE, header.payload_len() - self.rbuffer.len()));
+
+        while self.rbuffer.len() < header.payload_len() {
+            crate::read::<_, Error>(&mut self.socket, &mut self.rbuffer).await?
+        }
+
         Ok(())
     }
 

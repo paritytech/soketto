@@ -21,7 +21,7 @@ use std::{io, fmt, str};
 pub use client::{Client, ServerResponse};
 pub use server::{Server, ClientRequest};
 
-// Defined in RFC6455 and used to generate the `Sec-WebSocket-Accept` header
+// Defined in RFC 6455 and used to generate the `Sec-WebSocket-Accept` header
 // in the server handshake response.
 const KEY: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -48,8 +48,7 @@ fn expect_ascii_header(headers: &[httparse::Header], name: &str, ours: &str) -> 
             }
             if str::from_utf8(header.value)?
                 .split(',')
-                .find(|v| v.trim().eq_ignore_ascii_case(ours))
-                .is_some()
+                .any(|v| v.trim().eq_ignore_ascii_case(ours))
             {
                 return Ok(State::Match)
             }

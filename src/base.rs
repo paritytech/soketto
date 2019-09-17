@@ -20,6 +20,12 @@
 use crate::{as_u64, Parsing};
 use std::{convert::TryFrom, fmt, io};
 
+/// Max. size of a frame header.
+pub(crate) const MAX_HEADER_SIZE: usize = 14;
+
+/// Max. size of a control frame payload.
+pub(crate) const MAX_CTRL_BODY_SIZE: usize = 125;
+
 // OpCode /////////////////////////////////////////////////////////////////////////////////////////
 
 /// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
@@ -325,7 +331,7 @@ pub struct Codec {
     /// Bits reserved by an extension.
     reserved_bits: u8,
     /// Scratch buffer used during header encoding.
-    header_buffer: [u8; 14]
+    header_buffer: [u8; MAX_HEADER_SIZE]
 }
 
 impl Default for Codec {
@@ -333,7 +339,7 @@ impl Default for Codec {
         Codec {
             max_data_size: 256 * 1024 * 1024,
             reserved_bits: 0,
-            header_buffer: [0; 14]
+            header_buffer: [0; MAX_HEADER_SIZE]
         }
     }
 }

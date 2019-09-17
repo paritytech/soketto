@@ -258,6 +258,14 @@ impl Extension for Deflate {
             self.buffer.reserve(data.len() - off);
             let n = d.total_out();
             unsafe {
+                // `bytes_mut()` is marked unsafe because it returns a
+                // reference to uninitialised memory. Since we only write
+                // to this memory, usage is safe here.
+                //
+                // `advance_mut()` is marked unsafe because it can not
+                // know if the memory is safe to read. Since we only
+                // advance for as many bytes as we have decompressed,
+                // usage is safe here.
                 d.decompress(&data[off ..], self.buffer.bytes_mut(), FlushDecompress::Sync)?;
                 self.buffer.advance_mut((d.total_out() - n).try_into()?);
             }
@@ -285,18 +293,36 @@ impl Extension for Deflate {
         self.buffer.clear();
 
         let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
+
         while c.total_in() < as_u64(data.len()) {
             let off: usize = c.total_in().try_into()?;
             self.buffer.reserve(data.len() - off);
             let n = c.total_out();
             unsafe {
+                // `bytes_mut()` is marked unsafe because it returns a
+                // reference to uninitialised memory. Since we only write
+                // to this memory, usage is safe here.
+                //
+                // `advance_mut()` is marked unsafe because it can not
+                // know if the memory is safe to read. Since we only
+                // advance for as many bytes as we have compressed, usage
+                // is safe here.
                 c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
                 self.buffer.advance_mut((c.total_out() - n).try_into()?)
             }
         }
+
         if self.buffer.remaining_mut() < 5 {
             self.buffer.reserve(5); // Make room for the trailing end bytes
             unsafe {
+                // `bytes_mut()` is marked unsafe because it returns a
+                // reference to uninitialised memory. Since we only write
+                // to this memory, usage is safe here.
+                //
+                // `advance_mut()` is marked unsafe because it can not
+                // know if the memory is safe to read. Since we only
+                // advance for as many bytes as we have compressed, usage
+                // is safe here.
                 let n = c.total_out();
                 c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
                 self.buffer.advance_mut((c.total_out() - n).try_into()?)
