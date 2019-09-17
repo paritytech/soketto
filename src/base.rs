@@ -13,7 +13,7 @@
 // [frame/base.rs]: https://github.com/rustyhorde/twist/blob/449d8b75c2/src/frame/base.rs
 // [codec/base.rs]: https://github.com/rustyhorde/twist/blob/449d8b75c2/src/codec/base.rs
 
-//! A websocket [base frame] codec.
+//! A websocket [base frame][base] codec.
 //!
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 
@@ -28,7 +28,7 @@ pub(crate) const MAX_CTRL_BODY_SIZE: usize = 125;
 
 // OpCode /////////////////////////////////////////////////////////////////////////////////////////
 
-/// Operation codes defined in [RFC6455](https://tools.ietf.org/html/rfc6455#section-5.2).
+/// Operation codes defined in [RFC 6455](https://tools.ietf.org/html/rfc6455#section-5.2).
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum OpCode {
     /// A continuation frame of a fragmented message.
