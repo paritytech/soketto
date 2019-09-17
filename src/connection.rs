@@ -15,7 +15,7 @@ use futures::prelude::*;
 use smallvec::SmallVec;
 use std::{fmt, io};
 
-const BLOCK_SIZE: usize = 16 * 1024;
+const BLOCK_SIZE: usize = 8 * 1024;
 
 /// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -42,15 +42,15 @@ impl Mode {
 
 /// A persistent websocket connection.
 #[derive(Debug)]
-pub struct Connection<T: AsyncWrite> {
+pub struct Connection<T> {
     mode: Mode,
-    reader: futures::io::ReadHalf<T>,
-    writer: futures::io::BufWriter<futures::io::WriteHalf<T>>,
+    socket: T,
     codec: base::Codec,
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     validate_utf8: bool,
     is_closed: bool,
-    buffer: BytesMut,
+    rbuffer: BytesMut,
+    wbuffer: BytesMut,
     message: BytesMut,
     max_message_size: usize
 }
@@ -58,16 +58,15 @@ pub struct Connection<T: AsyncWrite> {
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Create a new `Connection` from the given socket.
     pub fn new(socket: T, mode: Mode) -> Self {
-        let (r, w) = socket.split();
         Connection {
             mode,
-            reader: r,
-            writer: futures::io::BufWriter::with_capacity(BLOCK_SIZE, w),
+            socket,
             codec: base::Codec::default(),
             extensions: SmallVec::new(),
             validate_utf8: false,
             is_closed: false,
-            buffer: BytesMut::new(),
+            rbuffer: BytesMut::new(),
+            wbuffer: BytesMut::new(),
             message: BytesMut::new(),
             max_message_size: 256 * 1024 * 1024
         }
@@ -75,13 +74,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Set a custom buffer to use.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
-        self.buffer = b;
+        self.rbuffer = b;
         self
     }
 
     /// Extract the internal buffer bytes.
     pub fn take_buffer(&mut self) -> BytesMut {
-        self.buffer.take()
+        self.rbuffer.take()
     }
 
     /// Add extensions to this connection.
@@ -134,7 +133,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         if self.is_closed {
             return Ok(())
         }
-        self.writer.flush().await?;
+        if !self.wbuffer.is_empty() {
+            self.socket.write_all(&self.wbuffer).await?;
+            trace!("flushed {} bytes", self.wbuffer.len());
+            self.wbuffer.clear()
+        }
+        self.socket.flush().await?;
         Ok(())
     }
 
@@ -147,7 +151,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         let mut header = Header::new(OpCode::Close);
         let mut code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut code[..]).await?;
-        self.writer.close().await?;
+        self.flush().await?;
+        self.socket.close().await?;
         self.is_closed = true;
         Ok(())
     }
@@ -180,12 +185,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         }
         header.set_payload_len(data.len());
         trace!("send: {}", header);
-        let header_bytes = self.codec.encode_header(&header);
-        self.writer.write_all(header_bytes).await?;
-        if !data.is_empty() {
-            self.writer.write_all(data).await?;
+        if self.wbuffer.len() > BLOCK_SIZE {
+            self.socket.write_all(&self.wbuffer).await?;
+            trace!("wrote {} bytes", self.wbuffer.len());
+            self.wbuffer.clear()
         }
-        trace!("wrote {} bytes", header_bytes.len() + data.len());
+        let header_bytes = self.codec.encode_header(&header);
+        self.wbuffer.extend_from_slice(header_bytes);
+        self.wbuffer.extend_from_slice(data);
         Ok(())
     }
 
@@ -210,7 +217,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             if header.opcode().is_control() {
                 debug_assert!(header.payload_len() < 126); // ensured by `base::Codec`
                 self.read_buffer(&header).await?;
-                let mut data = self.buffer.split_to(header.payload_len());
+                let mut data = self.rbuffer.split_to(header.payload_len());
                 self.codec.apply_mask(&header, &mut data);
                 self.on_control(&header, &mut data).await?;
                 continue
@@ -226,8 +233,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             }
 
             self.read_buffer(&header).await?;
-            self.codec.apply_mask(&header, &mut self.buffer[.. header.payload_len()]);
-            self.message.unsplit(self.buffer.split_to(header.payload_len()));
+            self.codec.apply_mask(&header, &mut self.rbuffer[.. header.payload_len()]);
+            self.message.unsplit(self.rbuffer.split_to(header.payload_len()));
 
             match (header.is_fin(), header.opcode()) {
                 (false, OpCode::Continue) => { // Intermediate message fragment.
@@ -279,16 +286,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Read the next frame header.
     async fn receive_header(&mut self) -> Result<Header, Error> {
         loop {
-            match self.codec.decode_header(&self.buffer)? {
+            match self.codec.decode_header(&self.rbuffer)? {
                 Parsing::Done { value: header, offset } => {
-                    self.buffer.split_to(offset);
+                    self.rbuffer.split_to(offset);
                     return Ok(header)
                 }
                 Parsing::NeedMore(n) => {
-                    self.buffer.reserve(n);
+                    self.rbuffer.reserve(n);
                     unsafe {
-                        let n = self.reader.read(self.buffer.bytes_mut()).await?;
-                        self.buffer.advance_mut(n);
+                        let n = self.socket.read(self.rbuffer.bytes_mut()).await?;
+                        self.rbuffer.advance_mut(n);
                         trace!("read {} bytes", n)
                     }
                 }
@@ -296,13 +303,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         }
     }
 
+    /// Read more data into read buffer if necessary.
     async fn read_buffer(&mut self, header: &Header) -> Result<(), Error> {
-        if header.payload_len() > self.buffer.len() {
-            let to_read = header.payload_len() - self.buffer.len();
-            self.buffer.reserve(to_read);
+        if header.payload_len() > self.rbuffer.len() {
+            let to_read = header.payload_len() - self.rbuffer.len();
+            self.rbuffer.reserve(to_read);
             unsafe {
-                self.reader.read_exact(&mut self.buffer.bytes_mut()[.. to_read]).await?;
-                self.buffer.advance_mut(to_read);
+                self.socket.read_exact(&mut self.rbuffer.bytes_mut()[.. to_read]).await?;
+                self.rbuffer.advance_mut(to_read);
                 trace!("read {} bytes", to_read)
             }
         }
@@ -316,7 +324,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             OpCode::Ping => {
                 let mut answer = Header::new(OpCode::Pong);
                 self.write(&mut answer, data).await?;
-                self.writer.flush().await?;
                 Ok(())
             }
             OpCode::Pong => Ok(()),
@@ -328,7 +335,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
                 } else {
                     self.write(&mut header, &mut []).await?
                 }
-                self.writer.close().await?;
+                self.flush().await?;
+                self.socket.close().await?;
                 self.is_closed = true;
                 Ok(())
             }
