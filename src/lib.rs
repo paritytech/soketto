@@ -51,12 +51,14 @@ where
     unsafe {
         // `bytes_mut()` is marked unsafe because it returns a
         // reference to uninitialised memory. Since we do not
-        // read this memory, usage is safe here.
+        // read this memory and initialise it if necessary,
+        // usage is safe here.
         //
         // `advance_mut()` is marked unsafe because it can not
         // know if the memory is safe to read. Since we only
         // advance for as many bytes as we have read, usage is
         // safe here.
+        r.initializer().initialize(b.bytes_mut());
         let n = r.read(b.bytes_mut()).await?;
         b.advance_mut(n);
         log::trace!("read {} bytes", n)
