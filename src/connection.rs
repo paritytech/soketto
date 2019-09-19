@@ -13,6 +13,7 @@ use crate::{Parsing, base::{self, Header, OpCode}, extension::Extension};
 use log::{debug, trace, warn};
 use futures::prelude::*;
 use smallvec::SmallVec;
+use static_assertions::const_assert;
 use std::{fmt, io};
 
 const BLOCK_SIZE: usize = 8 * 1024;
@@ -291,6 +292,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
             // We may not have enough data in our read buffer and there may
             // not be enough capacity to read the next header, so reserve
             // some extra space to make sure we can read as much.
+            const_assert!(min_block_size_check; base::MAX_HEADER_SIZE < BLOCK_SIZE);
             self.rbuffer.reserve(BLOCK_SIZE)
         }
 
