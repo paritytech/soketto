@@ -36,11 +36,11 @@ fn main() -> Result<(), BoxedError> {
 }
 
 async fn num_of_cases() -> Result<usize, BoxedError> {
-    let s = TcpStream::connect("127.0.0.1:9001").await?;
-    let mut c = new_client(s, "/getCaseCount");
-    assert_matches!(c.handshake().await?, handshake::ServerResponse::Accepted {..});
-    let mut c = c.into_connection(true);
-    let (payload, is_text) = c.receive().await?;
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, "/getCaseCount");
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    let mut websocket = client.into_connection();
+    let (payload, is_text) = websocket.receive().await?;
     assert!(is_text);
     let num = usize::from_str(std::str::from_utf8(&payload)?)?;
     log::info!("{} cases to run", num);
@@ -50,20 +50,19 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
 async fn run_case(n: usize) -> Result<(), BoxedError> {
     log::info!("running case {}", n);
     let resource = format!("/runCase?case={}&agent=soketto-{}", n, SOKETTO_VERSION);
-    let s = TcpStream::connect("127.0.0.1:9001").await?;
-    let mut c = new_client(s, &resource);
-    assert_matches!(c.handshake().await?, handshake::ServerResponse::Accepted {..});
-    let mut c = c.into_connection(true);
-    c.validate_utf8(true);
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, &resource);
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    let mut websocket = client.into_connection();
     loop {
-        match c.receive().await {
+        match websocket.receive().await {
             Ok((mut payload, is_text)) => {
                 if is_text {
-                    c.send_text(&mut payload).await?
+                    websocket.send_text(&mut payload).await?
                 } else {
-                    c.send_binary(&mut payload).await?
+                    websocket.send_binary(&mut payload).await?
                 }
-                c.flush().await?
+                websocket.flush().await?
             }
             Err(connection::Error::Closed) => return Ok(()),
             Err(e) => return Err(e.into())
@@ -74,10 +73,10 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
 async fn update_report() -> Result<(), BoxedError> {
     log::info!("requesting report generation");
     let resource = format!("/updateReports?agent=soketto-{}", SOKETTO_VERSION);
-    let s = TcpStream::connect("127.0.0.1:9001").await?;
-    let mut c = new_client(s, &resource);
-    assert_matches!(c.handshake().await?, handshake::ServerResponse::Accepted {..});
-    c.into_connection(true).close().await?;
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, &resource);
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    client.into_connection().close().await?;
     Ok(())
 }
 

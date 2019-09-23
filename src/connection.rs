@@ -58,13 +58,13 @@ pub struct Connection<T> {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Create a new `Connection` from the given socket.
-    pub fn new(socket: T, mode: Mode) -> Self {
+    pub(crate) fn new(socket: T, mode: Mode) -> Self {
         Connection {
             mode,
             socket,
             codec: base::Codec::default(),
             extensions: SmallVec::new(),
-            validate_utf8: false,
+            validate_utf8: true,
             is_closed: false,
             rbuffer: BytesMut::new(),
             wbuffer: BytesMut::new(),
@@ -108,6 +108,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     }
 
     /// Toggle UTF-8 check for incoming text messages.
+    ///
+    /// By default all text frames are validated.
     pub fn validate_utf8(&mut self, value: bool) -> &mut Self {
         self.validate_utf8 = value;
         self

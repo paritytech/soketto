@@ -118,15 +118,10 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     }
 
     /// Turn this handshake into a [`Connection`].
-    ///
-    /// If `take_over_extensions` is true, the extensions from this
-    /// handshake will be set on the `Connection` returned.
-    pub fn into_connection(mut self, take_over_extensions: bool) -> Connection<T> {
+    pub fn into_connection(mut self) -> Connection<T> {
         let mut c = Connection::new(self.socket, Mode::Client);
         c.set_buffer(self.buffer);
-        if take_over_extensions {
-            c.add_extensions(self.extensions.drain());
-        }
+        c.add_extensions(self.extensions.drain());
         c
     }
 

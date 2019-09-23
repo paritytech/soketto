@@ -22,25 +22,24 @@ fn main() -> Result<(), BoxedError> {
     task::block_on(async {
         let listener = TcpListener::bind("127.0.0.1:9001").await?;
         let mut incoming = listener.incoming();
-        while let Some(s) = incoming.next().await {
-            let mut s = new_server(s?);
+        while let Some(socket) = incoming.next().await {
+            let mut server = new_server(socket?);
             let key = {
-                let req = s.receive_request().await?;
+                let req = server.receive_request().await?;
                 req.into_key()
             };
             let accept = handshake::server::Response::Accept { key: &key, protocol: None };
-            s.send_response(&accept).await?;
-            let mut c = s.into_connection(true);
-            c.validate_utf8(true);
+            server.send_response(&accept).await?;
+            let mut websocket = server.into_connection();
             loop {
-                match c.receive().await {
+                match websocket.receive().await {
                     Ok((mut data, is_text)) => {
                         if is_text {
-                            c.send_text(&mut data).await?
+                            websocket.send_text(&mut data).await?
                         } else {
-                            c.send_binary(&mut data).await?
+                            websocket.send_binary(&mut data).await?
                         }
-                        c.flush().await?
+                        websocket.flush().await?
                     }
                     Err(connection::Error::Closed) => break,
                     Err(e) => {
@@ -65,6 +64,5 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
     let deflate = soketto::extension::deflate::Deflate::new(soketto::connection::Mode::Server);
     server.add_extension(Box::new(deflate));
     server
-
 }
 
