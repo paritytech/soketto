@@ -16,7 +16,12 @@ use smallvec::SmallVec;
 use static_assertions::const_assert;
 use std::{fmt, io};
 
+/// Allocation block size.
 const BLOCK_SIZE: usize = 8 * 1024;
+/// Accumulated max. size of a complete message.
+const MAX_MESSAGE_SIZE: usize = 256 * 1024 * 1024;
+/// Max. size of a single message frame.
+const MAX_FRAME_SIZE: usize = MAX_MESSAGE_SIZE;
 
 /// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -59,17 +64,20 @@ pub struct Connection<T> {
 impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
     /// Create a new `Connection` from the given socket.
     pub(crate) fn new(socket: T, mode: Mode) -> Self {
+        let mut codec = base::Codec::default();
+        codec.set_max_data_size(MAX_FRAME_SIZE);
+
         Connection {
             mode,
             socket,
-            codec: base::Codec::default(),
+            codec,
             extensions: SmallVec::new(),
             validate_utf8: true,
             is_closed: false,
             rbuffer: BytesMut::new(),
             wbuffer: BytesMut::new(),
             message: BytesMut::new(),
-            max_message_size: 256 * 1024 * 1024
+            max_message_size: MAX_MESSAGE_SIZE
         }
     }
 
@@ -99,11 +107,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
         self
     }
 
-    /// Set the maximum size of a (fragmented) message.
+    /// Set the maximum size of a complete message.
     ///
-    /// Message fragments will be buffered and concatenated up to this value.
+    /// Message fragments will be buffered and concatenated up to this value,
+    /// i.e. the sum of all message frames payload lengths will not be greater
+    /// than this maximum. However, extensions may increase the total message
+    /// size further, e.g. by decompressing the payload data.
     pub fn set_max_message_size(&mut self, max: usize) -> &mut Self {
         self.max_message_size = max;
+        self
+    }
+
+    /// Set the maximum size of a single websocket frame payload.
+    pub fn set_max_frame_size(&mut self, max: usize) -> &mut Self {
+        self.codec.set_max_data_size(max);
         self
     }
 
