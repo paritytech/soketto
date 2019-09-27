@@ -143,10 +143,21 @@ where
         // know if the memory is safe to read. Since we only
         // advance for as many bytes as we have read, usage is
         // safe here.
-        r.initializer().initialize(b.bytes_mut());
+        initialise(b.bytes_mut());
         let n = r.read(b.bytes_mut()).await?;
         b.advance_mut(n);
         log::trace!("read {} bytes", n)
     }
     Ok(())
 }
+
+/// Helper to initialise a slice by filling it with 0s.
+fn initialise(m: &mut [u8]) {
+    if cfg!(feature = "read_with_uninitialised_memory") {
+        return ()
+    }
+    unsafe {
+        std::ptr::write_bytes(m.as_mut_ptr(), 0, m.len())
+    }
+}
+

@@ -14,7 +14,21 @@ all-features = true
 
 [features]
 deflate = ["flate2"]
+
+# This feature enables the use of uninitialised memory for the deflate
+# extension. When compressing or decompressing, an uninitialised byte
+# slice will be used for writing the resulting bytes, assuming that
+# flate2 really only writes to and does not read from this memory.
 deflate_with_uninitialised_memory = []
+
+# This feature enables the use of uninitialised memory in conjunction with
+# `AsyncRead::read`. It relies on the implementation of `AsyncRead` to not
+# read from but only to write to this byte slice. We used to use
+# `AsyncRead::initialize` and the resulting `futures::io::Initializer`
+# for this purpose, but the later became an unstable API beginning
+# with futures-preview 0.3.0-alpha.19 so by default we now do zero the
+# byte slice before calling `read` unless this feature is used.
+read_with_uninitialised_memory = []
 
 [dependencies]
 base64 = "0.10.1"
