@@ -14,37 +14,28 @@ all-features = true
 
 [features]
 deflate = ["flate2"]
-
 # This feature enables the use of uninitialised memory for the deflate
 # extension. When compressing or decompressing, an uninitialised byte
 # slice will be used for writing the resulting bytes, assuming that
 # flate2 really only writes to and does not read from this memory.
 deflate_with_uninitialised_memory = []
 
-# This feature enables the use of uninitialised memory in conjunction with
-# `AsyncRead::read`. It relies on the implementation of `AsyncRead` to not
-# read from but only to write to this byte slice. We used to use
-# `AsyncRead::initialize` and the resulting `futures::io::Initializer`
-# for this purpose, but the later became an unstable API beginning
-# with futures-preview 0.3.0-alpha.19 so by default we now do zero the
-# byte slice before calling `read` unless this feature is used.
-read_with_uninitialised_memory = []
-
 [dependencies]
 base64 = "0.10.1"
 bytes = "0.4.12"
-flate2 = { version = "1.0.8", features = ["zlib"], default-features = false, optional = true }
+flate2 = { version = "1.0.11", features = ["zlib"], default-features = false, optional = true }
 futures-preview = "0.3.0-alpha.18"
-http = "0.1.17"
-httparse = "1.3.3"
-log = "0.4.6"
-rand = "0.6.5"
+http = "0.1.18"
+httparse = "1.3.4"
+log = "0.4.8"
+rand = "0.7.2"
 sha1 = "0.6.0"
-smallvec = "0.6.9"
-static_assertions = "0.3.4"
+smallvec = "0.6.10"
+tokio-codec = "0.2.0-alpha.5"
+tokio-io = "0.2.0-alpha.5"
 
 [dev-dependencies]
 assert_matches = "1.3.0"
-async-std = "0.99"
-env_logger = "0.6.1"
-quickcheck = "0.8.5"
+async-std = "0.99.8"
+env_logger = "0.7.0"
+quickcheck = "0.9.0"

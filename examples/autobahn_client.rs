@@ -16,7 +16,8 @@
 
 use assert_matches::assert_matches;
 use async_std::{net::TcpStream, task};
-use soketto::{BoxedError, connection, handshake};
+use futures::prelude::*;
+use soketto::{BoxedError, handshake};
 use std::str::FromStr;
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -40,9 +41,9 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
     let mut client = new_client(socket, "/getCaseCount");
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
     let mut websocket = client.into_connection();
-    let (payload, is_text) = websocket.receive().await?;
-    assert!(is_text);
-    let num = usize::from_str(std::str::from_utf8(&payload)?)?;
+    let data = websocket.next().await.unwrap()?;
+    assert!(data.is_text());
+    let num = usize::from_str(std::str::from_utf8(data.as_ref())?)?;
     log::info!("{} cases to run", num);
     Ok(num)
 }
@@ -54,20 +55,11 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     let mut client = new_client(socket, &resource);
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
     let mut websocket = client.into_connection();
-    loop {
-        match websocket.receive().await {
-            Ok((mut payload, is_text)) => {
-                if is_text {
-                    websocket.send_text(&mut payload).await?
-                } else {
-                    websocket.send_binary(&mut payload).await?
-                }
-                websocket.flush().await?
-            }
-            Err(connection::Error::Closed) => return Ok(()),
-            Err(e) => return Err(e.into())
-        }
+    while let Some(data) = websocket.next().await {
+        websocket.send(data?).await?;
+        websocket.flush().await?
     }
+    Ok(())
 }
 
 async fn update_report() -> Result<(), BoxedError> {

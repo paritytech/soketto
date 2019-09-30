@@ -147,6 +147,7 @@ impl Extension for Deflate {
             Mode::Server => {
                 self.params.clear();
                 for p in params {
+                    trace!("configure server with: {}", p);
                     match p.name() {
                         CLIENT_MAX_WINDOW_BITS =>
                             if self.set_their_max_window_bits(&p, None).is_err() {
@@ -184,6 +185,7 @@ impl Extension for Deflate {
             Mode::Client => {
                 let mut server_no_context_takeover = false;
                 for p in params {
+                    trace!("configure client with: {}", p);
                     match p.name() {
                         SERVER_NO_CONTEXT_TAKEOVER => server_no_context_takeover = true,
                         CLIENT_NO_CONTEXT_TAKEOVER => {} // must be supported

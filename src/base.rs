@@ -21,10 +21,10 @@ use crate::{as_u64, Parsing};
 use std::{convert::TryFrom, fmt, io};
 
 /// Max. size of a frame header.
-pub(crate) const MAX_HEADER_SIZE: usize = 14;
+const MAX_HEADER_SIZE: usize = 14;
 
 /// Max. size of a control frame payload.
-pub(crate) const MAX_CTRL_BODY_SIZE: usize = 125;
+const MAX_CTRL_BODY_SIZE: u64 = 125;
 
 // OpCode /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -446,7 +446,7 @@ impl Codec {
             n => u64::from(n)
         };
 
-        if len > 125 && header.opcode().is_control() {
+        if len > MAX_CTRL_BODY_SIZE && header.opcode().is_control() {
             return Err(Error::InvalidControlFrameLen)
         }
 
@@ -533,7 +533,7 @@ impl Codec {
     }
 
     /// Use the given header's mask and apply it to the data.
-    pub fn apply_mask(&self, header: &Header, data: &mut [u8]) {
+    pub fn apply_mask(header: &Header, data: &mut [u8]) {
         if header.is_masked() {
             let mask = header.mask().to_be_bytes();
             for (byte, &key) in data.iter_mut().zip(mask.iter().cycle()) {

@@ -14,8 +14,9 @@
 //
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
-use async_std::{net::{TcpListener, TcpStream}, prelude::*, task};
-use soketto::{BoxedError, connection, handshake};
+use async_std::{net::{TcpListener, TcpStream}, task};
+use futures::prelude::*;
+use soketto::{BoxedError, handshake};
 
 fn main() -> Result<(), BoxedError> {
     env_logger::init();
@@ -31,17 +32,12 @@ fn main() -> Result<(), BoxedError> {
             let accept = handshake::server::Response::Accept { key: &key, protocol: None };
             server.send_response(&accept).await?;
             let mut websocket = server.into_connection();
-            loop {
-                match websocket.receive().await {
-                    Ok((mut data, is_text)) => {
-                        if is_text {
-                            websocket.send_text(&mut data).await?
-                        } else {
-                            websocket.send_binary(&mut data).await?
-                        }
+            while let Some(data) = websocket.next().await {
+                match data {
+                    Ok(data) => {
+                        websocket.send(data).await?;
                         websocket.flush().await?
                     }
-                    Err(connection::Error::Closed) => break,
                     Err(e) => {
                         log::error!("connection error: {}", e);
                         break

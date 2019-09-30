@@ -20,6 +20,7 @@
 //!
 //! ```
 //! # use async_std::net::TcpStream;
+//! # use futures::prelude::*;
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Client, ServerResponse};
 //!
@@ -39,12 +40,16 @@
 //! };
 //!
 //! // Over the established websocket connection we can send
-//! websocket.send_text(&mut "some text".into()).await?;
-//! websocket.send_text(&mut "some more text".into()).await?;
+//! websocket.send("some text".into()).await?;
+//! websocket.send(b"some bytes"[..].into()).await?;
 //! websocket.flush().await?;
 //!
 //! // ... and receive data.
-//! let (answer, is_text) = websocket.receive().await?;
+//! let data = websocket.next().await.unwrap();
+//! assert!(data?.is_text());
+//!
+//! let data = websocket.next().await.unwrap();
+//! assert!(data?.is_binary());
 //!
 //! # Ok(())
 //! # });
@@ -54,7 +59,8 @@
 //! ## Server
 //!
 //! ```
-//! # use async_std::{net::TcpListener, prelude::*};
+//! # use async_std::net::TcpListener;
+//! # use futures::prelude::*;
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Server, ClientRequest, server::Response};
 //!
@@ -77,13 +83,10 @@
 //!
 //!     // And we can finally transition to a websocket connection.
 //!     let mut websocket = server.into_connection();
-//!     let (mut message, is_text) = websocket.receive().await?;
-//!     if is_text {
-//!         websocket.send_text(&mut message).await?
-//!     } else {
-//!         websocket.send_binary(&mut message).await?
+//!     if let Some(data) = websocket.next().await {
+//!         websocket.send(data?).await?;
+//!         websocket.close().await?
 //!     }
-//!     websocket.close().await?;
 //! }
 //!
 //! # Ok(())
@@ -145,17 +148,13 @@ where
         // safe here.
         initialise(b.bytes_mut());
         let n = r.read(b.bytes_mut()).await?;
-        b.advance_mut(n);
-        log::trace!("read {} bytes", n)
+        b.advance_mut(n)
     }
     Ok(())
 }
 
 /// Helper to initialise a slice by filling it with 0s.
 fn initialise(m: &mut [u8]) {
-    if cfg!(feature = "read_with_uninitialised_memory") {
-        return ()
-    }
     unsafe {
         std::ptr::write_bytes(m.as_mut_ptr(), 0, m.len())
     }

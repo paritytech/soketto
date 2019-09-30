@@ -104,8 +104,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
     /// Turn this handshake into a [`Connection`].
     pub fn into_connection(mut self) -> Connection<T> {
-        let mut c = Connection::new(self.socket, Mode::Server);
-        c.set_buffer(self.buffer);
+        let mut c = Connection::new(self.socket, Mode::Server, self.buffer);
         c.add_extensions(self.extensions.drain());
         c
     }
