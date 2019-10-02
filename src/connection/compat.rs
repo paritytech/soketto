@@ -17,21 +17,19 @@ use std::{io, pin::Pin, task::{Context, Poll}};
 #[derive(Debug)]
 pub(crate) struct AioCompat<T>(pub(crate) T);
 
-impl<T> AioCompat<T> {
+impl<T: Unpin> AioCompat<T> {
     fn inner(self: Pin<&mut Self>) -> Pin<&mut T> {
-        unsafe {
-            Pin::map_unchecked_mut(self, |this| &mut this.0)
-        }
+        Pin::new(&mut self.get_mut().0)
     }
 }
 
-impl<T: AsyncRead> tokio_io::AsyncRead for AioCompat<T> {
+impl<T: AsyncRead + Unpin> tokio_io::AsyncRead for AioCompat<T> {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         self.inner().poll_read(cx, buf)
     }
 }
 
-impl<T: AsyncWrite> tokio_io::AsyncWrite for AioCompat<T> {
+impl<T: AsyncWrite + Unpin> tokio_io::AsyncWrite for AioCompat<T> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
         self.inner().poll_write(cx, buf)
     }

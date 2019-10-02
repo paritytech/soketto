@@ -150,9 +150,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
 
     /// Pin projection for `self.framed`.
     fn framed(self: Pin<&mut Self>) -> Pin<&mut tokio_codec::Framed<AioCompat<T>, FrameCodec>> {
-        unsafe {
-            Pin::map_unchecked_mut(self, |this| &mut this.framed)
-        }
+        Pin::new(&mut self.get_mut().framed)
     }
 
     /// If we are a websocket client, create and apply a mask.
