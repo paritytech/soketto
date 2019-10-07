@@ -32,13 +32,10 @@ impl Data {
     pub fn len(&self) -> usize {
         self.as_ref().len()
     }
+}
 
-    /// Get a mutable reference to the inner bytes.
-    ///
-    /// Not public because a mutable reference to UTF-8 encoded text
-    /// may be used to change it in ways that render the encoding
-    /// invalid. Use with care!
-    pub(crate) fn as_mut(&mut self) -> &mut BytesMut {
+impl AsRef<BytesMut> for Data {
+    fn as_ref(&self) -> &BytesMut {
         match self {
             Data::Binary(d) => d,
             Data::Text(d) => d
@@ -46,8 +43,8 @@ impl Data {
     }
 }
 
-impl AsRef<BytesMut> for Data {
-    fn as_ref(&self) -> &BytesMut {
+impl AsMut<BytesMut> for Data {
+    fn as_mut(&mut self) -> &mut BytesMut {
         match self {
             Data::Binary(d) => d,
             Data::Text(d) => d
