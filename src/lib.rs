@@ -126,7 +126,7 @@ pub enum Parsing<T, N = ()> {
 /// Helper function to allow casts from `usize` to `u64` only on platforms
 /// where the sizes are guaranteed to fit.
 #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-pub(crate) fn as_u64(a: usize) -> u64 {
+const fn as_u64(a: usize) -> u64 {
     a as u64
 }
 
