@@ -14,170 +14,73 @@
 //
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
-use futures::{future::{self, Either}, prelude::*};
-use log::debug;
-use soketto::{base, handshake, connection::{self, Connection}};
-use std::{borrow::Cow, error, io, str::FromStr};
-use tokio::codec::{Framed, FramedParts};
-use tokio::net::TcpStream;
+use assert_matches::assert_matches;
+use async_std::{net::TcpStream, task};
+use futures::prelude::*;
+use soketto::{BoxedError, handshake};
+use std::str::FromStr;
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), BoxedError> {
     env_logger::init();
-    let n = num_of_cases()?;
-    for i in 1 ..= n {
-        if let Err(e) = run_case(i) {
-            debug!("case {}: {:?}", i, e)
+    task::block_on(async {
+        let n = num_of_cases().await?;
+        for i in 1 ..= n {
+            if let Err(e) = run_case(i).await {
+                log::error!("case {}: {:?}", i, e)
+            }
         }
+        update_report().await?;
+        Ok(())
+    })
+}
+
+async fn num_of_cases() -> Result<usize, BoxedError> {
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, "/getCaseCount");
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    let mut websocket = client.into_connection();
+    let data = websocket.next().await.unwrap()?;
+    assert!(data.is_text());
+    let num = usize::from_str(std::str::from_utf8(data.as_ref())?)?;
+    log::info!("{} cases to run", num);
+    Ok(num)
+}
+
+async fn run_case(n: usize) -> Result<(), BoxedError> {
+    log::info!("running case {}", n);
+    let resource = format!("/runCase?case={}&agent=soketto-{}", n, SOKETTO_VERSION);
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, &resource);
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    let mut websocket = client.into_connection();
+    while let Some(data) = websocket.next().await {
+        websocket.send(data?).await?;
+        websocket.flush().await?
     }
-    update_report()?;
     Ok(())
 }
 
-fn num_of_cases() -> Result<usize, Box<dyn error::Error>> {
-    let addr = "127.0.0.1:9001".parse().unwrap();
-    TcpStream::connect(&addr)
-        .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-        .and_then(|socket| {
-            let client = handshake::Client::new("127.0.0.1:9001", "/getCaseCount");
-            tokio::codec::Framed::new(socket, client)
-                .send(())
-                .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-                .and_then(|framed| {
-                    framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>)
-                })
-                .and_then(|(response, framed)| {
-                    match response {
-                        None => {
-                            let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                            return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
-                        }
-                        Some(handshake::Response::Redirect(r)) => {
-                            unimplemented!("redirect to {} ({})", r.location(), r.status_code())
-                        }
-                        Some(handshake::Response::Accepted(_)) => {}
-                    }
-                    let framed = {
-                        let codec = base::Codec::new();
-                        let old = framed.into_parts();
-                        let mut new = FramedParts::new(old.io, codec);
-                        new.read_buf = old.read_buf;
-                        new.write_buf = old.write_buf;
-                        let framed = Framed::from_parts(new);
-                        connection::Connection::from_framed(framed, connection::Mode::Client)
-                    };
-                    Either::B(framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>))
-                })
-                .and_then(|(data, _framed)| {
-                    let bytes = match data {
-                        Some(base::Data::Binary(b)) => b,
-                        Some(base::Data::Text(b)) => b,
-                        None => {
-                            let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                            return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
-                        }
-                    };
-                    if let Ok(s) = std::str::from_utf8(&bytes) {
-                        return Either::B(future::ok(usize::from_str(s).unwrap_or(0)))
-                    }
-                    let e = io::Error::new(io::ErrorKind::Other, "invalid payload");
-                    Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
-                })
-        })
-        .wait()
-}
-
-fn run_case(n: usize) -> Result<(), Box<dyn error::Error>> {
-    let addr = "127.0.0.1:9001".parse().unwrap();
-    TcpStream::connect(&addr)
-        .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-        .and_then(move |socket| {
-            let resource = format!("/runCase?case={}&agent=soketto-{}", n, SOKETTO_VERSION);
-            tokio::codec::Framed::new(socket, new_client(resource))
-                .send(())
-                .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-                .and_then(|framed| {
-                    framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>)
-                })
-                .and_then(|(response, framed)| {
-                    if response.is_none() {
-                        let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                        return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
-                    }
-                    let connection = {
-                        let codec = base::Codec::new();
-                        let mut old = framed.into_parts();
-                        let mut new = FramedParts::new(old.io, codec);
-                        new.read_buf = old.read_buf;
-                        new.write_buf = old.write_buf;
-                        let framed = Framed::from_parts(new);
-                        let mut conn = Connection::from_framed(framed, connection::Mode::Client);
-                        conn.add_extensions(old.codec.drain_extensions());
-                        conn
-                    };
-                    Either::B(future::ok(connection))
-                })
-                .and_then(|connection| {
-                    let (sink, stream) = connection.split();
-                    let sink = sink.with(|data: base::Data| {
-                        if data.is_text() {
-                            std::str::from_utf8(data.as_ref())?;
-                        }
-                        Ok(data)
-                    });
-                    stream.forward(sink)
-                        .and_then(|(_stream, mut sink)| future::poll_fn(move || sink.close()))
-                        .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-                })
-        })
-        .wait()
-}
-
-fn update_report() -> Result<(), Box<dyn error::Error>> {
-    let addr = "127.0.0.1:9001".parse().unwrap();
-    TcpStream::connect(&addr)
-        .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-        .and_then(|socket| {
-            let resource = format!("/updateReports?agent=soketto-{}", SOKETTO_VERSION);
-            let client = handshake::Client::new("127.0.0.1:9001", resource);
-            tokio::codec::Framed::new(socket, client)
-                .send(())
-                .map_err(|e| Box::new(e) as Box<dyn error::Error>)
-                .and_then(|framed| {
-                    framed.into_future().map_err(|(e, _)| Box::new(e) as Box<dyn error::Error>)
-                })
-                .and_then(|(response, framed)| {
-                    if response.is_none() {
-                        let e: io::Error = io::ErrorKind::ConnectionAborted.into();
-                        return Either::A(future::err(Box::new(e) as Box<dyn error::Error>))
-                    }
-                    let mut framed = {
-                        let codec = base::Codec::new();
-                        let old = framed.into_parts();
-                        let mut new = FramedParts::new(old.io, codec);
-                        new.read_buf = old.read_buf;
-                        new.write_buf = old.write_buf;
-                        let framed = Framed::from_parts(new);
-                        connection::Connection::from_framed(framed, connection::Mode::Client)
-                    };
-                    Either::B(future::poll_fn(move || {
-                        framed.close().map_err(|e| Box::new(e) as Box<dyn error::Error>)
-                    }))
-                })
-        })
-        .wait()
+async fn update_report() -> Result<(), BoxedError> {
+    log::info!("requesting report generation");
+    let resource = format!("/updateReports?agent=soketto-{}", SOKETTO_VERSION);
+    let socket = TcpStream::connect("127.0.0.1:9001").await?;
+    let mut client = new_client(socket, &resource);
+    assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
+    client.into_connection().close().await?;
+    Ok(())
 }
 
 #[cfg(not(feature = "deflate"))]
-fn new_client<'a>(path: impl Into<Cow<'a, str>>) -> handshake::Client<'a> {
-    handshake::Client::new("127.0.0.1:9001", path)
+fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, TcpStream> {
+    handshake::Client::new(socket, "127.0.0.1:9001", path)
 }
 
 #[cfg(feature = "deflate")]
-fn new_client<'a>(path: impl Into<Cow<'a, str>>) -> handshake::Client<'a> {
-    let mut client = handshake::Client::new("127.0.0.1:9001", path);
-    let deflate = soketto::extension::deflate::Deflate::new(connection::Mode::Client);
+fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, TcpStream> {
+    let mut client = handshake::Client::new(socket, "127.0.0.1:9001", path);
+    let deflate = soketto::extension::deflate::Deflate::new(soketto::connection::Mode::Client);
     client.add_extension(Box::new(deflate));
     client
 }

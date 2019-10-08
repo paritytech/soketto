@@ -6,19 +6,29 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-//! A [`futures::Stream`] + [`futures::Sink`] implementation which produces
-//! and consumes [`base::Data`] items.
+//! A persistent websocket connection after the handshake phase.
 
-use crate::{base::{self, Data, Frame, Header, OpCode}, extension::Extension};
-use crate::tokio_framed::{Framed, FramedParts};
+mod compat;
+mod data;
+mod frame;
+
+use bytes::BytesMut;
+use compat::AioCompat;
+use crate::{base::{self, Header, OpCode}, extension::Extension};
+use frame::{Frame, FrameCodec};
 use log::{debug, trace, warn};
-use futures::{prelude::*, try_ready};
-use rand::RngCore;
+use futures::{prelude::*, ready};
 use smallvec::SmallVec;
-use std::fmt;
-use tokio_io::{AsyncRead, AsyncWrite};
+use std::{fmt, io, pin::Pin, task::{Context, Poll}};
 
-// Connection mode ////////////////////////////////////////////////////////////////////////////////
+pub use data::Data;
+
+/// Accumulated max. size of a complete message.
+const MAX_MESSAGE_SIZE: usize = 256 * 1024 * 1024;
+/// Max. size of a single message frame.
+const MAX_FRAME_SIZE: usize = MAX_MESSAGE_SIZE;
+
+type Result<T> = std::result::Result<T, Error>;
 
 /// Is the [`Connection`] used by a client or server?
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -43,43 +53,58 @@ impl Mode {
     }
 }
 
-// Connection /////////////////////////////////////////////////////////////////////////////////////
-
-/// A `Connection` implements [`Stream`] and [`Sink`] using the [`base::Codec`]
-/// to encode and decode data as websocket base frames.
+/// A persistent, bidirectional websocket connection.
+///
+/// After the successful websocket handshake one can create a
+/// `Connection` from [`crate::handshake::Client::into_connection`] or
+/// [`crate::handshake::Server::into_connection`].
+///
+/// # Control messages
+///
+/// The remote may test the connection's health by sending ping messages
+/// which must be answered, or else the connection would probably be closed.
+/// In order to do so it is important to not only use this connection as a
+/// [`Sink`] but also read incoming data using the [`Stream`] interface.
+/// Upon reading, incoming pings will automatically be answered, but without
+/// any reading, no control message will be processed.
 #[derive(Debug)]
 pub struct Connection<T> {
     mode: Mode,
-    framed: Framed<T, base::Codec>,
+    framed: tokio_codec::Framed<AioCompat<T>, FrameCodec>,
     state: Option<State>,
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
-    max_buffer_size: usize
+    max_message_size: usize,
+    validate_utf8: bool
 }
 
-impl<T: AsyncRead + AsyncWrite> Connection<T> {
-    /// Create a new `Connection` from the given resource.
-    pub fn new(io: T, mode: Mode) -> Self {
-        Connection {
-            mode,
-            framed: Framed::new(io, base::Codec::new()),
-            state: Some(State::Open(None)),
-            extensions: SmallVec::new(),
-            max_buffer_size: 256 * 1024 * 1024
-        }
-    }
+impl<T: AsyncRead + AsyncWrite + Unpin> Connection<T> {
+    /// Create a new `Connection` from the given socket.
+    ///
+    /// The `mode` sets this connection into client or server mode which
+    /// has implications w.r.t. the masking of payload data.
+    ///
+    /// The `buf` parameter denotes the read buffer from the handshake phase
+    /// which may contain further unprocessed data but may also be empty.
+    pub(crate) fn new(socket: T, mode: Mode, buf: BytesMut) -> Self {
+        let codec = {
+            let mut codec = base::Codec::default();
+            codec.set_max_data_size(MAX_FRAME_SIZE);
+            FrameCodec { codec, header: None }
+        };
 
-    /// Create a new `Connection` from an existing [`tokio_codec::Framed`] stream/sink.
-    pub fn from_framed(framed: tokio_codec::Framed<T, base::Codec>, mode: Mode) -> Self {
-        let tokio_codec_parts = framed.into_parts();
-        let mut parts = FramedParts::new(tokio_codec_parts.io, tokio_codec_parts.codec);
-        parts.read_buf = tokio_codec_parts.read_buf;
-        parts.write_buf = tokio_codec_parts.write_buf;
+        let framed = {
+            let mut parts = tokio_codec::Framed::new(AioCompat(socket), codec).into_parts();
+            parts.read_buf = buf;
+            tokio_codec::Framed::from_parts(parts)
+        };
+
         Connection {
             mode,
-            framed: Framed::from_parts(parts),
+            framed,
             state: Some(State::Open(None)),
             extensions: SmallVec::new(),
-            max_buffer_size: 256 * 1024 * 1024
+            max_message_size: MAX_MESSAGE_SIZE,
+            validate_utf8: true
         }
     }
 
@@ -92,115 +117,208 @@ impl<T: AsyncRead + AsyncWrite> Connection<T> {
     {
         for e in extensions.into_iter().filter(|e| e.is_enabled()) {
             debug!("using extension: {}", e.name());
-            self.framed.codec_mut().add_reserved_bits(e.reserved_bits());
+            self.framed.codec_mut().codec.add_reserved_bits(e.reserved_bits());
             self.extensions.push(e)
         }
         self
     }
 
-    /// Set the maximum buffer size in bytes.
+    /// Set the maximum size of a complete message.
     ///
-    /// Messages with payload data greater than the configured maximum
-    /// will trigger an error.
-    pub fn set_max_buffer_size(&mut self, max: usize) -> &mut Self {
-        self.max_buffer_size = max;
+    /// Message fragments will be buffered and concatenated up to this value,
+    /// i.e. the sum of all message frames payload lengths will not be greater
+    /// than this maximum. However, extensions may increase the total message
+    /// size further, e.g. by decompressing the payload data.
+    pub fn set_max_message_size(&mut self, max: usize) -> &mut Self {
+        self.max_message_size = max;
         self
     }
 
-    fn set_mask(&self, frame: &mut Frame) {
+    /// Set the maximum size of a single websocket frame payload.
+    pub fn set_max_frame_size(&mut self, max: usize) -> &mut Self {
+        self.framed.codec_mut().codec.set_max_data_size(max);
+        self
+    }
+
+    /// Toggle UTF-8 check for incoming text messages.
+    ///
+    /// By default all text frames are validated.
+    pub fn validate_utf8(&mut self, value: bool) -> &mut Self {
+        self.validate_utf8 = value;
+        self
+    }
+
+    /// Pin projection for `self.framed`.
+    fn framed(self: Pin<&mut Self>) -> Pin<&mut tokio_codec::Framed<AioCompat<T>, FrameCodec>> {
+        Pin::new(&mut self.get_mut().framed)
+    }
+
+    /// If we are a websocket client, create and apply a mask.
+    fn apply_mask(&self, frame: &mut Frame) {
         if self.mode.is_client() {
             frame.header_mut().set_masked(true);
-            frame.header_mut().set_mask(rand::thread_rng().next_u32());
+            frame.header_mut().set_mask(rand::random());
+            let (header, payload) = frame.as_mut();
+            base::Codec::apply_mask(header, payload)
         }
     }
-}
 
-impl<T: AsyncRead + AsyncWrite> Connection<T> {
-    fn answer_ping(&mut self, frame: Frame, buf: Option<base::Data>) -> Poll<(), Error> {
-        trace!("answering ping: {:?}", frame.header());
-        if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-            self.state = Some(State::AnswerPing(frame, buf));
-            return Ok(Async::NotReady)
+    /// Apply all extensions to the given header and payload data.
+    fn decode_with_extensions(&mut self, h: &mut Header, d: &mut BytesMut) -> Result<()> {
+        for e in &mut self.extensions {
+            trace!("decoding with extension: {}", e.name());
+            e.decode(h, d).map_err(Error::Extension)?
         }
-        self.flush(buf)
+        Ok(())
     }
 
-    fn answer_close(&mut self, frame: Frame) -> Poll<(), Error> {
-        trace!("answering close: {:?}", frame.header());
-        if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-            self.state = Some(State::AnswerClose(frame));
-            return Ok(Async::NotReady)
+    /// Apply all extensions to the given header and payload data.
+    fn encode_with_extensions(&mut self, h: &mut Header, d: &mut BytesMut) -> Result<()> {
+        for e in &mut self.extensions {
+            trace!("encoding with extension: {}", e.name());
+            e.encode(h, d).map_err(Error::Extension)?
         }
-        self.closing()
+        Ok(())
     }
 
-    fn send_close(&mut self, frame: Frame) -> Poll<(), Error> {
-        trace!("sending close: {:?}", frame.header());
-        if let AsyncSink::NotReady(frame) = self.framed.start_send(frame)? {
-            self.state = Some(State::SendClose(frame));
-            return Ok(Async::NotReady)
+    /// Check that we stay below the configured max. message size.
+    fn ensure_max_message_size(&self, current: &[u8], new: &[u8]) -> Result<()> {
+        let size = current.len() + new.len();
+        if size > self.max_message_size {
+            let e = Error::MessageTooLarge { current: size, maximum: self.max_message_size };
+            warn!("{}", e);
+            return Err(e)
         }
-        self.flush_close()
+        Ok(())
     }
 
-    fn flush_close(&mut self) -> Poll<(), Error> {
-        trace!("flushing close");
-        if self.framed.poll_complete()?.is_not_ready() {
-            self.state = Some(State::FlushClose);
-            return Ok(Async::NotReady)
+    fn answer_ping(mut self: Pin<&mut Self>, c: &mut Context, f: Frame, d: Option<Data>) -> Poll<Result<()>> {
+        trace!("answering ping: {}", f.header());
+        match self.as_mut().framed().poll_ready(c) {
+            Poll::Pending => {
+                self.state = Some(State::AnswerPing(f, d));
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.as_mut().framed().start_send(f)?;
+                self.flush(c, d)
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
         }
-        self.state = Some(State::AwaitClose);
-        Ok(Async::Ready(()))
     }
 
-    fn flush(&mut self, buf: Option<base::Data>) -> Poll<(), Error> {
-        trace!("flushing");
-        if self.framed.poll_complete()?.is_not_ready() {
-            self.state = Some(State::Flush(buf));
-            return Ok(Async::NotReady)
+    fn answer_close(mut self: Pin<&mut Self>, c: &mut Context, f: Frame) -> Poll<Result<()>> {
+        trace!("answering close: {}", f.header());
+        match self.as_mut().framed().poll_ready(c) {
+            Poll::Pending => {
+                self.state = Some(State::AnswerClose(f));
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.as_mut().framed().start_send(f)?;
+                self.closing(c)
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
         }
-        self.state = Some(State::Open(buf));
-        Ok(Async::Ready(()))
     }
 
-    fn closing(&mut self) -> Poll<(), Error> {
+    fn closing(mut self: Pin<&mut Self>, c: &mut Context) -> Poll<Result<()>> {
         trace!("closing");
-        if self.framed.poll_complete()?.is_not_ready() {
-            self.state = Some(State::Closing);
-            return Ok(Async::NotReady)
+        match self.as_mut().framed().poll_close(c) {
+            Poll::Pending => {
+                self.state = Some(State::Closing);
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.state = Some(State::Closed);
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
         }
-        self.state = Some(State::Closed);
-        Ok(Async::Ready(()))
     }
 
-    fn await_close(&mut self) -> Poll<(), Error> {
-        trace!("awaiting close");
-        match self.framed.poll()? {
-            Async::Ready(Some(frame)) =>
-                if let OpCode::Close = frame.header().opcode() {
-                    self.state = Some(State::Closed);
-                    return Ok(Async::Ready(()))
-                }
-            Async::Ready(None) => self.state = Some(State::Closed),
-            Async::NotReady => self.state = Some(State::AwaitClose)
+    fn flush(mut self: Pin<&mut Self>, c: &mut Context, d: Option<Data>) -> Poll<Result<()>> {
+        trace!("flushing");
+        match self.as_mut().framed().poll_flush(c) {
+            Poll::Pending => {
+                self.state = Some(State::Flush(d));
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.state = Some(State::Open(d));
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
         }
-        Ok(Async::NotReady)
+    }
+
+    fn send_close(mut self: Pin<&mut Self>, c: &mut Context, f: Frame) -> Poll<Result<()>> {
+        trace!("sending close: {}", f.header());
+        match self.as_mut().framed().poll_ready(c) {
+            Poll::Pending => {
+                self.state = Some(State::SendClose(f));
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.as_mut().framed().start_send(f)?;
+                self.flush_close(c)
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
+        }
+    }
+
+    fn flush_close(mut self: Pin<&mut Self>, c: &mut Context) -> Poll<Result<()>> {
+        trace!("flushing close");
+        match self.as_mut().framed().poll_close(c) {
+            Poll::Pending => {
+                self.state = Some(State::FlushClose);
+                Poll::Pending
+            }
+            Poll::Ready(Ok(())) => {
+                self.state = Some(State::AwaitClose);
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e))
+        }
+    }
+
+    fn await_close(mut self: Pin<&mut Self>, c: &mut Context) -> Poll<Result<()>> {
+        trace!("awaiting close");
+        loop {
+            match self.as_mut().framed().poll_next(c) {
+                Poll::Pending => {
+                    self.state = Some(State::AwaitClose);
+                    return Poll::Pending
+                }
+                Poll::Ready(None) => {
+                    self.state = Some(State::Closed);
+                    return Poll::Ready(Ok(()))
+                }
+                Poll::Ready(Some(Ok(frame))) =>
+                    if OpCode::Close == frame.header().opcode() {
+                        self.state = Some(State::Closed);
+                        return Poll::Ready(Ok(()))
+                    }
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Err(e))
+            }
+        }
     }
 }
 
+/// Connection state which reflects the current processing state.
 #[derive(Debug)]
 enum State {
     /// Default state.
     /// Possible transitions: `Open`, `AnswerPing`, `AnswerClose`, `Closed`.
-    Open(Option<base::Data>),
+    Open(Option<Data>),
 
     /// Send a PONG frame as answer to a PING we have received.
     /// Possible transitions: `AnswerPing`, `Open`.
-    AnswerPing(Frame, Option<base::Data>),
+    AnswerPing(Frame, Option<Data>),
 
     /// Flush some frame we started sending.
     /// Possible transitions: `Flush`, `Open`.
-    Flush(Option<base::Data>),
+    Flush(Option<Data>),
 
     /// We want to send a close frame.
     /// Possible transitions: `SendClose`, `FlushClose`.
@@ -227,38 +345,55 @@ enum State {
     Closed
 }
 
-impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
-    type Item = base::Data;
-    type Error = Error;
+// Small helper to lift an error into a `Poll` value.
+macro_rules! lift {
+    ($e: expr) => {
+        if let Err(e) = $e {
+            return Poll::Ready(Some(Err(e.into())))
+        }
+    }
+}
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+impl<T: AsyncRead + AsyncWrite + Unpin> Stream for Connection<T> {
+    type Item = Result<Data>;
+
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            match self.state.take() {
-                Some(State::Open(None)) => match self.framed.poll()? {
-                    Async::Ready(Some(mut frame)) => {
-                        trace!("received: {:?}", frame.header());
+            match self.as_mut().state.take() {
+                Some(State::Open(None)) => match self.as_mut().framed().poll_next(ctx) {
+                    Poll::Ready(Some(Ok(mut frame))) => {
+                        trace!("received: {}", frame.header());
                         match frame.header().opcode() {
                             OpCode::Text | OpCode::Binary if frame.header().is_fin() => {
                                 self.state = Some(State::Open(None));
-                                let (mut h, mut d) = frame.into_parts();
-                                decode_with_extensions(&mut h, &mut d, &mut self.extensions)?;
-                                return Ok(Async::Ready(d))
+                                let (header, payload) = frame.as_mut();
+                                lift!(self.decode_with_extensions(header, payload));
+                                let cons =
+                                    if frame.is_text() {
+                                        if self.validate_utf8 {
+                                            lift!(std::str::from_utf8(frame.payload()))
+                                        }
+                                        Data::Text
+                                    } else {
+                                        Data::Binary
+                                    };
+                                return Poll::Ready(Some(Ok(cons(frame.into_payload()))))
                             }
                             OpCode::Text | OpCode::Binary => {
-                                let (mut h, mut d) = frame.into_parts();
-                                decode_with_extensions(&mut h, &mut d, &mut self.extensions)?;
-                                self.state = Some(State::Open(d))
+                                let (header, payload) = frame.as_mut();
+                                lift!(self.decode_with_extensions(header, payload));
+                                let cons = if frame.is_text() { Data::Text } else { Data::Binary };
+                                self.state = Some(State::Open(Some(cons(frame.into_payload()))))
                             }
                             OpCode::Ping => {
-                                let mut answer = Frame::new(OpCode::Pong);
-                                answer.set_payload_data(frame.take_payload_data());
-                                self.set_mask(&mut answer);
-                                try_ready!(self.answer_ping(answer, None))
+                                let mut answer = Frame::new(Header::new(OpCode::Pong), frame.into_payload());
+                                self.apply_mask(&mut answer);
+                                lift!(ready!(self.as_mut().answer_ping(ctx, answer, None)))
                             }
                             OpCode::Close => {
-                                let mut answer = close_answer(frame)?;
-                                self.set_mask(&mut answer);
-                                try_ready!(self.answer_close(answer))
+                                let mut answer = close_answer(frame.payload())?;
+                                self.apply_mask(&mut answer);
+                                lift!(ready!(self.as_mut().answer_close(ctx, answer)))
                             }
                             OpCode::Pong => {
                                 trace!("unexpected Pong; ignoring");
@@ -266,61 +401,62 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             }
                             OpCode::Continue => {
                                 debug!("unexpected Continue opcode");
-                                return Err(Error::UnexpectedOpCode(OpCode::Continue))
+                                return Poll::Ready(Some(Err(Error::UnexpectedOpCode(OpCode::Continue))))
                             }
                             reserved => {
                                 debug_assert!(reserved.is_reserved());
                                 debug!("unexpected opcode: {}", reserved);
-                                return Err(Error::UnexpectedOpCode(reserved))
+                                return Poll::Ready(Some(Err(Error::UnexpectedOpCode(reserved))))
                             }
                         }
                     }
-                    Async::Ready(None) => {
-                        self.state = Some(State::Closed);
-                        return Ok(Async::Ready(None))
+                    Poll::Ready(Some(Err(e))) => {
+                        debug!("stream error: {}", e);
+                        return Poll::Ready(Some(Err(e)))
                     }
-                    Async::NotReady => {
+                    Poll::Ready(None) => {
+                        debug!("stream eof");
+                        self.state = Some(State::Closed);
+                        return Poll::Ready(None)
+                    }
+                    Poll::Pending => {
                         self.state = Some(State::Open(None));
-                        return Ok(Async::NotReady)
+                        return Poll::Pending
                     }
                 }
                 // We have buffered some data => we are processing a fragmented message
                 // and expect either control frames or a CONTINUE frame.
-                Some(State::Open(Some(mut data))) => match self.framed.poll()? {
-                    Async::Ready(Some(mut frame)) => {
-                        trace!("received: {:?}", frame.header());
+                Some(State::Open(Some(mut data))) => match self.as_mut().framed().poll_next(ctx) {
+                    Poll::Ready(Some(Ok(frame))) => {
+                        trace!("received: {}", frame.header());
                         match frame.header().opcode() {
                             OpCode::Continue if frame.header().is_fin() => {
-                                let (mut hdr, dat) = frame.into_parts();
-                                if let Some(d) = dat {
-                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
-                                    data.bytes_mut().unsplit(d.into_bytes())
-                                }
-                                let mut data = Some(data);
-                                decode_with_extensions(&mut hdr, &mut data, &mut self.extensions)?;
+                                lift!(self.ensure_max_message_size(data.as_ref(), frame.payload()));
+                                let (mut header, payload) = frame.into();
+                                data.as_mut().unsplit(payload);
+                                self.decode_with_extensions(&mut header, data.as_mut())?;
                                 self.state = Some(State::Open(None));
-                                return Ok(Async::Ready(data))
+                                if data.is_text() && self.validate_utf8 {
+                                    lift!(std::str::from_utf8(data.as_ref()))
+                                }
+                                return Poll::Ready(Some(Ok(data)))
                             }
                             OpCode::Continue => {
-                                let (mut hdr, dat) = frame.into_parts();
-                                if let Some(d) = dat {
-                                    ensure_max_buffer_size(self.max_buffer_size, &data, &d)?;
-                                    data.bytes_mut().unsplit(d.into_bytes())
-                                }
-                                let mut data = Some(data);
-                                decode_with_extensions(&mut hdr, &mut data, &mut self.extensions)?;
-                                self.state = Some(State::Open(data))
+                                lift!(self.ensure_max_message_size(data.as_ref(), frame.payload()));
+                                let (mut header, payload) = frame.into();
+                                data.as_mut().unsplit(payload);
+                                self.decode_with_extensions(&mut header, data.as_mut())?;
+                                self.state = Some(State::Open(Some(data)))
                             }
                             OpCode::Ping => {
-                                let mut answer = Frame::new(OpCode::Pong);
-                                answer.set_payload_data(frame.take_payload_data());
-                                self.set_mask(&mut answer);
-                                try_ready!(self.answer_ping(answer, Some(data)))
+                                let mut answer = Frame::new(Header::new(OpCode::Pong), frame.into_payload());
+                                self.apply_mask(&mut answer);
+                                lift!(ready!(self.as_mut().answer_ping(ctx, answer, Some(data))))
                             }
                             OpCode::Close => {
-                                let mut answer = close_answer(frame)?;
-                                self.set_mask(&mut answer);
-                                try_ready!(self.answer_close(answer))
+                                let mut answer = close_answer(frame.payload())?;
+                                self.apply_mask(&mut answer);
+                                lift!(ready!(self.as_mut().answer_close(ctx, answer)))
                             }
                             OpCode::Pong => {
                                 trace!("unexpected Pong; ignoring");
@@ -328,204 +464,154 @@ impl<T: AsyncRead + AsyncWrite> Stream for Connection<T> {
                             }
                             OpCode::Text | OpCode::Binary => {
                                 debug!("unexpected opcode {}", frame.header().opcode());
-                                return Err(Error::UnexpectedOpCode(frame.header().opcode()))
+                                return Poll::Ready(Some(Err(Error::UnexpectedOpCode(frame.header().opcode()))))
                             }
                             reserved => {
                                 debug_assert!(reserved.is_reserved());
                                 debug!("unexpected opcode: {}", reserved);
-                                return Err(Error::UnexpectedOpCode(reserved))
+                                return Poll::Ready(Some(Err(Error::UnexpectedOpCode(reserved))))
                             }
                         }
                     }
-                    Async::Ready(None) => {
+                    Poll::Ready(Some(Err(e))) => {
+                        debug!("stream error: {}", e);
+                        return Poll::Ready(Some(Err(e)))
+                    }
+                    Poll::Ready(None) => {
+                        debug!("stream eof");
                         self.state = Some(State::Closed);
-                        return Ok(Async::Ready(None))
+                        return Poll::Ready(None)
                     }
-                    Async::NotReady => {
+                    Poll::Pending => {
                         self.state = Some(State::Open(Some(data)));
-                        return Ok(Async::NotReady)
+                        return Poll::Pending
                     }
                 }
-                Some(State::AnswerPing(frame, buf)) => try_ready!(self.answer_ping(frame, buf)),
-                Some(State::SendClose(frame)) => try_ready!(self.send_close(frame)),
-                Some(State::AnswerClose(frame)) => try_ready!(self.answer_close(frame)),
-                Some(State::Flush(buf)) => try_ready!(self.flush(buf)),
-                Some(State::FlushClose) => try_ready!(self.flush_close()),
-                Some(State::AwaitClose) => try_ready!(self.await_close()),
-                Some(State::Closing) => try_ready!(self.closing()),
-                Some(State::Closed) | None => return Ok(Async::Ready(None)),
+                Some(State::AnswerPing(frame, buf)) => lift!(ready!(self.as_mut().answer_ping(ctx, frame, buf))),
+                Some(State::SendClose(frame)) => lift!(ready!(self.as_mut().send_close(ctx, frame))),
+                Some(State::AnswerClose(frame)) => lift!(ready!(self.as_mut().answer_close(ctx, frame))),
+                Some(State::Flush(buf)) => lift!(ready!(self.as_mut().flush(ctx, buf))),
+                Some(State::FlushClose) => lift!(ready!(self.as_mut().flush_close(ctx))),
+                Some(State::AwaitClose) => lift!(ready!(self.as_mut().await_close(ctx))),
+                Some(State::Closing) => lift!(ready!(self.as_mut().closing(ctx))),
+                Some(State::Closed) | None => return Poll::Ready(None)
             }
         }
     }
 }
 
-impl<T: AsyncRead + AsyncWrite> Sink for Connection<T> {
-    type SinkItem = base::Data;
-    type SinkError = Error;
+impl<T: AsyncRead + AsyncWrite + Unpin> Sink<Data> for Connection<T> {
+    type Error = Error;
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+    fn poll_ready(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<()>> {
         loop {
-            match self.state.take() {
+            match self.as_mut().state.take() {
                 Some(State::Open(buf)) => {
-                    let mut header = if item.is_text() {
-                        Header::new(OpCode::Text)
-                    } else {
-                        Header::new(OpCode::Binary)
-                    };
-                    let mut data = Some(item);
-                    encode_with_extensions(&mut header, &mut data, &mut self.extensions)?;
-                    let mut frame = Frame::from(header);
-                    frame.set_payload_data(data);
-                    self.set_mask(&mut frame);
                     self.state = Some(State::Open(buf));
-                    trace!("send: {:?}", frame.header());
-                    if let AsyncSink::NotReady(mut frame) = self.framed.start_send(frame)? {
-                        let data = frame.take_payload_data().expect("frame was constructed with Some");
-                        return Ok(AsyncSink::NotReady(data))
-                    } else {
-                        return Ok(AsyncSink::Ready)
-                    }
+                    ready!(self.as_mut().framed().poll_ready(ctx))?;
+                    return Poll::Ready(Ok(()))
                 }
-                Some(State::AnswerPing(frame, buf)) =>
-                    if self.answer_ping(frame, buf)?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::AnswerClose(frame)) =>
-                    if self.answer_close(frame)?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::Flush(buf)) =>
-                    if self.flush(buf)?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::Closing) =>
-                    if self.closing()?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::AwaitClose) =>
-                    if self.await_close()?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::SendClose(frame)) =>
-                    if self.send_close(frame)?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::FlushClose) =>
-                    if self.flush_close()?.is_not_ready() {
-                        return Ok(AsyncSink::NotReady(item))
-                    }
-                Some(State::Closed) | None => return Err(Error::Closed)
+                Some(State::AnswerPing(frame, buf)) => ready!(self.as_mut().answer_ping(ctx, frame, buf))?,
+                Some(State::AnswerClose(frame)) => ready!(self.as_mut().answer_close(ctx, frame))?,
+                Some(State::Flush(buf)) => ready!(self.as_mut().flush(ctx, buf))?,
+                Some(State::Closing) => ready!(self.as_mut().closing(ctx))?,
+                Some(State::AwaitClose) => ready!(self.as_mut().await_close(ctx))?,
+                Some(State::SendClose(frame)) => ready!(self.as_mut().send_close(ctx, frame))?,
+                Some(State::FlushClose) => ready!(self.as_mut().flush_close(ctx))?,
+                Some(State::Closed) | None => return Poll::Ready(Err(Error::Closed))
             }
         }
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        match self.state.take() {
+    fn start_send(mut self: Pin<&mut Self>, mut data: Data) -> Result<()> {
+        match self.as_mut().state.take() {
             Some(State::Open(buf)) => {
+                let mut header = if let Data::Text(_) = &data {
+                    Header::new(OpCode::Text)
+                } else {
+                    Header::new(OpCode::Binary)
+                };
+                self.encode_with_extensions(&mut header, data.as_mut())?;
+                let mut frame = Frame::new(header, data.into());
+                self.apply_mask(&mut frame);
                 self.state = Some(State::Open(buf));
-                try_ready!(self.framed.poll_complete())
+                trace!("send: {}", frame.header());
+                self.framed().start_send(frame)?;
+                Ok(())
             }
-            Some(State::AnswerPing(frame, buf)) => try_ready!(self.answer_ping(frame, buf)),
-            Some(State::AnswerClose(frame)) => try_ready!(self.answer_close(frame)),
-            Some(State::Flush(buf)) => try_ready!(self.flush(buf)),
-            Some(State::Closing) => try_ready!(self.closing()),
-            Some(State::AwaitClose) => try_ready!(self.await_close()),
-            Some(State::SendClose(frame)) => try_ready!(self.send_close(frame)),
-            Some(State::FlushClose) => try_ready!(self.flush_close()),
-            Some(State::Closed) | None => ()
-        }
-        Ok(Async::Ready(()))
-    }
-
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        try_ready!(self.poll_complete());
-        if let Some(State::Open(_)) = self.state.take() {
-            let mut frame = Frame::new(OpCode::Close);
-            // code 1000 means normal closure
-            let code = base::Data::Binary(1000_u16.to_be_bytes()[..].into());
-            frame.set_payload_data(Some(code));
-            self.set_mask(&mut frame);
-            try_ready!(self.send_close(frame))
-        }
-        Ok(Async::Ready(()))
-    }
-}
-
-fn close_answer(mut frame: Frame) -> Result<Frame, Error> {
-    if let Some(mut data) = frame.take_payload_data() {
-        if data.as_ref().len() >= 2 {
-            let slice = data.as_ref();
-            let code = u16::from_be_bytes([slice[0], slice[1]]);
-            let reason = std::str::from_utf8(&slice[2 ..])?;
-            debug!("received close frame; code = {}; reason = {}", code, reason);
-            let mut answer = Frame::new(OpCode::Close);
-            let data = match code {
-                1000 ..= 1003 | 1007 ..= 1011 | 1015 | 3000 ..= 4999 => { // acceptable codes
-                    data.bytes_mut().truncate(2);
-                    data
-                }
-                _ => {
-                    // Other codes are invalid => reply with protocol error (1002).
-                    base::Data::Binary(1002_u16.to_be_bytes()[..].into())
-                }
-            };
-            answer.set_payload_data(Some(data));
-            return Ok(answer)
+            Some(State::Closed) => return Err(Error::Closed),
+            Some(_) | None => return Err(Error::InvalidConnectionState)
         }
     }
-    debug!("received close frame");
-    Ok(Frame::new(OpCode::Close))
-}
 
-fn decode_with_extensions<'a, I>(h: &mut Header, d: &mut Option<Data>, exts: I) -> Result<(), Error>
-where
-    I: IntoIterator<Item = &'a mut Box<dyn Extension + Send>>
-{
-    for e in exts {
-        trace!("decoding with extension: {}", e.name());
-        e.decode(h, d).map_err(Error::Extension)?
+    fn poll_flush(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<()>> {
+        ready!(self.as_mut().poll_ready(ctx))?;
+        self.framed().poll_flush(ctx)
     }
-    Ok(())
-}
 
-fn encode_with_extensions<'a, I>(h: &mut Header, d: &mut Option<Data>, exts: I) -> Result<(), Error>
-where
-    I: IntoIterator<Item = &'a mut Box<dyn Extension + Send>>
-{
-    for e in exts {
-        trace!("encoding with extension: {}", e.name());
-        e.encode(h, d).map_err(Error::Extension)?
+    fn poll_close(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<()>> {
+        match self.as_mut().state.take() {
+            Some(State::Open(_)) => {
+                // code 1000 means normal closure
+                let mut frame = Frame::new(Header::new(OpCode::Close), 1000_u16.to_be_bytes()[..].into());
+                self.apply_mask(&mut frame);
+                self.as_mut().send_close(ctx, frame)
+            }
+            Some(State::SendClose(frame)) => self.as_mut().send_close(ctx, frame),
+            Some(State::FlushClose) => self.as_mut().flush_close(ctx),
+            Some(State::AwaitClose) => self.as_mut().await_close(ctx),
+            Some(State::Closed) => Poll::Ready(Ok(())),
+            Some(_) | None => Poll::Ready(Err(Error::InvalidConnectionState))
+        }
     }
-    Ok(())
 }
 
-fn ensure_max_buffer_size(maximum: usize, current: &Data, new: &Data) -> Result<(), Error> {
-    let size = current.as_ref().len() + new.as_ref().len();
-    if size > maximum {
-        let e = Error::MessageTooLarge { actual: size, maximum };
-        warn!("{}", e);
-        return Err(e)
+
+/// Create a close frame based on the given data.
+fn close_answer(data: &[u8]) -> Result<Frame> {
+    let mut answer = Frame::new(Header::new(OpCode::Close), BytesMut::new());
+
+    if data.len() < 2 {
+        return Ok(answer)
     }
-    Ok(())
-}
 
-// Connection error type //////////////////////////////////////////////////////////////////////////
+    std::str::from_utf8(&data[2 ..])?; // check reason is properly encoded
+    let code = u16::from_be_bytes([data[0], data[1]]);
+
+    match code {
+        | 1000 ..= 1003
+        | 1007 ..= 1011
+        | 1015
+        | 3000 ..= 4999 => { // acceptable codes
+            answer.set_payload(code.to_be_bytes()[..].into());
+            Ok(answer)
+        }
+        _ => { // invalid code => protocol error (1002)
+            answer.set_payload(1002u16.to_be_bytes()[..].into());
+            Ok(answer)
+        }
+    }
+}
 
 /// Connection error cases.
 #[derive(Debug)]
 pub enum Error {
+    Io(io::Error),
     /// The base codec errored.
     Codec(base::Error),
     /// An extension produced an error while encoding or decoding.
-    Extension(crate::BoxError),
-    /// An unexpected opcode as encountered.
+    Extension(crate::BoxedError),
+    /// An unexpected opcode was encountered.
     UnexpectedOpCode(OpCode),
     /// A close reason was not correctly UTF-8 encoded.
     Utf8(std::str::Utf8Error),
     /// The total message payload data size exceeds the configured maximum.
-    MessageTooLarge { actual: usize, maximum: usize },
+    MessageTooLarge { current: usize, maximum: usize },
     /// The connection is closed.
     Closed,
+    /// The connection has entered an unrecoverable state, most likely due to
+    /// a previous error.
+    InvalidConnectionState,
 
     #[doc(hidden)]
     __Nonexhaustive
@@ -535,13 +621,15 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Error::Io(e) => write!(f, "i/o error: {}", e),
             Error::Codec(e) => write!(f, "codec error: {}", e),
             Error::Extension(e) => write!(f, "extension error: {}", e),
             Error::UnexpectedOpCode(c) => write!(f, "unexpected opcode: {}", c),
             Error::Utf8(e) => write!(f, "utf-8 error: {}", e),
-            Error::MessageTooLarge { actual, maximum } =>
-                write!(f, "message to large: len >= {}, maximum = {}", actual, maximum),
+            Error::MessageTooLarge { current, maximum } =>
+                write!(f, "message to large: len >= {}, maximum = {}", current, maximum),
             Error::Closed => f.write_str("connection closed"),
+            Error::InvalidConnectionState => f.write_str("InvalidConnectionState"),
             Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
         }
     }
@@ -550,14 +638,22 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Error::Io(e) => Some(e),
             Error::Codec(e) => Some(e),
             Error::Extension(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnexpectedOpCode(_)
             | Error::MessageTooLarge {..}
             | Error::Closed
+            | Error::InvalidConnectionState
             | Error::__Nonexhaustive => None
         }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
     }
 }
 

@@ -7,16 +7,156 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-//! An implementation of the [RFC6455][rfc6455] websocket protocol as a set
-//! of tokio codecs.
+//! An implementation of the [RFC 6455][rfc6455] websocket protocol.
 //!
+//! # Examples
+//!
+//! To begin a websocket connection one first needs to perform a [handshake],
+//! either as [client] or [server], in order to upgrade from HTTP.
+//! Once successful, the client or server can transition to a [connection]
+//! and send and receive textual or binary data.
+//!
+//! ## Client
+//!
+//! ```
+//! # use async_std::net::TcpStream;
+//! # use futures::prelude::*;
+//! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
+//! use soketto::handshake::{Client, ServerResponse};
+//!
+//! // First, we need to establish a TCP connection.
+//! let socket = TcpStream::connect("...").await?;
+//!
+//! // Then we configure the client handshake.
+//! let mut client = Client::new(socket, "...", "/");
+//!
+//! // And finally we perform the handshake and handle the result.
+//! let mut websocket = match client.handshake().await? {
+//!     ServerResponse::Accepted { .. } => client.into_connection(),
+//!     ServerResponse::Redirect { status_code, location } =>
+//!         unimplemented!("reconnect to the location URL"),
+//!     ServerResponse::Rejected { status_code } =>
+//!         unimplemented!("handle failure")
+//! };
+//!
+//! // Over the established websocket connection we can send
+//! websocket.send("some text".into()).await?;
+//! websocket.send(b"some bytes"[..].into()).await?;
+//! websocket.flush().await?;
+//!
+//! // ... and receive data.
+//! let data = websocket.next().await.unwrap();
+//! assert!(data?.is_text());
+//!
+//! let data = websocket.next().await.unwrap();
+//! assert!(data?.is_binary());
+//!
+//! # Ok(())
+//! # });
+//!
+//! ```
+//!
+//! ## Server
+//!
+//! ```
+//! # use async_std::net::TcpListener;
+//! # use futures::prelude::*;
+//! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
+//! use soketto::handshake::{Server, ClientRequest, server::Response};
+//!
+//! // First, we listen for incoming connections.
+//! let listener = TcpListener::bind("...").await?;
+//! let mut incoming = listener.incoming();
+//!
+//! while let Some(socket) = incoming.next().await {
+//!     // For each incoming connection we perform a handshake.
+//!     let mut server = Server::new(socket?);
+//!
+//!     let websocket_key = {
+//!         let req = server.receive_request().await?;
+//!         req.into_key()
+//!     };
+//!
+//!     // Here we accept the client unconditionally.
+//!     let accept = Response::Accept { key: &websocket_key, protocol: None };
+//!     server.send_response(&accept).await?;
+//!
+//!     // And we can finally transition to a websocket connection.
+//!     let mut websocket = server.into_connection();
+//!     if let Some(data) = websocket.next().await {
+//!         websocket.send(data?).await?;
+//!         websocket.close().await?
+//!     }
+//! }
+//!
+//! # Ok(())
+//! # });
+//!
+//! ```
+//! [client]: handshake::Client
+//! [server]: handshake::Server
+//! [connection]: connection::Connection
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
+//! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 pub mod base;
 pub mod extension;
 pub mod handshake;
 pub mod connection;
 
-mod tokio_framed;
+use bytes::{BufMut, BytesMut};
+use futures::io::{AsyncRead, AsyncReadExt};
 
-pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
+
+/// A parsing result.
+#[derive(Debug, Clone)]
+pub enum Parsing<T, N = ()> {
+    /// Parsing completed.
+    Done {
+        /// The parsed value.
+        value: T,
+        /// The offset into the byte slice that has been consumed.
+        offset: usize
+    },
+    /// Parsing is incomplete and needs more data.
+    NeedMore(N)
+}
+
+/// Helper function to allow casts from `usize` to `u64` only on platforms
+/// where the sizes are guaranteed to fit.
+#[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
+const fn as_u64(a: usize) -> u64 {
+    a as u64
+}
+
+/// Helper to read from an `AsyncRead` resource into some buffer.
+pub(crate) async fn read<R, E>(r: &mut R, b: &mut BytesMut) -> Result<(), E>
+where
+    R: AsyncRead + Unpin,
+    E: From<std::io::Error>
+{
+    unsafe {
+        // `bytes_mut()` is marked unsafe because it returns a
+        // reference to uninitialised memory. Since we do not
+        // read this memory and initialise it if necessary,
+        // usage is safe here.
+        //
+        // `advance_mut()` is marked unsafe because it can not
+        // know if the memory is safe to read. Since we only
+        // advance for as many bytes as we have read, usage is
+        // safe here.
+        initialise(b.bytes_mut());
+        let n = r.read(b.bytes_mut()).await?;
+        b.advance_mut(n)
+    }
+    Ok(())
+}
+
+/// Helper to initialise a slice by filling it with 0s.
+fn initialise(m: &mut [u8]) {
+    unsafe {
+        std::ptr::write_bytes(m.as_mut_ptr(), 0, m.len())
+    }
+}
+
