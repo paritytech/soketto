@@ -9,18 +9,25 @@
 
 //! An implementation of the [RFC 6455][rfc6455] websocket protocol.
 //!
-//! # Examples
-//!
 //! To begin a websocket connection one first needs to perform a [handshake],
 //! either as [client] or [server], in order to upgrade from HTTP.
-//! Once successful, the client or server can transition to a [connection]
-//! and send and receive textual or binary data.
+//! Once successful, the client or server can transition to a connection,
+//! i.e. a [Sender]/[Receiver] pair and send and receive textual or
+//! binary data.
 //!
-//! ## Client
+//! **Note**: While it is possible to only receive websocket messages it is
+//! not possible to only send websocket messages. Receiving data is required
+//! in order to react to control frames such as PING or CLOSE. While those will be
+//! answered transparently they have to be received in the first place, so
+//! calling [`connection::Receiver::receive`] is imperative.
+//!
+//! **Note**: None of the `async` methods are safe to cancel so their `Future`s
+//! must not be dropped unless they return `Poll::Ready`.
+//!
+//! # Client example
 //!
 //! ```
 //! # use async_std::net::TcpStream;
-//! # use futures::prelude::*;
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Client, ServerResponse};
 //!
@@ -31,36 +38,29 @@
 //! let mut client = Client::new(socket, "...", "/");
 //!
 //! // And finally we perform the handshake and handle the result.
-//! let mut websocket = match client.handshake().await? {
-//!     ServerResponse::Accepted { .. } => client.into_connection(),
-//!     ServerResponse::Redirect { status_code, location } =>
-//!         unimplemented!("reconnect to the location URL"),
-//!     ServerResponse::Rejected { status_code } =>
-//!         unimplemented!("handle failure")
+//! let (mut sender, mut receiver) = match client.handshake().await? {
+//!     ServerResponse::Accepted { .. } => client.into_builder().finish(),
+//!     ServerResponse::Redirect { status_code, location } => unimplemented!("follow location URL"),
+//!     ServerResponse::Rejected { status_code } => unimplemented!("handle failure")
 //! };
 //!
 //! // Over the established websocket connection we can send
-//! websocket.send("some text".into()).await?;
-//! websocket.send(b"some bytes"[..].into()).await?;
-//! websocket.flush().await?;
+//! sender.send_text(&mut "some text".into()).await?;
+//! sender.send_text(&mut "some more text".into()).await?;
+//! sender.flush().await?;
 //!
 //! // ... and receive data.
-//! let data = websocket.next().await.unwrap();
-//! assert!(data?.is_text());
-//!
-//! let data = websocket.next().await.unwrap();
-//! assert!(data?.is_binary());
+//! let (answer, is_text) = receiver.receive().await?;
 //!
 //! # Ok(())
 //! # });
 //!
 //! ```
 //!
-//! ## Server
+//! # Server example
 //!
 //! ```
-//! # use async_std::net::TcpListener;
-//! # use futures::prelude::*;
+//! # use async_std::{net::TcpListener, prelude::*};
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Server, ClientRequest, server::Response};
 //!
@@ -82,11 +82,14 @@
 //!     server.send_response(&accept).await?;
 //!
 //!     // And we can finally transition to a websocket connection.
-//!     let mut websocket = server.into_connection();
-//!     if let Some(data) = websocket.next().await {
-//!         websocket.send(data?).await?;
-//!         websocket.close().await?
+//!     let (mut sender, mut receiver) = server.into_builder().finish();
+//!     let (mut message, is_text) = receiver.receive().await?;
+//!     if is_text {
+//!         sender.send_text(&mut message).await?
+//!     } else {
+//!         sender.send_binary(&mut message).await?
 //!     }
+//!     sender.close().await?;
 //! }
 //!
 //! # Ok(())
@@ -95,7 +98,8 @@
 //! ```
 //! [client]: handshake::Client
 //! [server]: handshake::Server
-//! [connection]: connection::Connection
+//! [Sender]: connection::Sender
+//! [Receiver]: connection::Receiver
 //! [rfc6455]: https://tools.ietf.org/html/rfc6455
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
@@ -106,7 +110,6 @@ pub mod connection;
 
 use bytes::{BufMut, BytesMut};
 use futures::io::{AsyncRead, AsyncReadExt};
-
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 
 /// A parsing result.
@@ -130,33 +133,25 @@ const fn as_u64(a: usize) -> u64 {
     a as u64
 }
 
+/// Reserve (and initialise) additional bytes.
+pub(crate) fn reserve(bytes: &mut BytesMut, additional: usize) {
+    let n = bytes.len();
+    bytes.resize(n + additional, 0);
+    unsafe { bytes.set_len(n) }
+}
+
 /// Helper to read from an `AsyncRead` resource into some buffer.
-pub(crate) async fn read<R, E>(r: &mut R, b: &mut BytesMut) -> Result<(), E>
+pub(crate) async fn read<R>(r: &mut R, b: &mut BytesMut) -> Result<(), std::io::Error>
 where
-    R: AsyncRead + Unpin,
-    E: From<std::io::Error>
+    R: AsyncRead + Unpin
 {
     unsafe {
-        // `bytes_mut()` is marked unsafe because it returns a
-        // reference to uninitialised memory. Since we do not
-        // read this memory and initialise it if necessary,
-        // usage is safe here.
-        //
-        // `advance_mut()` is marked unsafe because it can not
-        // know if the memory is safe to read. Since we only
-        // advance for as many bytes as we have read, usage is
-        // safe here.
-        initialise(b.bytes_mut());
         let n = r.read(b.bytes_mut()).await?;
-        b.advance_mut(n)
+        if n == 0 && b.has_remaining_mut() {
+            return Err(std::io::ErrorKind::UnexpectedEof.into())
+        }
+        b.advance_mut(n);
+        log::trace!("read {} bytes", n)
     }
     Ok(())
 }
-
-/// Helper to initialise a slice by filling it with 0s.
-fn initialise(m: &mut [u8]) {
-    unsafe {
-        std::ptr::write_bytes(m.as_mut_ptr(), 0, m.len())
-    }
-}
-

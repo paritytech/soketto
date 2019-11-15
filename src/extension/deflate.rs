@@ -19,7 +19,6 @@ use crate::{
     extension::{Extension, Param}
 };
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
-use log::{debug, trace};
 use smallvec::SmallVec;
 use std::convert::TryInto;
 
@@ -114,12 +113,12 @@ impl Deflate {
     fn set_their_max_window_bits(&mut self, p: &Param, expected: Option<u8>) -> Result<(), ()> {
         if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
             if v < 8 || v > 15 {
-                debug!("invalid {}: {} (expected range: 8 ..= 15)", p.name(), v);
+                log::debug!("invalid {}: {} (expected range: 8 ..= 15)", p.name(), v);
                 return Err(())
             }
             if let Some(x) = expected {
                 if v > x {
-                    debug!("invalid {}: {} (expected: {} <= {})", p.name(), v, v, x);
+                    log::debug!("invalid {}: {} (expected: {} <= {})", p.name(), v, v, x);
                     return Err(())
                 }
             }
@@ -147,7 +146,7 @@ impl Extension for Deflate {
             Mode::Server => {
                 self.params.clear();
                 for p in params {
-                    trace!("configure server with: {}", p);
+                    log::trace!("configure server with: {}", p);
                     match p.name() {
                         CLIENT_MAX_WINDOW_BITS =>
                             if self.set_their_max_window_bits(&p, None).is_err() {
@@ -159,7 +158,7 @@ impl Extension for Deflate {
                                 // The RFC allows 8 to 15 bits, but due to zlib limitations we
                                 // only support 9 to 15.
                                 if v < 9 || v > 15 {
-                                    debug!("unacceptable server_max_window_bits: {}", v);
+                                    log::debug!("unacceptable server_max_window_bits: {}", v);
                                     return Ok(())
                                 }
                                 let mut x = Param::new(SERVER_MAX_WINDOW_BITS);
@@ -167,7 +166,7 @@ impl Extension for Deflate {
                                 self.params.push(x);
                                 self.our_max_window_bits = v;
                             } else {
-                                debug!("invalid server_max_window_bits: {:?}", p.value());
+                                log::debug!("invalid server_max_window_bits: {:?}", p.value());
                                 return Ok(())
                             }
                         }
@@ -176,7 +175,7 @@ impl Extension for Deflate {
                         SERVER_NO_CONTEXT_TAKEOVER =>
                             self.params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER)),
                         _ => {
-                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            log::debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
                         }
                     }
@@ -185,7 +184,7 @@ impl Extension for Deflate {
             Mode::Client => {
                 let mut server_no_context_takeover = false;
                 for p in params {
-                    trace!("configure client with: {}", p);
+                    log::trace!("configure client with: {}", p);
                     match p.name() {
                         SERVER_NO_CONTEXT_TAKEOVER => server_no_context_takeover = true,
                         CLIENT_NO_CONTEXT_TAKEOVER => {} // must be supported
@@ -198,7 +197,7 @@ impl Extension for Deflate {
                         CLIENT_MAX_WINDOW_BITS =>
                             if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
                                 if v < 8 || v > 15 {
-                                    debug!("unacceptable client_max_window_bits: {}", v);
+                                    log::debug!("unacceptable client_max_window_bits: {}", v);
                                     return Ok(())
                                 }
                                 use std::cmp::{min, max};
@@ -207,13 +206,13 @@ impl Extension for Deflate {
                                 self.our_max_window_bits = min(self.our_max_window_bits, max(9, v));
                             }
                         _ => {
-                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            log::debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
                         }
                     }
                 }
                 if !server_no_context_takeover {
-                    debug!("{}: server did not confirm no context takeover", self.name());
+                    log::debug!("{}: server did not confirm no context takeover", self.name());
                     return Ok(())
                 }
             }
@@ -231,17 +230,17 @@ impl Extension for Deflate {
             OpCode::Binary | OpCode::Text if header.is_rsv1() => {
                 if !header.is_fin() {
                     self.await_last_fragment = true;
-                    trace!("deflate: not decoding {}; awaiting last fragment", header);
+                    log::trace!("deflate: not decoding {}; awaiting last fragment", header);
                     return Ok(())
                 }
-                trace!("deflate: decoding {}", header)
+                log::trace!("deflate: decoding {}", header)
             }
             OpCode::Continue if header.is_fin() && self.await_last_fragment => {
                 self.await_last_fragment = false;
-                trace!("deflate: decoding {}", header)
+                log::trace!("deflate: decoding {}", header)
             }
             _ => {
-                trace!("deflate: not decoding {}", header);
+                log::trace!("deflate: not decoding {}", header);
                 return Ok(())
             }
         }
@@ -286,9 +285,9 @@ impl Extension for Deflate {
 
     fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
         if let OpCode::Binary | OpCode::Text = header.opcode() {
-            trace!("deflate: encoding {}", header)
+            log::trace!("deflate: encoding {}", header)
         } else {
-            trace!("deflate: not encoding {}", header);
+            log::trace!("deflate: not encoding {}", header);
             return Ok(())
         }
 

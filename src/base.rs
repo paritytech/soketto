@@ -21,7 +21,7 @@ use crate::{as_u64, Parsing};
 use std::{convert::TryFrom, fmt, io};
 
 /// Max. size of a frame header.
-const MAX_HEADER_SIZE: usize = 14;
+pub(crate) const MAX_HEADER_SIZE: usize = 14;
 
 /// Max. size of a control frame payload.
 const MAX_CTRL_BODY_SIZE: u64 = 125;
@@ -118,16 +118,9 @@ impl fmt::Display for OpCode {
 
 /// Error returned by `OpCode::try_from` if an unknown opcode
 /// number is encountered.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("unknown opcode")]
 pub struct UnknownOpCode(());
-
-impl fmt::Display for UnknownOpCode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("unknown opcode")
-    }
-}
-
-impl std::error::Error for UnknownOpCode {}
 
 impl TryFrom<u8> for OpCode {
     type Error = UnknownOpCode;
@@ -543,65 +536,40 @@ impl Codec {
     }
 }
 
-// Codec error type ///////////////////////////////////////////////////////////////////////////////
-
 /// Error cases the base frame decoder may encounter.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error has been encountered.
-    Io(io::Error),
+    #[error("i/o error: {0}")]
+    Io(#[from] io::Error),
+
     /// Some unknown opcode number has been decoded.
+    #[error("unknown opcode")]
     UnknownOpCode,
+
     /// The opcode decoded is reserved.
+    #[error("reserved opcode")]
     ReservedOpCode,
+
     /// A fragmented control frame (fin bit not set) has been decoded.
+    #[error("fragmented control frame")]
     FragmentedControl,
+
     /// A control frame with an invalid length code has been decoded.
+    #[error("invalid control frame length")]
     InvalidControlFrameLen,
+
     /// The reserved bit is invalid.
+    #[error("invalid reserved bit: {0}")]
     InvalidReservedBit(u8),
+
     /// The payload length of a frame exceeded the configured maximum.
+    #[error("payload too large: len = {actual}, maximum = {maximum}")]
     PayloadTooLarge { actual: u64, maximum: u64 },
 
     #[doc(hidden)]
+    #[error("__Nonexhaustive")]
     __Nonexhaustive
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Io(e) => write!(f, "i/o error: {}", e),
-            Error::UnknownOpCode => f.write_str("unknown opcode"),
-            Error::ReservedOpCode => f.write_str("reserved opcode"),
-            Error::FragmentedControl => f.write_str("fragmented control frame"),
-            Error::InvalidControlFrameLen => f.write_str("invalid control frame length"),
-            Error::InvalidReservedBit(i) => write!(f, "invalid reserved bit: {}", i),
-            Error::PayloadTooLarge { actual, maximum } =>
-                write!(f, "payload to large: len = {}, maximum = {}", actual, maximum),
-            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Io(e) => Some(e),
-            Error::UnknownOpCode
-            | Error::ReservedOpCode
-            | Error::FragmentedControl
-            | Error::InvalidControlFrameLen
-            | Error::InvalidReservedBit(_)
-            | Error::PayloadTooLarge {..}
-            | Error::__Nonexhaustive => None
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::Io(e)
-    }
 }
 
 impl From<UnknownOpCode> for Error {

@@ -16,7 +16,7 @@ pub mod server;
 use bytes::BytesMut;
 use crate::extension::{Param, Extension};
 use smallvec::SmallVec;
-use std::{io, fmt, str};
+use std::{io, str};
 
 pub use client::{Client, ServerResponse};
 pub use server::{Server, ClientRequest};
@@ -127,83 +127,55 @@ where
 }
 
 /// Enumeration of possible handshake errors.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error has been encountered.
-    Io(io::Error),
+    #[error("i/o error: {0}")]
+    Io(#[from] io::Error),
+
     /// An HTTP version =/= 1.1 was encountered.
+    #[error("http version was not 1.1")]
     UnsupportedHttpVersion,
+
     /// The handshake request was not a GET request.
+    #[error("handshake was not a GET request")]
     InvalidRequestMethod,
+
     /// An HTTP header has not been present.
+    #[error("header {0} not found")]
     HeaderNotFound(String),
+
     /// An HTTP header value was not expected.
+    #[error("header {0} had an unexpected value")]
     UnexpectedHeader(String),
+
     /// The Sec-WebSocket-Accept header value did not match.
+    #[error("websocket key mismatch")]
     InvalidSecWebSocketAccept,
+
     /// The server returned an extension we did not ask for.
+    #[error("unsolicited extension returned")]
     UnsolicitedExtension,
+
     /// The server returned a protocol we did not ask for.
+    #[error("unsolicited protocol returned")]
     UnsolicitedProtocol,
+
     /// An extension produced an error while encoding or decoding.
+    #[error("extension error: {0}")]
     Extension(crate::BoxedError),
+
     /// The HTTP entity could not be parsed successfully.
+    #[error("http parser error: {0}")]
     Http(crate::BoxedError),
+
     /// UTF-8 decoding failed.
-    Utf8(std::str::Utf8Error),
+    #[error("utf-8 decoding error: {0}")]
+    Utf8(#[from] std::str::Utf8Error),
 
     #[doc(hidden)]
+    #[error("__Nonexhaustive")]
     __Nonexhaustive
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Error::Io(e) => write!(f, "i/o error: {}", e),
-            Error::Http(e) => write!(f, "http parser error: {}", e),
-            Error::HeaderNotFound(n) => write!(f, "header {} not found", n),
-            Error::UnexpectedHeader(n) => write!(f, "header {} had unexpected value", n),
-            Error::Utf8(e) => write!(f, "utf-8 decoding error: {}", e),
-            Error::Extension(e) => write!(f, "extension error: {}", e),
-            Error::UnsupportedHttpVersion => f.write_str("http version was not 1.1"),
-            Error::InvalidRequestMethod => f.write_str("handshake not a GET request"),
-            Error::InvalidSecWebSocketAccept => f.write_str("websocket key mismatch"),
-            Error::UnsolicitedExtension => f.write_str("unsolicited extension returned"),
-            Error::UnsolicitedProtocol => f.write_str("unsolicited protocol returned"),
-            Error::__Nonexhaustive => f.write_str("__Nonexhaustive")
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Error::Io(e) => Some(e),
-            Error::Utf8(e) => Some(e),
-            Error::Http(e) => Some(&**e),
-            Error::Extension(e) => Some(&**e),
-            Error::HeaderNotFound(_)
-            | Error::UnexpectedHeader(_)
-            | Error::UnsupportedHttpVersion
-            | Error::InvalidRequestMethod
-            | Error::InvalidSecWebSocketAccept
-            | Error::UnsolicitedExtension
-            | Error::UnsolicitedProtocol
-            | Error::__Nonexhaustive => None
-        }
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        Error::Io(e)
-    }
-}
-
-impl From<str::Utf8Error> for Error {
-    fn from(e: str::Utf8Error) -> Self {
-        Error::Utf8(e)
-    }
 }
 
 #[cfg(test)]
