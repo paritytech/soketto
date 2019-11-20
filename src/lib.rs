@@ -45,8 +45,8 @@
 //! };
 //!
 //! // Over the established websocket connection we can send
-//! sender.send_text(&mut "some text".into()).await?;
-//! sender.send_text(&mut "some more text".into()).await?;
+//! sender.send_text("some text").await?;
+//! sender.send_text("some more text").await?;
 //! sender.flush().await?;
 //!
 //! // ... and receive data.
@@ -83,11 +83,11 @@
 //!
 //!     // And we can finally transition to a websocket connection.
 //!     let (mut sender, mut receiver) = server.into_builder().finish();
-//!     let (mut message, is_text) = receiver.receive().await?;
+//!     let (message, is_text) = receiver.receive().await?;
 //!     if is_text {
-//!         sender.send_text(&mut message).await?
+//!         sender.send_text(message).await?
 //!     } else {
-//!         sender.send_binary(&mut message).await?
+//!         sender.send_binary(message).await?
 //!     }
 //!     sender.close().await?;
 //! }

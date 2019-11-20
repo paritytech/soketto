@@ -377,16 +377,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send some binary data over this connection.
-    pub async fn send_binary(&mut self, data: &mut BytesMut) -> Result<(), Error> {
+    pub async fn send_binary(&mut self, data: impl Into<BytesMut>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Binary);
-        self.send(&mut header, data).await
+        self.send(&mut header, data.into()).await
     }
 
     /// Send some text data over this connection.
-    pub async fn send_text(&mut self, data: &mut BytesMut) -> Result<(), Error> {
-        debug_assert!(std::str::from_utf8(&data).is_ok());
+    pub async fn send_text(&mut self, data: impl Into<BytesMut>) -> Result<(), Error> {
+        let bytes = data.into();
+        debug_assert!(std::str::from_utf8(&bytes).is_ok());
         let mut header = Header::new(OpCode::Text);
-        self.send(&mut header, data).await
+        self.send(&mut header, bytes).await
     }
 
     /// Flush the socket buffer.
@@ -408,15 +409,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), Error> {
+    async fn send(&mut self, header: &mut Header, mut data: BytesMut) -> Result<(), Error> {
         {
             let mut extensions = self.extensions.lock().await;
             for e in &mut *extensions {
                 log::trace!("encoding with extension: {}", e.name());
-                e.encode(header, data).map_err(Error::Extension)?
+                e.encode(header, &mut data).map_err(Error::Extension)?
             }
         }
-        self.write(header, data).await
+        self.write(header, &mut data).await
     }
 
     /// Write final header and payload data to socket.

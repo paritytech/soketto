@@ -32,11 +32,11 @@ fn main() -> Result<(), BoxedError> {
             let (mut sender, mut receiver) = server.into_builder().finish();
             loop {
                 match receiver.receive().await {
-                    Ok((mut data, is_text)) => {
+                    Ok((data, is_text)) => {
                         if is_text {
-                            sender.send_text(&mut data).await?
+                            sender.send_text(data).await?
                         } else {
-                            sender.send_binary(&mut data).await?
+                            sender.send_binary(data).await?
                         }
                         sender.flush().await?
                     }

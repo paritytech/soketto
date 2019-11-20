@@ -55,11 +55,11 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     let (mut sender, mut receiver) = client.into_builder().finish();
     loop {
         match receiver.receive().await {
-            Ok((mut payload, is_text)) => {
+            Ok((payload, is_text)) => {
                 if is_text {
-                    sender.send_text(&mut payload).await?
+                    sender.send_text(payload).await?
                 } else {
-                    sender.send_binary(&mut payload).await?
+                    sender.send_binary(payload).await?
                 }
                 sender.flush().await?
             }
