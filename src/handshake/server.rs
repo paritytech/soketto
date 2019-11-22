@@ -11,7 +11,8 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 use bytes::{BufMut, BytesMut};
-use crate::{Parsing, connection::{Connection, Mode}, extension::Extension};
+use crate::{Parsing, extension::Extension};
+use crate::connection::{self, Mode};
 use futures::prelude::*;
 use http::StatusCode;
 use sha1::Sha1;
@@ -74,7 +75,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
     /// Get back all extensions.
     pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
-        self.extensions.drain()
+        self.extensions.drain(..)
     }
 
     /// Await an incoming client handshake request.
@@ -82,9 +83,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         self.buffer.clear();
         loop {
             if !self.buffer.has_remaining_mut() {
-                self.buffer.reserve(BLOCK_SIZE)
+                crate::reserve(&mut self.buffer, BLOCK_SIZE)
             }
-            crate::read::<_, Error>(&mut self.socket, &mut self.buffer).await?;
+            crate::read(&mut self.socket, &mut self.buffer).await?;
             if let Parsing::Done { value, offset } = self.decode_request()? {
                 self.buffer.split_to(offset);
                 return Ok(value)
@@ -102,11 +103,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         Ok(())
     }
 
-    /// Turn this handshake into a [`Connection`].
-    pub fn into_connection(mut self) -> Connection<T> {
-        let mut c = Connection::new(self.socket, Mode::Server, self.buffer);
-        c.add_extensions(self.extensions.drain());
-        c
+    /// Turn this handshake into a [`connection::Builder`].
+    pub fn into_builder(mut self) -> connection::Builder<T> {
+        let mut builder = connection::Builder::new(self.socket, Mode::Server);
+        builder.set_buffer(self.buffer).add_extensions(self.extensions.drain(..));
+        builder
     }
 
     // Decode client handshake request.

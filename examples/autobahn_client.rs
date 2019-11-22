@@ -16,14 +16,12 @@
 
 use assert_matches::assert_matches;
 use async_std::{net::TcpStream, task};
-use futures::prelude::*;
-use soketto::{BoxedError, handshake};
+use soketto::{BoxedError, connection, handshake};
 use std::str::FromStr;
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> Result<(), BoxedError> {
-    env_logger::init();
     task::block_on(async {
         let n = num_of_cases().await?;
         for i in 1 ..= n {
@@ -40,10 +38,10 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, "/getCaseCount");
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
-    let mut websocket = client.into_connection();
-    let data = websocket.next().await.unwrap()?;
-    assert!(data.is_text());
-    let num = usize::from_str(std::str::from_utf8(data.as_ref())?)?;
+    let (_, mut receiver) = client.into_builder().finish();
+    let (payload, is_text) = receiver.receive().await?;
+    assert!(is_text);
+    let num = usize::from_str(std::str::from_utf8(&payload)?)?;
     log::info!("{} cases to run", num);
     Ok(num)
 }
@@ -54,12 +52,21 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
-    let mut websocket = client.into_connection();
-    while let Some(data) = websocket.next().await {
-        websocket.send(data?).await?;
-        websocket.flush().await?
+    let (mut sender, mut receiver) = client.into_builder().finish();
+    loop {
+        match receiver.receive().await {
+            Ok((payload, is_text)) => {
+                if is_text {
+                    sender.send_text(payload).await?
+                } else {
+                    sender.send_binary(payload).await?
+                }
+                sender.flush().await?
+            }
+            Err(connection::Error::Closed) => return Ok(()),
+            Err(e) => return Err(e.into())
+        }
     }
-    Ok(())
 }
 
 async fn update_report() -> Result<(), BoxedError> {
@@ -68,7 +75,7 @@ async fn update_report() -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
-    client.into_connection().close().await?;
+    client.into_builder().finish().0.close().await?;
     Ok(())
 }
 
