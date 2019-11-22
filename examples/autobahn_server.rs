@@ -31,13 +31,9 @@ fn main() -> Result<(), BoxedError> {
             server.send_response(&accept).await?;
             let (mut sender, mut receiver) = server.into_builder().finish();
             loop {
-                match receiver.receive().await {
-                    Ok((data, is_text)) => {
-                        if is_text {
-                            sender.send_text(data).await?
-                        } else {
-                            sender.send_binary(data).await?
-                        }
+                match receiver.receive_data().await {
+                    Ok(data) => {
+                        sender.send_data(data).await?;
                         sender.flush().await?
                     }
                     Err(connection::Error::Closed) => break,
@@ -60,7 +56,7 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
 #[cfg(feature = "deflate")]
 fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
     let mut server = handshake::Server::new(socket);
-    let deflate = soketto::extension::deflate::Deflate::new(soketto::connection::Mode::Server);
+    let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Server);
     server.add_extension(Box::new(deflate));
     server
 }

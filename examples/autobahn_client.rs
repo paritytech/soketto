@@ -39,9 +39,9 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
     let mut client = new_client(socket, "/getCaseCount");
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
     let (_, mut receiver) = client.into_builder().finish();
-    let (payload, is_text) = receiver.receive().await?;
-    assert!(is_text);
-    let num = usize::from_str(std::str::from_utf8(&payload)?)?;
+    let data = receiver.receive_data().await?;
+    assert!(data.is_text());
+    let num = usize::from_str(std::str::from_utf8(data.as_ref())?)?;
     log::info!("{} cases to run", num);
     Ok(num)
 }
@@ -54,13 +54,9 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     assert_matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..});
     let (mut sender, mut receiver) = client.into_builder().finish();
     loop {
-        match receiver.receive().await {
-            Ok((payload, is_text)) => {
-                if is_text {
-                    sender.send_text(payload).await?
-                } else {
-                    sender.send_binary(payload).await?
-                }
+        match receiver.receive_data().await {
+            Ok(data) => {
+                sender.send_data(data).await?;
                 sender.flush().await?
             }
             Err(connection::Error::Closed) => return Ok(()),
@@ -87,7 +83,7 @@ fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, TcpStream>
 #[cfg(feature = "deflate")]
 fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, TcpStream> {
     let mut client = handshake::Client::new(socket, "127.0.0.1:9001", path);
-    let deflate = soketto::extension::deflate::Deflate::new(soketto::connection::Mode::Client);
+    let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Client);
     client.add_extension(Box::new(deflate));
     client
 }

@@ -26,7 +26,7 @@
 //!
 //! # Client example
 //!
-//! ```
+//! ```no_run
 //! # use async_std::net::TcpStream;
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Client, ServerResponse};
@@ -45,12 +45,12 @@
 //! };
 //!
 //! // Over the established websocket connection we can send
-//! sender.send_text("some text").await?;
-//! sender.send_text("some more text").await?;
+//! sender.send_data("some text").await?;
+//! sender.send_data("some more text").await?;
 //! sender.flush().await?;
 //!
 //! // ... and receive data.
-//! let (answer, is_text) = receiver.receive().await?;
+//! let data = receiver.receive_data().await?;
 //!
 //! # Ok(())
 //! # });
@@ -59,7 +59,7 @@
 //!
 //! # Server example
 //!
-//! ```
+//! ```no_run
 //! # use async_std::{net::TcpListener, prelude::*};
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
 //! use soketto::handshake::{Server, ClientRequest, server::Response};
@@ -83,12 +83,8 @@
 //!
 //!     // And we can finally transition to a websocket connection.
 //!     let (mut sender, mut receiver) = server.into_builder().finish();
-//!     let (message, is_text) = receiver.receive().await?;
-//!     if is_text {
-//!         sender.send_text(message).await?
-//!     } else {
-//!         sender.send_binary(message).await?
-//!     }
+//!     let message = receiver.receive_data().await?;
+//!     sender.send_data(message).await?;
 //!     sender.close().await?;
 //! }
 //!
@@ -104,12 +100,17 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 pub mod base;
+pub mod data;
 pub mod extension;
 pub mod handshake;
 pub mod connection;
 
 use bytes::{BufMut, BytesMut};
 use futures::io::{AsyncRead, AsyncReadExt};
+
+pub use data::Data;
+pub use connection::{Mode, Receiver, Sender};
+
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 
 /// A parsing result.
