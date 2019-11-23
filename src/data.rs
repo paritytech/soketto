@@ -13,8 +13,8 @@
 //! Values of this type are produced when receiving data.
 //!
 //! - [`Outgoing`] data contains either normal application data such as text
-//! or binary data or application data to include in a PING control frame.
-//! Values of this type are used when sending data.
+//! or binary data or application data to include in a PING or PONG control
+//! frame. Values of this type are used when sending data.
 //!
 //! - [`Data`] contains either textual or binary data.
 
@@ -76,7 +76,9 @@ pub enum Outgoing {
     /// Text or binary data.
     Data(Data),
     /// Data to include in a PING control frame.
-    Ping(BytesMut)
+    Ping(BytesMut),
+    /// Data to include in a PONG control frame.
+    Pong(BytesMut)
 }
 
 impl Outgoing {
@@ -90,6 +92,11 @@ impl Outgoing {
         if let Outgoing::Ping(_) = self { true } else { false }
     }
 
+    /// Is this a PONG?
+    pub fn is_pong(&self) -> bool {
+        if let Outgoing::Pong(_) = self { true } else { false }
+    }
+
     /// The data length in bytes.
     pub fn len(&self) -> usize {
         self.as_ref().len()
@@ -100,7 +107,8 @@ impl AsRef<BytesMut> for Outgoing {
     fn as_ref(&self) -> &BytesMut {
         match self {
             Outgoing::Data(d) => d.as_ref(),
-            Outgoing::Ping(d) => d
+            Outgoing::Ping(d) => d,
+            Outgoing::Pong(d) => d
         }
     }
 }
@@ -109,7 +117,8 @@ impl AsMut<BytesMut> for Outgoing {
     fn as_mut(&mut self) -> &mut BytesMut {
         match self {
             Outgoing::Data(d) => d.as_mut(),
-            Outgoing::Ping(d) => d
+            Outgoing::Ping(d) => d,
+            Outgoing::Pong(d) => d
         }
     }
 }

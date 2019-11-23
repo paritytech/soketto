@@ -408,6 +408,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
                 let mut header = Header::new(OpCode::Ping);
                 self.send_frame(&mut header, ping).await
             }
+            pong @ Outgoing::Pong(_) => {
+                let mut header = Header::new(OpCode::Pong);
+                self.send_frame(&mut header, pong).await
+            }
             Outgoing::Data(d) => self.send_data(d).await
         }
     }

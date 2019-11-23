@@ -147,8 +147,9 @@ where
     R: AsyncRead + Unpin
 {
     unsafe {
+        debug_assert!(b.has_remaining_mut());
         let n = r.read(b.bytes_mut()).await?;
-        if n == 0 && b.has_remaining_mut() {
+        if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into())
         }
         b.advance_mut(n);
