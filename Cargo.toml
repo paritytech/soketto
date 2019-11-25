@@ -33,6 +33,7 @@ sha1 = "0.6"
 smallvec = "1.0"
 static_assertions = "1.0"
 thiserror = "1.0"
+typenum = "1.11"
 
 [dev-dependencies]
 assert_matches = "1.3"

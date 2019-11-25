@@ -271,10 +271,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if self.validate_utf8 {
                     std::str::from_utf8(&self.message)?;
                 }
-                return Ok(Data::Text(self.message.take()).into())
+                return Ok(Incoming::Data(Data::Text(self.message.take())))
             }
 
-            return Ok(Data::Binary(self.message.take()).into())
+            return Ok(Incoming::Data(Data::Binary(self.message.take())))
         }
     }
 
@@ -448,15 +448,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send_frame(&mut self, header: &mut Header, mut data: Outgoing) -> Result<(), Error> {
+    async fn send_frame(&mut self, header: &mut Header, data: Outgoing) -> Result<(), Error> {
+        let mut data = data.into();
         {
             let mut extensions = self.extensions.lock().await;
             for e in &mut *extensions {
                 log::trace!("encoding with extension: {}", e.name());
-                e.encode(header, data.as_mut()).map_err(Error::Extension)?
+                e.encode(header, &mut data).map_err(Error::Extension)?
             }
         }
-        self.write(header, data.as_mut()).await
+        self.write(header, &mut data).await
     }
 
     /// Write final header and payload data to socket.

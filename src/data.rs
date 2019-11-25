@@ -19,6 +19,8 @@
 //! - [`Data`] contains either textual or binary data.
 
 use bytes::BytesMut;
+use std::convert::TryFrom;
+use typenum::{U125, Unsigned};
 
 /// Incoming data.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,9 +66,12 @@ impl AsMut<BytesMut> for Incoming {
     }
 }
 
-impl From<Data> for Incoming {
-    fn from(d: Data) -> Self {
-        Incoming::Data(d)
+impl Into<BytesMut> for Incoming {
+    fn into(self: Incoming) -> BytesMut {
+        match self {
+            Incoming::Data(d) => d.into(),
+            Incoming::Pong(p) => p
+        }
     }
 }
 
@@ -76,9 +81,9 @@ pub enum Outgoing {
     /// Text or binary data.
     Data(Data),
     /// Data to include in a PING control frame.
-    Ping(BytesMut),
+    Ping(BytesMaxLen<U125>),
     /// Data to include in a PONG control frame.
-    Pong(BytesMut)
+    Pong(BytesMaxLen<U125>)
 }
 
 impl Outgoing {
@@ -107,18 +112,18 @@ impl AsRef<BytesMut> for Outgoing {
     fn as_ref(&self) -> &BytesMut {
         match self {
             Outgoing::Data(d) => d.as_ref(),
-            Outgoing::Ping(d) => d,
-            Outgoing::Pong(d) => d
+            Outgoing::Ping(d) => d.as_ref(),
+            Outgoing::Pong(d) => d.as_ref()
         }
     }
 }
 
-impl AsMut<BytesMut> for Outgoing {
-    fn as_mut(&mut self) -> &mut BytesMut {
+impl Into<BytesMut> for Outgoing {
+    fn into(self: Outgoing) -> BytesMut {
         match self {
-            Outgoing::Data(d) => d.as_mut(),
-            Outgoing::Ping(d) => d,
-            Outgoing::Pong(d) => d
+            Outgoing::Data(d) => d.into(),
+            Outgoing::Ping(p) => p.into(),
+            Outgoing::Pong(p) => p.into()
         }
     }
 }
@@ -209,6 +214,37 @@ impl From<&'_ [u8]> for Data {
 impl From<Vec<u8>> for Data {
     fn from(b: Vec<u8>) -> Self {
         Data::Binary(BytesMut::from(b))
+    }
+}
+
+/// [`BytesMut`] wrapper which restricts its size to some upper bound.
+///
+/// Constructing a value of this type checks that the given `BytesMut`
+/// is no longer than the type level parameter.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BytesMaxLen<N>(BytesMut, std::marker::PhantomData<N>);
+
+impl<N: Unsigned> TryFrom<BytesMut> for BytesMaxLen<N> {
+    type Error = ();
+
+    fn try_from(value: BytesMut) -> Result<Self, Self::Error> {
+        if value.len() > N::to_usize() {
+            Err(())
+        } else {
+            Ok(BytesMaxLen(value, std::marker::PhantomData))
+        }
+    }
+}
+
+impl<N> Into<BytesMut> for BytesMaxLen<N> {
+    fn into(self) -> BytesMut {
+        self.0
+    }
+}
+
+impl<N> AsRef<BytesMut> for BytesMaxLen<N> {
+    fn as_ref(&self) -> &BytesMut {
+        &self.0
     }
 }
 
