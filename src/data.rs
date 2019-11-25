@@ -19,8 +19,9 @@
 //! - [`Data`] contains either textual or binary data.
 
 use bytes::BytesMut;
+use crate::base;
+use static_assertions::const_assert_eq;
 use std::convert::TryFrom;
-use typenum::{U125, Unsigned};
 
 /// Incoming data.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -81,9 +82,9 @@ pub enum Outgoing {
     /// Text or binary data.
     Data(Data),
     /// Data to include in a PING control frame.
-    Ping(BytesMaxLen<U125>),
+    Ping(BytesMut125),
     /// Data to include in a PONG control frame.
-    Pong(BytesMaxLen<U125>)
+    Pong(BytesMut125)
 }
 
 impl Outgoing {
@@ -217,32 +218,31 @@ impl From<Vec<u8>> for Data {
     }
 }
 
-/// [`BytesMut`] wrapper which restricts its size to some upper bound.
-///
-/// Constructing a value of this type checks that the given `BytesMut`
-/// is no longer than the type level parameter.
+/// [`BytesMut`] wrapper which restricts its size to 125 bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BytesMaxLen<N>(BytesMut, std::marker::PhantomData<N>);
+pub struct BytesMut125(BytesMut);
 
-impl<N: Unsigned> TryFrom<BytesMut> for BytesMaxLen<N> {
+const_assert_eq!(125, base::MAX_CTRL_BODY_SIZE);
+
+impl TryFrom<BytesMut> for BytesMut125 {
     type Error = ();
 
     fn try_from(value: BytesMut) -> Result<Self, Self::Error> {
-        if value.len() > N::to_usize() {
+        if value.len() > 125 {
             Err(())
         } else {
-            Ok(BytesMaxLen(value, std::marker::PhantomData))
+            Ok(BytesMut125(value))
         }
     }
 }
 
-impl<N> Into<BytesMut> for BytesMaxLen<N> {
+impl Into<BytesMut> for BytesMut125 {
     fn into(self) -> BytesMut {
         self.0
     }
 }
 
-impl<N> AsRef<BytesMut> for BytesMaxLen<N> {
+impl AsRef<BytesMut> for BytesMut125 {
     fn as_ref(&self) -> &BytesMut {
         &self.0
     }

@@ -31,9 +31,8 @@ log = "0.4.8"
 rand = "0.7"
 sha1 = "0.6"
 smallvec = "1.0"
-static_assertions = "1.0"
+static_assertions = "1.1"
 thiserror = "1.0"
-typenum = "1.11"
 
 [dev-dependencies]
 assert_matches = "1.3"
