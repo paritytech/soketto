@@ -6,10 +6,12 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-//! A persistent websocket connection after the handshake phase.
+//! A persistent websocket connection after the handshake phase, represented
+//! as a [`Sender`] and [`Receiver`] pair.
 
 use bytes::{BufMut, BytesMut};
 use crate::{Parsing, base::{self, Header, MAX_HEADER_SIZE, OpCode}, extension::Extension};
+use crate::data::{Data, Incoming, Outgoing};
 use futures::{io::{BufWriter, ReadHalf, WriteHalf}, lock::BiLock, prelude::*, stream};
 use smallvec::SmallVec;
 use static_assertions::const_assert;
@@ -89,6 +91,13 @@ pub struct Builder<T> {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     /// Create a new `Builder` from the given async I/O resource and mode.
+    ///
+    /// **Note**: Use this type only after a successful handshake
+    /// (cf. [`Client::into_builder`][1] and [`Server::into_builder`][2]
+    /// for examples).
+    ///
+    /// [1]: crate::handshake::Client::into_builder
+    /// [2]: crate::handshake::Server::into_builder
     pub fn new(socket: T, mode: Mode) -> Self {
         let mut codec = base::Codec::default();
         codec.set_max_data_size(MAX_FRAME_SIZE);
@@ -183,10 +192,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     /// Receive the next websocket message.
     ///
     /// Fragmented messages will be concatenated and returned as one block.
-    /// The `bool` indicates if the data is textual (`true`) or binary
-    /// (`false`). If `Connection::validate_utf8` is `true` textual data
+    /// Unless `Builder::validate_utf8` was applied to `false` textual data
     /// is checked for well-formed UTF-8 encoding before returned.
-    pub async fn receive(&mut self) -> Result<(BytesMut, bool), Error> {
+    pub async fn receive(&mut self) -> Result<Incoming, Error> {
         let mut first_fragment_opcode = None;
         loop {
             if self.is_closed {
@@ -202,6 +210,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 self.read_buffer(&header).await?;
                 let mut data = self.buffer.split_to(header.payload_len());
                 base::Codec::apply_mask(&header, &mut data);
+                if header.opcode() == OpCode::Pong {
+                    return Ok(Incoming::Pong(data))
+                }
                 self.on_control(&header, &mut data).await?;
                 continue
             }
@@ -256,13 +267,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 }
             }
 
-            let is_text = header.opcode() == OpCode::Text;
-
-            if is_text && self.validate_utf8 {
-                std::str::from_utf8(&self.message)?;
+            if header.opcode() == OpCode::Text {
+                if self.validate_utf8 {
+                    std::str::from_utf8(&self.message)?;
+                }
+                return Ok(Incoming::Data(Data::Text(self.message.take())))
             }
 
-            return Ok((self.message.take(), is_text))
+            return Ok(Incoming::Data(Data::Binary(self.message.take())))
+        }
+    }
+
+    /// Receive the next websocket message, skipping over control frames.
+    ///
+    /// Fragmented messages will be concatenated and returned as one block.
+    /// Unless `Builder::validate_utf8` was applied to `false` textual data
+    /// is checked for well-formed UTF-8 encoding before returned.
+    pub async fn receive_data(&mut self) -> Result<Data, Error> {
+        loop {
+            if let Incoming::Data(d) = self.receive().await? {
+                return Ok(d)
+            }
         }
     }
 
@@ -376,18 +401,34 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
-    /// Send some binary data over this connection.
-    pub async fn send_binary(&mut self, data: impl Into<BytesMut>) -> Result<(), Error> {
-        let mut header = Header::new(OpCode::Binary);
-        self.send(&mut header, data.into()).await
+    /// Send some data or ping over this connection.
+    pub async fn send(&mut self, outgoing: Outgoing) -> Result<(), Error> {
+        match outgoing {
+            Outgoing::Ping(bytes) => {
+                let mut header = Header::new(OpCode::Ping);
+                self.send_frame(&mut header, bytes.into()).await
+            }
+            Outgoing::Pong(bytes) => {
+                let mut header = Header::new(OpCode::Pong);
+                self.send_frame(&mut header, bytes.into()).await
+            }
+            Outgoing::Data(d) => self.send_data(d).await
+        }
     }
 
-    /// Send some text data over this connection.
-    pub async fn send_text(&mut self, data: impl Into<BytesMut>) -> Result<(), Error> {
-        let bytes = data.into();
-        debug_assert!(std::str::from_utf8(&bytes).is_ok());
-        let mut header = Header::new(OpCode::Text);
-        self.send(&mut header, bytes).await
+    /// Send some data over this connection.
+    pub async fn send_data(&mut self, data: impl Into<Data>) -> Result<(), Error> {
+        match data.into() {
+            Data::Binary(bytes) => {
+                let mut header = Header::new(OpCode::Binary);
+                self.send_frame(&mut header, bytes).await
+            }
+            Data::Text(bytes) => {
+                debug_assert!(std::str::from_utf8(&bytes).is_ok());
+                let mut header = Header::new(OpCode::Text);
+                self.send_frame(&mut header, bytes).await
+            }
+        }
     }
 
     /// Flush the socket buffer.
@@ -409,7 +450,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send(&mut self, header: &mut Header, mut data: BytesMut) -> Result<(), Error> {
+    async fn send_frame(&mut self, header: &mut Header, mut data: BytesMut) -> Result<(), Error> {
         {
             let mut extensions = self.extensions.lock().await;
             for e in &mut *extensions {
@@ -469,7 +510,7 @@ fn close_answer(data: &[u8]) -> Result<(Header, Option<u16>), Error> {
 }
 
 /// Turn a [`Receiver`] into a [`futures::Stream`].
-pub fn into_stream<T>(r: Receiver<T>) -> impl stream::Stream<Item = Result<(BytesMut, bool), Error>>
+pub fn into_stream<T>(r: Receiver<T>) -> impl stream::Stream<Item = Result<Incoming, Error>>
 where
     T: AsyncRead + AsyncWrite + Unpin
 {
@@ -482,7 +523,7 @@ where
     })
 }
 
-/// Connection error cases.
+/// Errors which may occur when sending or receiving messages.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error was encountered.

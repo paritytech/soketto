@@ -24,7 +24,7 @@ use std::{convert::TryFrom, fmt, io};
 pub(crate) const MAX_HEADER_SIZE: usize = 14;
 
 /// Max. size of a control frame payload.
-const MAX_CTRL_BODY_SIZE: u64 = 125;
+pub(crate) const MAX_CTRL_BODY_SIZE: u64 = 125;
 
 // OpCode /////////////////////////////////////////////////////////////////////////////////////////
 
