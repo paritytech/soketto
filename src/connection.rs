@@ -404,13 +404,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send some data or ping over this connection.
     pub async fn send(&mut self, outgoing: Outgoing) -> Result<(), Error> {
         match outgoing {
-            ping @ Outgoing::Ping(_) => {
+            Outgoing::Ping(bytes) => {
                 let mut header = Header::new(OpCode::Ping);
-                self.send_frame(&mut header, ping).await
+                self.send_frame(&mut header, bytes.into()).await
             }
-            pong @ Outgoing::Pong(_) => {
+            Outgoing::Pong(bytes) => {
                 let mut header = Header::new(OpCode::Pong);
-                self.send_frame(&mut header, pong).await
+                self.send_frame(&mut header, bytes.into()).await
             }
             Outgoing::Data(d) => self.send_data(d).await
         }
@@ -418,15 +418,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send some data over this connection.
     pub async fn send_data(&mut self, data: impl Into<Data>) -> Result<(), Error> {
-        let data = data.into();
-        let mut header = match &data {
-            Data::Binary(_) => Header::new(OpCode::Binary),
-            Data::Text(_) => {
-                debug_assert!(std::str::from_utf8(data.as_ref()).is_ok());
-                Header::new(OpCode::Text)
+        match data.into() {
+            Data::Binary(bytes) => {
+                let mut header = Header::new(OpCode::Binary);
+                self.send_frame(&mut header, bytes).await
             }
-        };
-        self.send_frame(&mut header, data.into()).await
+            Data::Text(bytes) => {
+                debug_assert!(std::str::from_utf8(&bytes).is_ok());
+                let mut header = Header::new(OpCode::Text);
+                self.send_frame(&mut header, bytes).await
+            }
+        }
     }
 
     /// Flush the socket buffer.
@@ -448,8 +450,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send_frame(&mut self, header: &mut Header, data: Outgoing) -> Result<(), Error> {
-        let mut data = data.into();
+    async fn send_frame(&mut self, header: &mut Header, mut data: BytesMut) -> Result<(), Error> {
         {
             let mut extensions = self.extensions.lock().await;
             for e in &mut *extensions {
