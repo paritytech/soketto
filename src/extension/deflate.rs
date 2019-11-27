@@ -21,7 +21,7 @@ use crate::{
 use either::Either;
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use smallvec::SmallVec;
-use std::convert::TryInto;
+use std::{convert::TryInto, mem::MaybeUninit};
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -257,22 +257,12 @@ impl Extension for Deflate {
         let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
         while d.total_in() < as_u64(data.len()) {
             let off: usize = d.total_in().try_into()?;
-            self.buffer.reserve(data.len() - off);
+            crate::reserve(&mut self.buffer, data.len() - off);
             let n = d.total_out();
             unsafe {
-                // `bytes_mut()` is marked unsafe because it returns a
-                // reference to uninitialised memory. Since we (this crate
-                // and flate2) only write to this memory, usage is safe here.
-                // Even so, we call `initialise` which fills the slice with
-                // 0s unless the `deflate_with_uninitialised_memory` feature
-                // is enabled.
-                //
-                // `advance_mut()` is marked unsafe because it can not
-                // know if the memory is safe to read. Since we only
-                // advance for as many bytes as we have decompressed,
-                // usage is safe here.
-                initialise(self.buffer.bytes_mut());
-                d.decompress(&data[off ..], self.buffer.bytes_mut(), FlushDecompress::Sync)?;
+                let b = self.buffer.bytes_mut();
+                let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                d.decompress(&data[off ..], b, FlushDecompress::Sync)?;
                 self.buffer.advance_mut((d.total_out() - n).try_into()?);
             }
         }
@@ -311,43 +301,23 @@ impl Extension for Deflate {
 
             while c.total_in() < as_u64(data.len()) {
                 let off: usize = c.total_in().try_into()?;
-                self.buffer.reserve(data.len() - off);
+                crate::reserve(&mut self.buffer, data.len() - off);
                 let n = c.total_out();
                 unsafe {
-                    // `bytes_mut()` is marked unsafe because it returns a
-                    // reference to uninitialised memory. Since we (this crate
-                    // and flate2) only write to this memory, usage is safe here.
-                    // Even so, we call `initialise` which fills the slice with
-                    // 0s unless the `deflate_with_uninitialised_memory` feature
-                    // is enabled.
-                    //
-                    // `advance_mut()` is marked unsafe because it can not
-                    // know if the memory is safe to read. Since we only
-                    // advance for as many bytes as we have compressed, usage
-                    // is safe here.
-                    initialise(self.buffer.bytes_mut());
-                    c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                    let b = self.buffer.bytes_mut();
+                    let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                    c.compress(&data[off ..], b, FlushCompress::Sync)?;
                     self.buffer.advance_mut((c.total_out() - n).try_into()?)
                 }
             }
 
-            if self.buffer.remaining_mut() < 5 {
-                self.buffer.reserve(5); // Make room for the trailing end bytes
+            if self.buffer.capacity() - self.buffer.len() < 5 {
+                crate::reserve(&mut self.buffer, 5); // Make room for the trailing end bytes
+                let n = c.total_out();
                 unsafe {
-                    // `bytes_mut()` is marked unsafe because it returns a
-                    // reference to uninitialised memory. Since we (this crate
-                    // and flate2) only write to this memory, usage is safe here.
-                    // Even so, we call `initialise` which fills the slice with
-                    // 0s unless the `deflate_with_uninitialised_memory` feature
-                    // is enabled.
-                    //
-                    // `advance_mut()` is marked unsafe because it can not
-                    // know if the memory is safe to read. Since we only
-                    // advance for as many bytes as we have compressed, usage
-                    // is safe here.
-                    let n = c.total_out();
-                    initialise(self.buffer.bytes_mut());
-                    c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                    let b = self.buffer.bytes_mut();
+                    let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                    c.compress(&[], b, FlushCompress::Sync)?;
                     self.buffer.advance_mut((c.total_out() - n).try_into()?)
                 }
             }
@@ -355,7 +325,7 @@ impl Extension for Deflate {
 
         let n = self.buffer.len() - 4;
         self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
-        let compressed = self.buffer.take();
+        let compressed = crate::take(&mut self.buffer);
         header.set_rsv1(true);
         header.set_payload_len(compressed.len());
         *data = Either::Right(compressed);
@@ -364,12 +334,3 @@ impl Extension for Deflate {
     }
 }
 
-/// Helper to initialise a slice by filling it with 0s.
-fn initialise(m: &mut [u8]) {
-    if cfg!(feature = "deflate_with_uninitialised_memory") {
-        return ()
-    }
-    unsafe {
-        std::ptr::write_bytes(m.as_mut_ptr(), 0, m.len())
-    }
-}

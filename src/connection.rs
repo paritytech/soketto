@@ -9,7 +9,7 @@
 //! A persistent websocket connection after the handshake phase, represented
 //! as a [`Sender`] and [`Receiver`] pair.
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use crate::{Parsing, base::{self, Header, MAX_HEADER_SIZE, OpCode}, extension::Extension};
 use crate::data::{ByteSlice125, Data, Incoming};
 use either::Either;
@@ -272,10 +272,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if self.validate_utf8 {
                     std::str::from_utf8(&self.message)?;
                 }
-                return Ok(Incoming::Data(Data::text(self.message.take())))
+                return Ok(Incoming::Data(Data::text(crate::take(&mut self.message))))
             }
 
-            return Ok(Incoming::Data(Data::binary(self.message.take())))
+            return Ok(Incoming::Data(Data::binary(crate::take(&mut self.message))))
         }
     }
 
@@ -294,7 +294,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 
     /// Read the next frame header.
     async fn receive_header(&mut self) -> Result<Header, Error> {
-        if self.buffer.len() < MAX_HEADER_SIZE && self.buffer.remaining_mut() < MAX_HEADER_SIZE {
+        let n = self.buffer.len();
+        if n < MAX_HEADER_SIZE && self.buffer.capacity() - n < MAX_HEADER_SIZE {
             // We may not have enough data in our read buffer and there may
             // not be enough capacity to read the next header, so reserve
             // some extra space to make sure we can read as much.

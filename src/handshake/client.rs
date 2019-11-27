@@ -10,7 +10,7 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
 use futures::prelude::*;
@@ -107,7 +107,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         self.buffer.clear();
 
         loop {
-            if !self.buffer.has_remaining_mut() {
+            if self.buffer.capacity() - self.buffer.len() < BLOCK_SIZE {
                 crate::reserve(&mut self.buffer, BLOCK_SIZE)
             }
             crate::read(&mut self.socket, &mut self.buffer).await?;

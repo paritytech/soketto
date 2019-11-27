@@ -14,15 +14,10 @@ all-features = true
 
 [features]
 deflate = ["flate2"]
-# This feature enables the use of uninitialised memory for the deflate
-# extension. When compressing or decompressing, an uninitialised byte
-# slice will be used for writing the resulting bytes, assuming that
-# flate2 really only writes to and does not read from this memory.
-deflate_with_uninitialised_memory = []
 
 [dependencies]
 base64 = "0.10.1"
-bytes = "0.4.12"
+bytes = "0.5"
 either = "1.5"
 flate2 = { version = "1.0.8", features = ["zlib"], default-features = false, optional = true }
 futures = { version = "0.3.1", features = ["unstable", "bilock"] }

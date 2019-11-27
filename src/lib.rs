@@ -117,6 +117,7 @@ pub mod connection;
 
 use bytes::{BufMut, BytesMut};
 use futures::io::{AsyncRead, AsyncReadExt};
+use std::{io, mem::MaybeUninit};
 
 pub use connection::{Mode, Receiver, Sender};
 
@@ -151,18 +152,24 @@ pub(crate) fn reserve(bytes: &mut BytesMut, additional: usize) {
 }
 
 /// Helper to read from an `AsyncRead` resource into some buffer.
-pub(crate) async fn read<R>(r: &mut R, b: &mut BytesMut) -> Result<(), std::io::Error>
+pub(crate) async fn read<R>(reader: &mut R, bytes: &mut BytesMut) -> io::Result<()>
 where
     R: AsyncRead + Unpin
 {
     unsafe {
-        debug_assert!(b.has_remaining_mut());
-        let n = r.read(b.bytes_mut()).await?;
+        let b = bytes.bytes_mut();
+        let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+        debug_assert!(!b.is_empty());
+        let n = reader.read(b).await?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into())
         }
-        b.advance_mut(n);
+        bytes.advance_mut(n);
         log::trace!("read {} bytes", n)
     }
     Ok(())
+}
+
+pub(crate) fn take(bytes: &mut BytesMut) -> BytesMut {
+    bytes.split_to(bytes.len())
 }
