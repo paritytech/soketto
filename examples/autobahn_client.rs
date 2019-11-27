@@ -56,7 +56,11 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     loop {
         match receiver.receive_data().await {
             Ok(data) => {
-                sender.send_data(data).await?;
+                if data.is_binary() {
+                    sender.send_binary(&data).await?
+                } else {
+                    sender.send_text(std::str::from_utf8(data.as_ref()).unwrap()).await?
+                }
                 sender.flush().await?
             }
             Err(connection::Error::Closed) => return Ok(()),

@@ -106,7 +106,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     /// Turn this handshake into a [`connection::Builder`].
     pub fn into_builder(mut self) -> connection::Builder<T> {
         let mut builder = connection::Builder::new(self.socket, Mode::Server);
-        builder.set_buffer(self.buffer).add_extensions(self.extensions.drain(..));
+        builder.set_buffer(self.buffer);
+        builder.add_extensions(self.extensions.drain(..));
         builder
     }
 

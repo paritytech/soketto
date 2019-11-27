@@ -11,7 +11,7 @@
 
 use bytes::{BufMut, BytesMut};
 use crate::{Parsing, base::{self, Header, MAX_HEADER_SIZE, OpCode}, extension::Extension};
-use crate::data::{Data, Incoming, Outgoing};
+use crate::data::{ByteSlice125, Data, Incoming};
 use futures::{io::{BufWriter, ReadHalf, WriteHalf}, lock::BiLock, prelude::*, stream};
 use smallvec::SmallVec;
 use static_assertions::const_assert;
@@ -113,15 +113,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     }
 
     /// Set a custom buffer to use.
-    pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
-        self.buffer = b;
-        self
+    pub fn set_buffer(&mut self, b: BytesMut) {
+        self.buffer = b
     }
 
     /// Add extensions to use with this connection.
     ///
     /// Only enabled extensions will be considered.
-    pub fn add_extensions<I>(&mut self, extensions: I) -> &mut Self
+    pub fn add_extensions<I>(&mut self, extensions: I)
     where
         I: IntoIterator<Item = Box<dyn Extension + Send>>
     {
@@ -130,7 +129,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             self.codec.add_reserved_bits(e.reserved_bits());
             self.extensions.push(e)
         }
-        self
     }
 
     /// Set the maximum size of a complete message.
@@ -139,23 +137,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     /// i.e. the sum of all message frames payload lengths will not be greater
     /// than this maximum. However, extensions may increase the total message
     /// size further, e.g. by decompressing the payload data.
-    pub fn set_max_message_size(&mut self, max: usize) -> &mut Self {
-        self.max_message_size = max;
-        self
+    pub fn set_max_message_size(&mut self, max: usize) {
+        self.max_message_size = max
     }
 
     /// Set the maximum size of a single websocket frame payload.
-    pub fn set_max_frame_size(&mut self, max: usize) -> &mut Self {
+    pub fn set_max_frame_size(&mut self, max: usize) {
         self.codec.set_max_data_size(max);
-        self
     }
 
     /// Toggle UTF-8 check for incoming text messages.
     ///
     /// By default all text frames are validated.
-    pub fn validate_utf8(&mut self, value: bool) -> &mut Self {
-        self.validate_utf8 = value;
-        self
+    pub fn validate_utf8(&mut self, value: bool) {
+        self.validate_utf8 = value
     }
 
     /// Create a configured [`Sender`]/[`Receiver`] pair.
@@ -211,7 +206,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let mut data = self.buffer.split_to(header.payload_len());
                 base::Codec::apply_mask(&header, &mut data);
                 if header.opcode() == OpCode::Pong {
-                    return Ok(Incoming::Pong(data))
+                    return Ok(Incoming::Pong(Data::binary(data)))
                 }
                 self.on_control(&header, &mut data).await?;
                 continue
@@ -271,10 +266,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if self.validate_utf8 {
                     std::str::from_utf8(&self.message)?;
                 }
-                return Ok(Incoming::Data(Data::Text(self.message.take())))
+                return Ok(Incoming::Data(Data::text(self.message.take())))
             }
 
-            return Ok(Incoming::Data(Data::Binary(self.message.take())))
+            return Ok(Incoming::Data(Data::binary(self.message.take())))
         }
     }
 
@@ -401,34 +396,32 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
-    /// Send some data or ping over this connection.
-    pub async fn send(&mut self, outgoing: Outgoing) -> Result<(), Error> {
-        match outgoing {
-            Outgoing::Ping(bytes) => {
-                let mut header = Header::new(OpCode::Ping);
-                self.send_frame(&mut header, bytes.into()).await
-            }
-            Outgoing::Pong(bytes) => {
-                let mut header = Header::new(OpCode::Pong);
-                self.send_frame(&mut header, bytes.into()).await
-            }
-            Outgoing::Data(d) => self.send_data(d).await
-        }
+    pub async fn send_text(&mut self, data: impl AsRef<str>) -> Result<(), Error> {
+        let mut header = Header::new(OpCode::Text);
+        self.send_frame(&mut header, data.as_ref().as_bytes()).await
     }
 
-    /// Send some data over this connection.
-    pub async fn send_data(&mut self, data: impl Into<Data>) -> Result<(), Error> {
-        match data.into() {
-            Data::Binary(bytes) => {
-                let mut header = Header::new(OpCode::Binary);
-                self.send_frame(&mut header, bytes).await
-            }
-            Data::Text(bytes) => {
-                debug_assert!(std::str::from_utf8(&bytes).is_ok());
-                let mut header = Header::new(OpCode::Text);
-                self.send_frame(&mut header, bytes).await
-            }
-        }
+    pub async fn send_binary(&mut self, data: impl AsRef<[u8]>) -> Result<(), Error> {
+        let mut header = Header::new(OpCode::Binary);
+        self.send_frame(&mut header, data.as_ref()).await
+    }
+
+    pub async fn send_ping(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
+        let mut buf = [0; 125];
+        let src = data.as_ref();
+        let dst = &mut buf[.. src.len()];
+        dst.copy_from_slice(src);
+        let mut header = Header::new(OpCode::Ping);
+        self.write(&mut header, dst).await
+    }
+
+    pub async fn send_pong(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
+        let mut buf = [0; 125];
+        let src = data.as_ref();
+        let dst = &mut buf[.. src.len()];
+        dst.copy_from_slice(src);
+        let mut header = Header::new(OpCode::Pong);
+        self.write(&mut header, dst).await
     }
 
     /// Flush the socket buffer.
@@ -450,22 +443,32 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send_frame(&mut self, header: &mut Header, mut data: BytesMut) -> Result<(), Error> {
-        {
-            let mut extensions = self.extensions.lock().await;
-            for e in &mut *extensions {
-                log::trace!("encoding with extension: {}", e.name());
-                e.encode(header, &mut data).map_err(Error::Extension)?
+    async fn send_frame(&mut self, header: &mut Header, data: &[u8]) -> Result<(), Error> {
+        let mut buffer: Option<BytesMut> = None;
+
+        for e in self.extensions.lock().await.iter_mut() {
+            log::trace!("encoding with extension: {}", e.name());
+            if let Some(b1) = buffer.as_ref() {
+                if let Some(b2) = e.encode(header, b1.as_ref()).map_err(Error::Extension)? {
+                    buffer = Some(b2)
+                }
+            } else {
+                buffer = e.encode(header, data).map_err(Error::Extension)?
             }
         }
-        self.write(header, &mut data).await
+
+        if let Some(mut b) = buffer {
+            self.write(header, &mut b).await
+        } else {
+            self.write(header, data).await
+        }
     }
 
     /// Write final header and payload data to socket.
     ///
     /// The data will be masked if necessary.
     /// No extensions will be applied to header and payload data.
-    async fn write(&mut self, header: &mut Header, data: &mut [u8]) -> Result<(), Error> {
+    async fn write(&mut self, header: &mut Header, data: &[u8]) -> Result<(), Error> {
         write(self.mode, &mut self.codec, &mut self.writer, header, data).await
     }
 }
@@ -476,20 +479,23 @@ async fn write<T: AsyncWrite + Unpin>
     , codec: &mut base::Codec
     , writer: &mut BiLock<BufWriter<WriteHalf<T>>>
     , header: &mut Header
-    , data: &mut [u8]
+    , data: &[u8]
     ) -> Result<(), Error>
 {
     if mode.is_client() {
         header.set_masked(true);
         header.set_mask(rand::random());
-        base::Codec::apply_mask(&header, data)
     }
     header.set_payload_len(data.len());
     log::trace!("send: {}", header);
     let header_bytes = codec.encode_header(&header);
     let mut w = writer.lock().await;
     w.write_all(&header_bytes).await.or(Err(Error::Closed))?;
-    w.write_all(&data).await.or(Err(Error::Closed))
+    if header.is_masked() {
+        write_all_masked(&mut *w, header.mask(), data).await.or(Err(Error::Closed))
+    } else {
+        w.write_all(data).await.or(Err(Error::Closed))
+    }
 }
 
 /// Create a close frame based on the given data.
@@ -521,6 +527,30 @@ where
             Err(e) => Some((Err(e), r))
         }
     })
+}
+
+
+async fn write_all_masked<W>(w: &mut W, mask: u32, data: &[u8]) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin
+{
+    const BUFSIZE: usize = 512;
+
+    let mask = mask.to_be_bytes();
+    let mut iter = data.iter().zip(mask.iter().cycle());
+    let mut buffer = [0; BUFSIZE];
+
+    loop {
+        for i in 0 .. BUFSIZE {
+            if let Some((byte, key)) = iter.next() {
+                buffer[i] = byte ^ key
+            } else {
+                w.write_all(&buffer[.. i]).await?;
+                return Ok(())
+            }
+        }
+        w.write_all(&buffer).await?
+    }
 }
 
 /// Errors which may occur when sending or receiving messages.

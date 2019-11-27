@@ -45,8 +45,8 @@
 //! };
 //!
 //! // Over the established websocket connection we can send
-//! sender.send_data("some text").await?;
-//! sender.send_data("some more text").await?;
+//! sender.send_text("some text").await?;
+//! sender.send_text("some more text").await?;
 //! sender.flush().await?;
 //!
 //! // ... and receive data.
@@ -62,7 +62,7 @@
 //! ```no_run
 //! # use async_std::{net::TcpListener, prelude::*};
 //! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
-//! use soketto::handshake::{Server, ClientRequest, server::Response};
+//! use soketto::{handshake::{Server, ClientRequest, server::Response}};
 //!
 //! // First, we listen for incoming connections.
 //! let listener = TcpListener::bind("...").await?;
@@ -82,9 +82,19 @@
 //!     server.send_response(&accept).await?;
 //!
 //!     // And we can finally transition to a websocket connection.
-//!     let (mut sender, mut receiver) = server.into_builder().finish();
-//!     let message = receiver.receive_data().await?;
-//!     sender.send_data(message).await?;
+//!     let mut builder = server.into_builder();
+//!     builder.validate_utf8(false);
+//!
+//!     let (mut sender, mut receiver) = builder.finish();
+//!
+//!     let data = receiver.receive_data().await?;
+//!
+//!     if data.is_binary() {
+//!         sender.send_binary(data.as_ref()).await?
+//!     } else {
+//!         sender.send_text(std::str::from_utf8(data.as_ref())?).await?
+//!     }
+//!
 //!     sender.close().await?;
 //! }
 //!
@@ -108,7 +118,6 @@ pub mod connection;
 use bytes::{BufMut, BytesMut};
 use futures::io::{AsyncRead, AsyncReadExt};
 
-pub use data::Data;
 pub use connection::{Mode, Receiver, Sender};
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;

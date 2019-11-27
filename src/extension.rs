@@ -61,7 +61,7 @@ pub trait Extension: std::fmt::Debug {
     fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError>;
 
     /// Encode a frame, given as frame header and payload data.
-    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError>;
+    fn encode(&mut self, header: &mut Header, data: &[u8]) -> Result<Option<BytesMut>, BoxedError>;
 
     /// Decode a frame.
     ///
@@ -92,7 +92,7 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+    fn encode(&mut self, header: &mut Header, data: &[u8]) -> Result<Option<BytesMut>, BoxedError> {
         (**self).encode(header, data)
     }
 

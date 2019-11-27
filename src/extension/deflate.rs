@@ -283,16 +283,16 @@ impl Extension for Deflate {
         Ok(())
     }
 
-    fn encode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+    fn encode(&mut self, header: &mut Header, data: &[u8]) -> Result<Option<BytesMut>, BoxedError> {
         if let OpCode::Binary | OpCode::Text = header.opcode() {
             log::trace!("deflate: encoding {}", header)
         } else {
             log::trace!("deflate: not encoding {}", header);
-            return Ok(())
+            return Ok(None)
         }
 
         if data.is_empty() {
-            return Ok(())
+            return Ok(None)
         }
 
         self.buffer.clear();
@@ -344,11 +344,11 @@ impl Extension for Deflate {
 
         let n = self.buffer.len() - 4;
         self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
-        std::mem::swap(&mut self.buffer, data);
+        let compressed = self.buffer.take();
         header.set_rsv1(true);
-        header.set_payload_len(data.len());
+        header.set_payload_len(compressed.len());
 
-        Ok(())
+        Ok(Some(compressed))
     }
 }
 
