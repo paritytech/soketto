@@ -9,7 +9,7 @@
 use bytes::BytesMut;
 use std::convert::TryFrom;
 
-/// Incoming data.
+/// Data received from the remote end.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Incoming {
     /// Text or binary data.
@@ -62,7 +62,7 @@ impl Into<Data> for Incoming {
     }
 }
 
-/// Payload application data.
+/// Application data.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Data(DataRepr);
 
@@ -82,6 +82,7 @@ impl Data {
 
     /// Create a new textual `Data` value.
     pub(crate) fn text(b: BytesMut) -> Self {
+        debug_assert!(std::str::from_utf8(&b).is_ok());
         Data(DataRepr::Text(b))
     }
 

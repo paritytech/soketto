@@ -18,6 +18,7 @@ use crate::{
     connection::Mode,
     extension::{Extension, Param}
 };
+use either::Either;
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use smallvec::SmallVec;
 use std::convert::TryInto;
@@ -283,62 +284,72 @@ impl Extension for Deflate {
         Ok(())
     }
 
-    fn encode(&mut self, header: &mut Header, data: &[u8]) -> Result<Option<BytesMut>, BoxedError> {
+    fn encode(&mut self, header: &mut Header, data: &mut Either<&[u8], BytesMut>) -> Result<(), BoxedError> {
         if let OpCode::Binary | OpCode::Text = header.opcode() {
             log::trace!("deflate: encoding {}", header)
         } else {
             log::trace!("deflate: not encoding {}", header);
-            return Ok(None)
+            return Ok(())
         }
 
-        if data.is_empty() {
-            return Ok(None)
-        }
+        {
+            let data = match &data {
+                Either::Left(d) => d,
+                Either::Right(b) => b.as_ref()
+            };
 
-        self.buffer.clear();
-
-        let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
-
-        while c.total_in() < as_u64(data.len()) {
-            let off: usize = c.total_in().try_into()?;
-            self.buffer.reserve(data.len() - off);
-            let n = c.total_out();
-            unsafe {
-                // `bytes_mut()` is marked unsafe because it returns a
-                // reference to uninitialised memory. Since we (this crate
-                // and flate2) only write to this memory, usage is safe here.
-                // Even so, we call `initialise` which fills the slice with
-                // 0s unless the `deflate_with_uninitialised_memory` feature
-                // is enabled.
-                //
-                // `advance_mut()` is marked unsafe because it can not
-                // know if the memory is safe to read. Since we only
-                // advance for as many bytes as we have compressed, usage
-                // is safe here.
-                initialise(self.buffer.bytes_mut());
-                c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-                self.buffer.advance_mut((c.total_out() - n).try_into()?)
+            if data.is_empty() {
+                return Ok(())
             }
-        }
 
-        if self.buffer.remaining_mut() < 5 {
-            self.buffer.reserve(5); // Make room for the trailing end bytes
-            unsafe {
-                // `bytes_mut()` is marked unsafe because it returns a
-                // reference to uninitialised memory. Since we (this crate
-                // and flate2) only write to this memory, usage is safe here.
-                // Even so, we call `initialise` which fills the slice with
-                // 0s unless the `deflate_with_uninitialised_memory` feature
-                // is enabled.
-                //
-                // `advance_mut()` is marked unsafe because it can not
-                // know if the memory is safe to read. Since we only
-                // advance for as many bytes as we have compressed, usage
-                // is safe here.
+            self.buffer.clear();
+
+            let mut c = {
+                let mwb = self.our_max_window_bits;
+                Compress::new_with_window_bits(Compression::fast(), false, mwb)
+            };
+
+            while c.total_in() < as_u64(data.len()) {
+                let off: usize = c.total_in().try_into()?;
+                self.buffer.reserve(data.len() - off);
                 let n = c.total_out();
-                initialise(self.buffer.bytes_mut());
-                c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-                self.buffer.advance_mut((c.total_out() - n).try_into()?)
+                unsafe {
+                    // `bytes_mut()` is marked unsafe because it returns a
+                    // reference to uninitialised memory. Since we (this crate
+                    // and flate2) only write to this memory, usage is safe here.
+                    // Even so, we call `initialise` which fills the slice with
+                    // 0s unless the `deflate_with_uninitialised_memory` feature
+                    // is enabled.
+                    //
+                    // `advance_mut()` is marked unsafe because it can not
+                    // know if the memory is safe to read. Since we only
+                    // advance for as many bytes as we have compressed, usage
+                    // is safe here.
+                    initialise(self.buffer.bytes_mut());
+                    c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                    self.buffer.advance_mut((c.total_out() - n).try_into()?)
+                }
+            }
+
+            if self.buffer.remaining_mut() < 5 {
+                self.buffer.reserve(5); // Make room for the trailing end bytes
+                unsafe {
+                    // `bytes_mut()` is marked unsafe because it returns a
+                    // reference to uninitialised memory. Since we (this crate
+                    // and flate2) only write to this memory, usage is safe here.
+                    // Even so, we call `initialise` which fills the slice with
+                    // 0s unless the `deflate_with_uninitialised_memory` feature
+                    // is enabled.
+                    //
+                    // `advance_mut()` is marked unsafe because it can not
+                    // know if the memory is safe to read. Since we only
+                    // advance for as many bytes as we have compressed, usage
+                    // is safe here.
+                    let n = c.total_out();
+                    initialise(self.buffer.bytes_mut());
+                    c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                    self.buffer.advance_mut((c.total_out() - n).try_into()?)
+                }
             }
         }
 
@@ -347,8 +358,9 @@ impl Extension for Deflate {
         let compressed = self.buffer.take();
         header.set_rsv1(true);
         header.set_payload_len(compressed.len());
+        *data = Either::Right(compressed);
 
-        Ok(Some(compressed))
+        Ok(())
     }
 }
 
