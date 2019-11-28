@@ -42,7 +42,7 @@ pub struct Server<'a, T> {
     /// Extensions the server supports.
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     /// Encoding/decoding buffer
-    buffer: BytesMut
+    buffer: crate::Buffer
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
@@ -52,12 +52,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             socket,
             protocols: SmallVec::new(),
             extensions: SmallVec::new(),
-            buffer: BytesMut::new()
+            buffer: crate::Buffer::new()
         }
     }
 
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
-        self.buffer = b;
+        self.buffer = crate::Buffer::from(b);
         self
     }
 
@@ -82,10 +82,10 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     pub async fn receive_request(&mut self) -> Result<ClientRequest<'a>, Error> {
         self.buffer.clear();
         loop {
-            if self.buffer.capacity() - self.buffer.len() < BLOCK_SIZE {
-                crate::reserve(&mut self.buffer, BLOCK_SIZE)
+            if self.buffer.remaining_mut() < BLOCK_SIZE {
+                self.buffer.reserve(BLOCK_SIZE)
             }
-            crate::read(&mut self.socket, &mut self.buffer).await?;
+            self.buffer.read_from(&mut self.socket).await?;
             if let Parsing::Done { value, offset } = self.decode_request()? {
                 self.buffer.split_to(offset);
                 return Ok(value)
@@ -97,7 +97,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     pub async fn send_response(&mut self, r: &Response<'_>) -> Result<(), Error> {
         self.buffer.clear();
         self.encode_response(r);
-        self.socket.write_all(&self.buffer).await?;
+        self.socket.write_all(self.buffer.as_ref()).await?;
         self.socket.flush().await?;
         self.buffer.clear();
         Ok(())
@@ -106,7 +106,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     /// Turn this handshake into a [`connection::Builder`].
     pub fn into_builder(mut self) -> connection::Builder<T> {
         let mut builder = connection::Builder::new(self.socket, Mode::Server);
-        builder.set_buffer(self.buffer);
+        builder.set_buffer(self.buffer.into_bytes());
         builder.add_extensions(self.extensions.drain(..));
         builder
     }
@@ -116,7 +116,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut request = httparse::Request::new(&mut header_buf);
 
-        let offset = match request.parse(&self.buffer) {
+        let offset = match request.parse(self.buffer.as_ref()) {
             Ok(httparse::Status::Complete(off)) => off,
             Ok(httparse::Status::Partial) => return Ok(Parsing::NeedMore(())),
             Err(e) => return Err(Error::Http(Box::new(e)))

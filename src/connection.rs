@@ -69,7 +69,7 @@ pub struct Receiver<T> {
     writer: BiLock<BufWriter<WriteHalf<T>>>,
     extensions: BiLock<SmallVec<[Box<dyn Extension + Send>; 4]>>,
     has_extensions: bool,
-    buffer: BytesMut,  // read buffer
+    buffer: crate::Buffer, // read buffer
     message: BytesMut, // message buffer (concatenated fragment payloads)
     mask_buffer: Vec<u8>,
     max_message_size: usize,
@@ -87,7 +87,7 @@ pub struct Builder<T> {
     socket: T,
     codec: base::Codec,
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
-    buffer: BytesMut,
+    buffer: crate::Buffer,
     max_message_size: usize
 }
 
@@ -108,14 +108,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             socket,
             codec,
             extensions: SmallVec::new(),
-            buffer: BytesMut::new(),
+            buffer: crate::Buffer::new(),
             max_message_size: MAX_MESSAGE_SIZE
         }
     }
 
     /// Set a custom buffer to use.
     pub fn set_buffer(&mut self, b: BytesMut) {
-        self.buffer = b
+        self.buffer = crate::Buffer::from(b)
     }
 
     /// Add extensions to use with this connection.
@@ -200,11 +200,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             if header.opcode().is_control() {
                 self.read_buffer(&header).await?;
                 let mut data = self.buffer.split_to(header.payload_len());
-                base::Codec::apply_mask(&header, &mut data);
+                base::Codec::apply_mask(&header, data.as_mut());
                 if header.opcode() == OpCode::Pong {
-                    return Ok(Incoming::Pong(Data::binary(data)))
+                    return Ok(Incoming::Pong(Data::binary(data.into_bytes())))
                 }
-                self.on_control(&header, &mut Storage::Owned(data)).await?;
+                self.on_control(&header, &mut Storage::Owned(data.into_bytes())).await?;
                 continue
             }
 
@@ -218,8 +218,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             }
 
             self.read_buffer(&header).await?;
-            base::Codec::apply_mask(&header, &mut self.buffer[.. header.payload_len()]);
-            self.message.unsplit(self.buffer.split_to(header.payload_len()));
+            base::Codec::apply_mask(&header, &mut self.buffer.as_mut()[.. header.payload_len()]);
+            self.message.unsplit(self.buffer.split_to(header.payload_len()).into_bytes());
 
             match (header.is_fin(), header.opcode()) {
                 (false, OpCode::Continue) => { // Intermediate message fragment.
@@ -279,24 +279,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 
     /// Read the next frame header.
     async fn receive_header(&mut self) -> Result<Header, Error> {
-        let n = self.buffer.len();
-        if n < MAX_HEADER_SIZE && self.buffer.capacity() - n < MAX_HEADER_SIZE {
+        if self.buffer.len() < MAX_HEADER_SIZE && self.buffer.remaining_mut() < MAX_HEADER_SIZE {
             // We may not have enough data in our read buffer and there may
             // not be enough capacity to read the next header, so reserve
             // some extra space to make sure we can read as much.
             const_assert!(MAX_HEADER_SIZE < BLOCK_SIZE);
-            crate::reserve(&mut self.buffer, BLOCK_SIZE)
+            self.buffer.reserve(BLOCK_SIZE)
         }
         loop {
-            match self.codec.decode_header(&self.buffer)? {
+            match self.codec.decode_header(self.buffer.as_ref())? {
                 Parsing::Done { value: header, offset } => {
                     debug_assert!(offset <= MAX_HEADER_SIZE);
                     self.buffer.split_to(offset);
                     return Ok(header)
                 }
-                Parsing::NeedMore(_) => {
-                    crate::read(&mut self.reader, &mut self.buffer).await?
-                }
+                Parsing::NeedMore(_) => self.buffer.read_from(&mut self.reader).await?
             }
         }
     }
@@ -311,10 +308,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
         // Ensure we have enough capacity and ask for at least a single block
         // so that we read a substantial amount.
         let add = std::cmp::max(BLOCK_SIZE, header.payload_len() - self.buffer.len());
-        crate::reserve(&mut self.buffer, add);
+        self.buffer.reserve(add);
 
         while self.buffer.len() < header.payload_len() {
-            crate::read(&mut self.reader, &mut self.buffer).await?
+            self.buffer.read_from(&mut self.reader).await?
         }
 
         Ok(())

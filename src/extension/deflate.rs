@@ -10,7 +10,7 @@
 //!
 //! [rfc7692]: https://tools.ietf.org/html/rfc7692
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use crate::{
     as_u64,
     BoxedError,
@@ -21,7 +21,7 @@ use crate::{
 };
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use smallvec::SmallVec;
-use std::{convert::TryInto, mem::MaybeUninit};
+use std::convert::TryInto;
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -37,7 +37,7 @@ const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
 pub struct Deflate {
     mode: Mode,
     enabled: bool,
-    buffer: BytesMut,
+    buffer: crate::Buffer,
     params: SmallVec<[Param<'static>; 2]>,
     our_max_window_bits: u8,
     their_max_window_bits: u8,
@@ -60,7 +60,7 @@ impl Deflate {
         Deflate {
             mode,
             enabled: false,
-            buffer: BytesMut::new(),
+            buffer: crate::Buffer::new(),
             params,
             our_max_window_bits: 15,
             their_max_window_bits: 15,
@@ -257,19 +257,18 @@ impl Extension for Deflate {
         let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
         while d.total_in() < as_u64(data.len()) {
             let off: usize = d.total_in().try_into()?;
-            crate::reserve(&mut self.buffer, data.len() - off);
+            self.buffer.reserve(data.len() - off);
             let n = d.total_out();
-            unsafe {
-                let b = self.buffer.bytes_mut();
-                let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
-                d.decompress(&data[off ..], b, FlushDecompress::Sync)?;
-                self.buffer.advance_mut((d.total_out() - n).try_into()?);
-            }
+            d.decompress(&data[off ..], self.buffer.bytes_mut(), FlushDecompress::Sync)?;
+            self.buffer.advance_mut((d.total_out() - n).try_into()?);
         }
 
-        std::mem::swap(&mut self.buffer, data);
+        let uncompressed = self.buffer.take().into_bytes();
         header.set_rsv1(false);
-        header.set_payload_len(data.len());
+        header.set_payload_len(uncompressed.len());
+        //*data = uncompressed;
+        data.clear();
+        data.extend_from_slice(&uncompressed);
 
         Ok(())
     }
@@ -298,31 +297,23 @@ impl Extension for Deflate {
 
             while c.total_in() < as_u64(data.len()) {
                 let off: usize = c.total_in().try_into()?;
-                crate::reserve(&mut self.buffer, data.len() - off);
+                self.buffer.reserve(data.len() - off);
                 let n = c.total_out();
-                unsafe {
-                    let b = self.buffer.bytes_mut();
-                    let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
-                    c.compress(&data[off ..], b, FlushCompress::Sync)?;
-                    self.buffer.advance_mut((c.total_out() - n).try_into()?)
-                }
+                c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                self.buffer.advance_mut((c.total_out() - n).try_into()?)
             }
 
-            if self.buffer.capacity() - self.buffer.len() < 5 {
-                crate::reserve(&mut self.buffer, 5); // Make room for the trailing end bytes
+            if self.buffer.remaining_mut() < 5 {
+                self.buffer.reserve(5); // Make room for the trailing end bytes
                 let n = c.total_out();
-                unsafe {
-                    let b = self.buffer.bytes_mut();
-                    let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
-                    c.compress(&[], b, FlushCompress::Sync)?;
-                    self.buffer.advance_mut((c.total_out() - n).try_into()?)
-                }
+                c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+                self.buffer.advance_mut((c.total_out() - n).try_into()?)
             }
         }
 
         let n = self.buffer.len() - 4;
         self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
-        let compressed = crate::take(&mut self.buffer);
+        let compressed = self.buffer.take().into_bytes();
         header.set_rsv1(true);
         header.set_payload_len(compressed.len());
         *data = Storage::Owned(compressed);

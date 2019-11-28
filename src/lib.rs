@@ -114,7 +114,7 @@ pub mod connection;
 
 use bytes::{BufMut, BytesMut};
 use futures::io::{AsyncRead, AsyncReadExt};
-use std::{io, mem::MaybeUninit};
+use std::{io, mem::{self, MaybeUninit}, ptr};
 
 pub use connection::{Mode, Receiver, Sender};
 
@@ -162,30 +162,133 @@ const fn as_u64(a: usize) -> u64 {
     a as u64
 }
 
-/// Reserve (and initialise) additional bytes.
-pub(crate) fn reserve(bytes: &mut BytesMut, additional: usize) {
-    let n = bytes.len();
-    bytes.resize(n + additional, 0);
-    unsafe { bytes.set_len(n) }
-}
+/// Wrapper around `BytesMut` with a safe API.
+#[derive(Debug)]
+pub(crate) struct Buffer(BytesMut);
 
-/// Helper to read from an `AsyncRead` resource into some buffer.
-pub(crate) async fn read<R>(reader: &mut R, bytes: &mut BytesMut) -> io::Result<()>
-where
-    R: AsyncRead + Unpin
-{
-    unsafe {
-        let b = bytes.bytes_mut();
-        let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
+impl Buffer {
+    /// Create a fresh empty buffer.
+    pub(crate) fn new() -> Self {
+        Buffer(BytesMut::new())
+    }
+
+    /// Create a fresh empty buffer.
+    pub(crate) fn from(b: BytesMut) -> Self {
+        let mut this = Buffer(b);
+        // We do not know if the capacity of `b` is fully initialised
+        // so we do it ourselves.
+        this.init_bytes_mut();
+        this
+    }
+
+    /// Buffer length in bytes.
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The remaining write capacity of this buffer.
+    pub(crate) fn remaining_mut(&self) -> usize {
+        self.0.capacity() - self.0.len()
+    }
+
+    /// Clear this buffer.
+    pub(crate) fn clear(&mut self) {
+        self.0.clear()
+    }
+
+    /// Set `self` to `self[n ..]` and return `self[.. n]`.
+    pub(crate) fn split_to(&mut self, n: usize) -> Self {
+        Buffer(self.0.split_to(n))
+    }
+
+    /// Return all bytes from `self`, leaving it empty.
+    #[cfg(feature = "deflate")]
+    pub(crate) fn take(&mut self) -> Self {
+        self.split_to(self.0.len())
+    }
+
+    /// Shorten the buffer to the given len.
+    #[cfg(feature = "deflate")]
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.0.truncate(len)
+    }
+
+    /// Extract the underlying storage bytes.
+    pub(crate) fn into_bytes(self) -> BytesMut {
+        self.0
+    }
+
+    /// Clear this buffer.
+    pub(crate) fn extend_from_slice(&mut self, slice: &[u8]) {
+        self.0.extend_from_slice(slice)
+    }
+
+    /// Reserve and initialise more capacity.
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        let old = self.0.capacity();
+        self.0.reserve(additional);
+        let new = self.0.capacity();
+        if new > old {
+            self.init_bytes_mut()
+        }
+    }
+
+    /// Get a mutable handle to the remaining write capacity.
+    pub(crate) fn bytes_mut(&mut self) -> &mut [u8] {
+        let b = self.0.bytes_mut();
+        unsafe {
+            // Safe because `reserve` always initialises memory.
+            mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b)
+        }
+    }
+
+    /// Increment the buffer length by `n` bytes.
+    pub(crate) fn advance_mut(&mut self, n: usize) {
+        assert!(n <= self.remaining_mut(), "{} > {}", n, self.remaining_mut());
+        unsafe {
+            // Safe because we have established that `n` does not exceed
+            // the remaining capacity.
+            self.0.advance_mut(n)
+        }
+    }
+
+    /// Write 0s into the remaining write capacity.
+    fn init_bytes_mut(&mut self) {
+        let b = self.0.bytes_mut();
+        unsafe {
+            // Safe because we never read from `b` and stay within
+            // the boundaries of `b` when writing.
+            ptr::write_bytes(b.as_mut_ptr(), 0, b.len())
+        }
+    }
+
+    /// Fill the buffer from the given `AsyncRead` impl.
+    pub(crate) async fn read_from<R>(&mut self, reader: &mut R) -> io::Result<()>
+    where
+        R: AsyncRead + Unpin
+    {
+        let b = self.bytes_mut();
         debug_assert!(!b.is_empty());
         let n = reader.read(b).await?;
         if n == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into())
         }
-        bytes.advance_mut(n);
-        log::trace!("read {} bytes", n)
+        self.advance_mut(n);
+        log::trace!("read {} bytes", n);
+        Ok(())
     }
-    Ok(())
+}
+
+impl AsRef<[u8]> for Buffer {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for Buffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
 }
 
 /// Return all bytes from the given `BytesMut`, leaving it empty.

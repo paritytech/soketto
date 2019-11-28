@@ -13,7 +13,6 @@
 pub mod client;
 pub mod server;
 
-use bytes::BytesMut;
 use crate::extension::{Param, Extension};
 use smallvec::SmallVec;
 use std::{io, str};
@@ -100,7 +99,7 @@ fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str
 }
 
 // Write all extensions to the given buffer.
-fn append_extensions<'a, I>(extensions: I, bytes: &mut BytesMut)
+fn append_extensions<'a, I>(extensions: I, bytes: &mut crate::Buffer)
 where
     I: IntoIterator<Item = &'a Box<dyn Extension + Send>>
 {
