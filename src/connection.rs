@@ -413,22 +413,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Ping the remote end.
     pub async fn send_ping(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
-        let mut buf = [0; 125];
-        let src = data.as_ref();
-        let dst = &mut buf[.. src.len()];
-        dst.copy_from_slice(src);
         let mut header = Header::new(OpCode::Ping);
-        self.write(&mut header, &mut Storage::Shared(dst)).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
     }
 
     /// Send an unsolicited Pong to the remote.
     pub async fn send_pong(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
-        let mut buf = [0; 125];
-        let src = data.as_ref();
-        let dst = &mut buf[.. src.len()];
-        dst.copy_from_slice(src);
         let mut header = Header::new(OpCode::Pong);
-        self.write(&mut header, &mut Storage::Shared(dst)).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
     }
 
     /// Flush the socket buffer.
