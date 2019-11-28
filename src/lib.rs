@@ -134,6 +134,27 @@ pub enum Parsing<T, N = ()> {
     NeedMore(N)
 }
 
+/// A buffer type used for implementing `Extension`s.
+#[derive(Debug)]
+pub enum Storage<'a> {
+    /// A read-only shared byte slice.
+    Shared(&'a [u8]),
+    /// A mutable byte slice.
+    Unique(&'a mut [u8]),
+    /// An owned byte buffer.
+    Owned(BytesMut)
+}
+
+impl AsRef<[u8]> for Storage<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Storage::Shared(d) => d,
+            Storage::Unique(d) => d,
+            Storage::Owned(b) => b.as_ref()
+        }
+    }
+}
+
 /// Helper function to allow casts from `usize` to `u64` only on platforms
 /// where the sizes are guaranteed to fit.
 #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
@@ -167,6 +188,8 @@ where
     Ok(())
 }
 
+/// Return all bytes from the given `BytesMut`, leaving it empty.
 pub(crate) fn take(bytes: &mut BytesMut) -> BytesMut {
     bytes.split_to(bytes.len())
 }
+

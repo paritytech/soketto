@@ -15,8 +15,7 @@
 pub mod deflate;
 
 use bytes::BytesMut;
-use crate::{BoxedError, base::Header};
-use either::Either;
+use crate::{BoxedError, Storage, base::Header};
 use std::{borrow::Cow, fmt};
 
 /// A websocket extension as per RFC 6455, section 9.
@@ -62,7 +61,7 @@ pub trait Extension: std::fmt::Debug {
     fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError>;
 
     /// Encode a frame, given as frame header and payload data.
-    fn encode(&mut self, header: &mut Header, data: &mut Either<&[u8], BytesMut>) -> Result<(), BoxedError>;
+    fn encode(&mut self, header: &mut Header, data: &mut Storage) -> Result<(), BoxedError>;
 
     /// Decode a frame.
     ///
@@ -93,7 +92,7 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).configure(params)
     }
 
-    fn encode(&mut self, header: &mut Header, data: &mut Either<&[u8], BytesMut>) -> Result<(), BoxedError> {
+    fn encode(&mut self, header: &mut Header, data: &mut Storage) -> Result<(), BoxedError> {
         (**self).encode(header, data)
     }
 

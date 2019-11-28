@@ -12,13 +12,13 @@
 
 use bytes::{BufMut, BytesMut};
 use crate::{
-    BoxedError,
     as_u64,
+    BoxedError,
+    Storage,
     base::{Header, OpCode},
     connection::Mode,
     extension::{Extension, Param}
 };
-use either::Either;
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
 use smallvec::SmallVec;
 use std::{convert::TryInto, mem::MaybeUninit};
@@ -274,7 +274,7 @@ impl Extension for Deflate {
         Ok(())
     }
 
-    fn encode(&mut self, header: &mut Header, data: &mut Either<&[u8], BytesMut>) -> Result<(), BoxedError> {
+    fn encode(&mut self, header: &mut Header, data: &mut Storage) -> Result<(), BoxedError> {
         if let OpCode::Binary | OpCode::Text = header.opcode() {
             log::trace!("deflate: encoding {}", header)
         } else {
@@ -283,10 +283,7 @@ impl Extension for Deflate {
         }
 
         {
-            let data = match &data {
-                Either::Left(d) => d,
-                Either::Right(b) => b.as_ref()
-            };
+            let data = data.as_ref();
 
             if data.is_empty() {
                 return Ok(())
@@ -328,7 +325,7 @@ impl Extension for Deflate {
         let compressed = crate::take(&mut self.buffer);
         header.set_rsv1(true);
         header.set_payload_len(compressed.len());
-        *data = Either::Right(compressed);
+        *data = Storage::Owned(compressed);
 
         Ok(())
     }

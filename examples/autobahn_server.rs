@@ -32,9 +32,9 @@ fn main() -> Result<(), BoxedError> {
             let (mut sender, mut receiver) = server.into_builder().finish();
             loop {
                 match receiver.receive_data().await {
-                    Ok(data) => {
+                    Ok(mut data) => {
                         if data.is_binary() {
-                            sender.send_binary(&data).await?;
+                            sender.send_binary_mut(&mut data).await?;
                         } else {
                             sender.send_text(std::str::from_utf8(data.as_ref())?).await?;
                         }
