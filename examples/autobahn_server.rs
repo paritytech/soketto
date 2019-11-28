@@ -36,7 +36,7 @@ fn main() -> Result<(), BoxedError> {
                         if data.is_binary() {
                             sender.send_binary(&data).await?;
                         } else {
-                            sender.send_text(std::str::from_utf8(data.as_ref()).unwrap()).await?;
+                            sender.send_text(std::str::from_utf8(data.as_ref())?).await?;
                         }
                         sender.flush().await?
                     }

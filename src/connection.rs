@@ -69,7 +69,6 @@ pub struct Receiver<T> {
     writer: BiLock<BufWriter<WriteHalf<T>>>,
     extensions: BiLock<SmallVec<[Box<dyn Extension + Send>; 4]>>,
     has_extensions: bool,
-    validate_utf8: bool,
     buffer: BytesMut,  // read buffer
     message: BytesMut, // message buffer (concatenated fragment payloads)
     max_message_size: usize,
@@ -88,7 +87,6 @@ pub struct Builder<T> {
     codec: base::Codec,
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     buffer: BytesMut,
-    validate_utf8: bool,
     max_message_size: usize
 }
 
@@ -110,7 +108,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             codec,
             extensions: SmallVec::new(),
             buffer: BytesMut::new(),
-            validate_utf8: true,
             max_message_size: MAX_MESSAGE_SIZE
         }
     }
@@ -149,13 +146,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
         self.codec.set_max_data_size(max);
     }
 
-    /// Toggle UTF-8 check for incoming text messages.
-    ///
-    /// By default all text frames are validated.
-    pub fn validate_utf8(&mut self, value: bool) {
-        self.validate_utf8 = value
-    }
-
     /// Create a configured [`Sender`]/[`Receiver`] pair.
     pub fn finish(self) -> (Sender<T>, Receiver<T>) {
         let (rhlf, whlf) = self.socket.split();
@@ -170,7 +160,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             codec: self.codec.clone(),
             extensions: ext1,
             has_extensions,
-            validate_utf8: self.validate_utf8,
             buffer: self.buffer,
             message: BytesMut::new(),
             max_message_size: self.max_message_size,
@@ -193,8 +182,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     /// Receive the next websocket message.
     ///
     /// Fragmented messages will be concatenated and returned as one block.
-    /// Unless `Builder::validate_utf8` was applied to `false` textual data
-    /// is checked for well-formed UTF-8 encoding before returned.
     pub async fn receive(&mut self) -> Result<Incoming, Error> {
         let mut first_fragment_opcode = None;
         loop {
@@ -269,9 +256,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             }
 
             if header.opcode() == OpCode::Text {
-                if self.validate_utf8 {
-                    std::str::from_utf8(&self.message)?;
-                }
                 return Ok(Incoming::Data(Data::text(crate::take(&mut self.message))))
             }
 
@@ -282,8 +266,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     /// Receive the next websocket message, skipping over control frames.
     ///
     /// Fragmented messages will be concatenated and returned as one block.
-    /// Unless `Builder::validate_utf8` was applied to `false` textual data
-    /// is checked for well-formed UTF-8 encoding before returned.
     pub async fn receive_data(&mut self) -> Result<Data, Error> {
         loop {
             if let Incoming::Data(d) = self.receive().await? {

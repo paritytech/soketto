@@ -82,17 +82,14 @@
 //!     server.send_response(&accept).await?;
 //!
 //!     // And we can finally transition to a websocket connection.
-//!     let mut builder = server.into_builder();
-//!     builder.validate_utf8(false);
-//!
-//!     let (mut sender, mut receiver) = builder.finish();
+//!     let (mut sender, mut receiver) = server.into_builder().finish();
 //!
 //!     let data = receiver.receive_data().await?;
 //!
-//!     if data.is_binary() {
-//!         sender.send_binary(data.as_ref()).await?
-//!     } else {
+//!     if data.is_text() {
 //!         sender.send_text(std::str::from_utf8(data.as_ref())?).await?
+//!     } else {
+//!         sender.send_binary(data.as_ref()).await?
 //!     }
 //!
 //!     sender.close().await?;
