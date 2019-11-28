@@ -118,7 +118,7 @@ impl fmt::Display for OpCode {
 
 /// Error returned by `OpCode::try_from` if an unknown opcode
 /// number is encountered.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 #[error("unknown opcode")]
 pub struct UnknownOpCode(());
 

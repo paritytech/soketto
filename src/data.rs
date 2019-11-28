@@ -126,12 +126,17 @@ pub struct ByteSlice125<'a>(&'a [u8]);
 
 static_assertions::const_assert_eq!(125, crate::base::MAX_CTRL_BODY_SIZE);
 
+/// Error, if converting to `[ByteSlice125`] fails.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("Slice larger than 125 bytes")]
+pub struct SliceTooLarge(());
+
 impl<'a> TryFrom<&'a [u8]> for ByteSlice125<'a> {
-    type Error = ();
+    type Error = SliceTooLarge;
 
     fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
         if value.len() > 125 {
-            Err(())
+            Err(SliceTooLarge(()))
         } else {
             Ok(ByteSlice125(value))
         }
