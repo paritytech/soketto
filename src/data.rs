@@ -29,6 +29,24 @@ impl Incoming {
         if let Incoming::Pong(_) = self { true } else { false }
     }
 
+    /// Is this text data?
+    pub fn is_text(&self) -> bool {
+        if let Incoming::Data(d) = self {
+            d.is_text()
+        } else {
+            false
+        }
+    }
+
+    /// Is this binary data?
+    pub fn is_binary(&self) -> bool {
+        if let Incoming::Data(d) = self {
+            d.is_binary()
+        } else {
+            false
+        }
+    }
+
     /// Data length in bytes.
     pub fn len(&self) -> usize {
         self.as_ref().len()
