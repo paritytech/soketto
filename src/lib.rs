@@ -176,7 +176,7 @@ where
 {
     unsafe {
         let b = bytes.bytes_mut();
-        let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+        let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
         debug_assert!(!b.is_empty());
         let n = reader.read(b).await?;
         if n == 0 {

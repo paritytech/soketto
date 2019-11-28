@@ -261,7 +261,7 @@ impl Extension for Deflate {
             let n = d.total_out();
             unsafe {
                 let b = self.buffer.bytes_mut();
-                let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
                 d.decompress(&data[off ..], b, FlushDecompress::Sync)?;
                 self.buffer.advance_mut((d.total_out() - n).try_into()?);
             }
@@ -302,7 +302,7 @@ impl Extension for Deflate {
                 let n = c.total_out();
                 unsafe {
                     let b = self.buffer.bytes_mut();
-                    let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                    let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
                     c.compress(&data[off ..], b, FlushCompress::Sync)?;
                     self.buffer.advance_mut((c.total_out() - n).try_into()?)
                 }
@@ -313,7 +313,7 @@ impl Extension for Deflate {
                 let n = c.total_out();
                 unsafe {
                     let b = self.buffer.bytes_mut();
-                    let b = &mut *(b as *mut [MaybeUninit<u8>] as *mut [u8]);
+                    let b = std::mem::transmute::<&mut [MaybeUninit<u8>], &mut [u8]>(b);
                     c.compress(&[], b, FlushCompress::Sync)?;
                     self.buffer.advance_mut((c.total_out() - n).try_into()?)
                 }
