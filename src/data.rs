@@ -46,11 +46,6 @@ impl Incoming {
             false
         }
     }
-
-    /// Data length in bytes.
-    pub fn len(&self) -> usize {
-        self.as_ref().len()
-    }
 }
 
 impl AsRef<[u8]> for Incoming {
@@ -112,11 +107,6 @@ impl Data {
     /// Is this UTF-8 encoded textual data?
     pub fn is_text(&self) -> bool {
         if let DataRepr::Text(_) = self.0 { true } else { false }
-    }
-
-    /// Data length in bytes.
-    pub fn len(&self) -> usize {
-        self.as_ref().len()
     }
 }
 

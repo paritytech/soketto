@@ -10,7 +10,7 @@
 //!
 //! [rfc7692]: https://tools.ietf.org/html/rfc7692
 
-use bytes::BytesMut;
+use bytes::{buf::BufMutExt, BytesMut};
 use crate::{
     as_u64,
     BoxedError,
@@ -19,9 +19,9 @@ use crate::{
     connection::Mode,
     extension::{Extension, Param}
 };
-use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
+use flate2::{Compress, Compression, FlushCompress, write::DeflateDecoder};
 use smallvec::SmallVec;
-use std::convert::TryInto;
+use std::{convert::TryInto, io::{self, Write}};
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -227,6 +227,10 @@ impl Extension for Deflate {
     }
 
     fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        if data.is_empty() {
+            return Ok(())
+        }
+
         match header.opcode() {
             OpCode::Binary | OpCode::Text if header.is_rsv1() => {
                 if !header.is_fin() {
@@ -246,34 +250,25 @@ impl Extension for Deflate {
             }
         }
 
-        if data.is_empty() {
-            return Ok(())
-        }
-
-        data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
+        // Restore LEN and NLEN:
+        data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, 7.2.2
 
         self.buffer.clear();
+        let mut decoder = DeflateDecoder::new(self.buffer.take().into_bytes().writer());
+        decoder.write_all(&data)?;
+        *data = decoder.finish()?.into_inner();
 
-        let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
-        while d.total_in() < as_u64(data.len()) {
-            let off: usize = d.total_in().try_into()?;
-            self.buffer.reserve(data.len() - off);
-            let n = d.total_out();
-            d.decompress(&data[off ..], self.buffer.bytes_mut(), FlushDecompress::Sync)?;
-            self.buffer.advance_mut((d.total_out() - n).try_into()?);
-        }
-
-        let uncompressed = self.buffer.take().into_bytes();
         header.set_rsv1(false);
-        header.set_payload_len(uncompressed.len());
-        //*data = uncompressed;
-        data.clear();
-        data.extend_from_slice(&uncompressed);
+        header.set_payload_len(data.len());
 
         Ok(())
     }
 
     fn encode(&mut self, header: &mut Header, data: &mut Storage) -> Result<(), BoxedError> {
+        if data.as_ref().is_empty() {
+            return Ok(())
+        }
+
         if let OpCode::Binary | OpCode::Text = header.opcode() {
             log::trace!("deflate: encoding {}", header)
         } else {
@@ -281,38 +276,35 @@ impl Extension for Deflate {
             return Ok(())
         }
 
-        {
-            let data = data.as_ref();
+        self.buffer.clear();
 
-            if data.is_empty() {
-                return Ok(())
-            }
+        let mut encoder =
+            Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
 
-            self.buffer.clear();
-
-            let mut c = {
-                let mwb = self.our_max_window_bits;
-                Compress::new_with_window_bits(Compression::fast(), false, mwb)
-            };
-
-            while c.total_in() < as_u64(data.len()) {
-                let off: usize = c.total_in().try_into()?;
-                self.buffer.reserve(data.len() - off);
-                let n = c.total_out();
-                c.compress(&data[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-                self.buffer.advance_mut((c.total_out() - n).try_into()?)
-            }
-
-            if self.buffer.remaining_mut() < 5 {
-                self.buffer.reserve(5); // Make room for the trailing end bytes
-                let n = c.total_out();
-                c.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-                self.buffer.advance_mut((c.total_out() - n).try_into()?)
-            }
+        // Compress all input bytes.
+        while encoder.total_in() < as_u64(data.as_ref().len()) {
+            let off: usize = encoder.total_in().try_into()?;
+            self.buffer.reserve(data.as_ref().len() - off);
+            let n = encoder.total_out();
+            encoder.compress(&data.as_ref()[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
         }
 
-        let n = self.buffer.len() - 4;
-        self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
+        // We need to append an empty deflate block if not there yet (RFC 7692, 7.2.1).
+        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+            self.buffer.reserve(5); // Make sure there is room for the trailing end bytes.
+            let n = encoder.total_out();
+            encoder.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
+        }
+
+        // If we still have not seen the empty deflate block appended, something is wrong.
+        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+            log::error!("missing 00 00 FF FF");
+            return Err(io::Error::new(io::ErrorKind::Other, "missing 00 00 FF FF").into())
+        }
+
+        self.buffer.truncate(self.buffer.len() - 4); // Remove 00 00 FF FF; cf. RFC 7692, 7.2.1
         let compressed = self.buffer.take().into_bytes();
         header.set_rsv1(true);
         header.set_payload_len(compressed.len());

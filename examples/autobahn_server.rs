@@ -35,8 +35,10 @@ fn main() -> Result<(), BoxedError> {
                     Ok(mut data) => {
                         if data.is_binary() {
                             sender.send_binary_mut(&mut data).await?;
+                        } else if let Ok(txt) = std::str::from_utf8(data.as_ref()) {
+                            sender.send_text(txt).await?
                         } else {
-                            sender.send_text(std::str::from_utf8(data.as_ref())?).await?;
+                            break
                         }
                         sender.flush().await?
                     }
