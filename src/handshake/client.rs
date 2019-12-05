@@ -10,7 +10,7 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
 use futures::prelude::*;
@@ -51,7 +51,7 @@ pub struct Client<'a, T> {
     /// The extensions the client wishes to include in the request.
     extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
     /// Encoding/decoding buffer.
-    buffer: BytesMut
+    buffer: crate::Buffer
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
@@ -66,12 +66,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             nonce_offset: 0,
             protocols: SmallVec::new(),
             extensions: SmallVec::new(),
-            buffer: BytesMut::new()
+            buffer: crate::Buffer::new()
         }
     }
 
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
-        self.buffer = b;
+        self.buffer = crate::Buffer::from(b);
         self
     }
 
@@ -102,15 +102,15 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     pub async fn handshake(&mut self) -> Result<ServerResponse, Error> {
         self.buffer.clear();
         self.encode_request();
-        self.socket.write_all(&self.buffer).await?;
+        self.socket.write_all(self.buffer.as_ref()).await?;
         self.socket.flush().await?;
         self.buffer.clear();
 
         loop {
-            if !self.buffer.has_remaining_mut() {
-                crate::reserve(&mut self.buffer, BLOCK_SIZE)
+            if self.buffer.remaining_mut() < BLOCK_SIZE {
+                self.buffer.reserve(BLOCK_SIZE)
             }
-            crate::read(&mut self.socket, &mut self.buffer).await?;
+            self.buffer.read_from(&mut self.socket).await?;
             if let Parsing::Done { value, offset } = self.decode_response()? {
                 self.buffer.split_to(offset);
                 return Ok(value)
@@ -121,7 +121,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     /// Turn this handshake into a [`connection::Builder`].
     pub fn into_builder(mut self) -> connection::Builder<T> {
         let mut builder = connection::Builder::new(self.socket, Mode::Client);
-        builder.set_buffer(self.buffer).add_extensions(self.extensions.drain(..));
+        builder.set_buffer(self.buffer.into_bytes());
+        builder.add_extensions(self.extensions.drain(..));
         builder
     }
 
@@ -158,7 +159,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut response = httparse::Response::new(&mut header_buf);
 
-        let offset = match response.parse(&self.buffer) {
+        let offset = match response.parse(self.buffer.as_ref()) {
             Ok(httparse::Status::Complete(off)) => off,
             Ok(httparse::Status::Partial) => return Ok(Parsing::NeedMore(())),
             Err(e) => return Err(Error::Http(Box::new(e)))

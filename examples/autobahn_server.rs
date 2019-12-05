@@ -32,8 +32,14 @@ fn main() -> Result<(), BoxedError> {
             let (mut sender, mut receiver) = server.into_builder().finish();
             loop {
                 match receiver.receive_data().await {
-                    Ok(data) => {
-                        sender.send_data(data).await?;
+                    Ok(mut data) => {
+                        if data.is_binary() {
+                            sender.send_binary_mut(&mut data).await?;
+                        } else if let Ok(txt) = std::str::from_utf8(data.as_ref()) {
+                            sender.send_text(txt).await?
+                        } else {
+                            break
+                        }
                         sender.flush().await?
                     }
                     Err(connection::Error::Closed) => break,
