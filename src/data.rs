@@ -6,6 +6,8 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
+//! Types describing various forms of payload data.
+
 use bytes::BytesMut;
 use std::convert::TryFrom;
 
@@ -134,7 +136,7 @@ pub struct ByteSlice125<'a>(&'a [u8]);
 
 static_assertions::const_assert_eq!(125, crate::base::MAX_CTRL_BODY_SIZE);
 
-/// Error, if converting to `[ByteSlice125`] fails.
+/// Error, if converting to [`ByteSlice125`] fails.
 #[derive(Clone, Debug, thiserror::Error)]
 #[error("Slice larger than 125 bytes")]
 pub struct SliceTooLarge(());
