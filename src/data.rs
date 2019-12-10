@@ -97,7 +97,6 @@ impl Data {
 
     /// Create a new textual `Data` value.
     pub(crate) fn text(b: BytesMut) -> Self {
-        debug_assert!(std::str::from_utf8(&b).is_ok());
         Data(DataRepr::Text(b))
     }
 
