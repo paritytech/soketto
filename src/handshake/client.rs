@@ -70,9 +70,15 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         }
     }
 
+    /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = crate::Buffer::from(b);
         self
+    }
+
+    /// Extract the buffer.
+    pub fn take_buffer(&mut self) -> BytesMut {
+        self.buffer.take().into_bytes()
     }
 
     /// Set the handshake origin header.

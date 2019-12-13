@@ -56,9 +56,15 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         }
     }
 
+    /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = crate::Buffer::from(b);
         self
+    }
+
+    /// Extract the buffer.
+    pub fn take_buffer(&mut self) -> BytesMut {
+        self.buffer.take().into_bytes()
     }
 
     /// Add a protocol the server supports.
