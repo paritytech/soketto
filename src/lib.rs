@@ -202,7 +202,6 @@ impl Buffer {
     }
 
     /// Return all bytes from `self`, leaving it empty.
-    #[cfg(feature = "deflate")]
     pub(crate) fn take(&mut self) -> Self {
         self.split_to(self.0.len())
     }
