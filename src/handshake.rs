@@ -126,6 +126,7 @@ where
 }
 
 /// Enumeration of possible handshake errors.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error has been encountered.
@@ -170,11 +171,7 @@ pub enum Error {
 
     /// UTF-8 decoding failed.
     #[error("utf-8 decoding error: {0}")]
-    Utf8(#[from] std::str::Utf8Error),
-
-    #[doc(hidden)]
-    #[error("__Nonexhaustive")]
-    __Nonexhaustive
+    Utf8(#[from] std::str::Utf8Error)
 }
 
 #[cfg(test)]
