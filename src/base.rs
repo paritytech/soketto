@@ -537,6 +537,7 @@ impl Codec {
 }
 
 /// Error cases the base frame decoder may encounter.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error has been encountered.
@@ -565,11 +566,7 @@ pub enum Error {
 
     /// The payload length of a frame exceeded the configured maximum.
     #[error("payload too large: len = {actual}, maximum = {maximum}")]
-    PayloadTooLarge { actual: u64, maximum: u64 },
-
-    #[doc(hidden)]
-    #[error("__Nonexhaustive")]
-    __Nonexhaustive
+    PayloadTooLarge { actual: u64, maximum: u64 }
 }
 
 impl From<UnknownOpCode> for Error {

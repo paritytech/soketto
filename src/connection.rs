@@ -537,6 +537,7 @@ where
 }
 
 /// Errors which may occur when sending or receiving messages.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error was encountered.
@@ -565,11 +566,7 @@ pub enum Error {
 
     /// The connection is closed.
     #[error("connection closed")]
-    Closed,
-
-    #[doc(hidden)]
-    #[error("__Nonexhaustive")]
-    __Nonexhaustive
+    Closed
 }
 
 impl From<io::Error> for Error {
