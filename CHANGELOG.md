@@ -1,3 +1,29 @@
+# 0.3.0
+
+Update to use and work with async/await:
+
+- `Connection` has been split into a `Sender` and `Receiver` pair with
+  async methods to send and receive data or control frames such as Pings
+  or Pongs.
+- `connection::into_stream` has been added to get a `futures::stream::Stream`
+  from a `Receiver`.
+- A `connection::Builder` has been added to setup connection parameters.
+  `handshake::Client` and `handshake::Server` no longer have an
+  `into_connection` method, but an `into_builder` one which returns the
+  `Builder` and allows further configuration.
+- `base::Data` has been moved to `data`. In addition `data::Incoming`
+  supports control frame data.
+- `base::Codec` no longer implements `Encoder`/`Decoder` traits but has
+  inherent methods for encoding and decoding websocket frame headers.
+- `base::Frame` has been removed. The `base::Codec` only deals with
+  headers.
+- The `handshake` module contains separate sub-modules for `client` and
+  `server` handshakes. Some handshake related types have been refactored
+  slightly.
+- `Extension`s `decode` methods work on `&mut BytesMut` parameters
+  instead of `Data`. For `encode` a new type `Storage` has been added
+  which unifies different types of data, i.e. shared, unique and owned data.
+
 # 0.2.3
 
 - Maintenance release.

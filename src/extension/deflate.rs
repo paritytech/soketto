@@ -10,14 +10,18 @@
 //!
 //! [rfc7692]: https://tools.ietf.org/html/rfc7692
 
+use bytes::{buf::BufMutExt, BytesMut};
 use crate::{
-    base::{Data, Header, OpCode},
+    as_u64,
+    BoxedError,
+    Storage,
+    base::{Header, OpCode},
     connection::Mode,
     extension::{Extension, Param}
 };
-use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
-use log::debug;
+use flate2::{Compress, Compression, FlushCompress, write::DeflateDecoder};
 use smallvec::SmallVec;
+use std::{convert::TryInto, io::{self, Write}};
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -33,10 +37,11 @@ const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
 pub struct Deflate {
     mode: Mode,
     enabled: bool,
-    buffer: Vec<u8>,
+    buffer: crate::Buffer,
     params: SmallVec<[Param<'static>; 2]>,
     our_max_window_bits: u8,
-    their_max_window_bits: u8
+    their_max_window_bits: u8,
+    await_last_fragment: bool
 }
 
 impl Deflate {
@@ -55,10 +60,11 @@ impl Deflate {
         Deflate {
             mode,
             enabled: false,
-            buffer: Vec::new(),
+            buffer: crate::Buffer::new(),
             params,
             our_max_window_bits: 15,
-            their_max_window_bits: 15
+            their_max_window_bits: 15,
+            await_last_fragment: false
         }
     }
 
@@ -108,12 +114,12 @@ impl Deflate {
     fn set_their_max_window_bits(&mut self, p: &Param, expected: Option<u8>) -> Result<(), ()> {
         if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
             if v < 8 || v > 15 {
-                debug!("invalid {}: {} (expected range: 8 ..= 15)", p.name(), v);
+                log::debug!("invalid {}: {} (expected range: 8 ..= 15)", p.name(), v);
                 return Err(())
             }
             if let Some(x) = expected {
                 if v > x {
-                    debug!("invalid {}: {} (expected: {} <= {})", p.name(), v, v, x);
+                    log::debug!("invalid {}: {} (expected: {} <= {})", p.name(), v, v, x);
                     return Err(())
                 }
             }
@@ -136,11 +142,12 @@ impl Extension for Deflate {
         &self.params
     }
 
-    fn configure(&mut self, params: &[Param]) -> Result<(), crate::BoxError> {
+    fn configure(&mut self, params: &[Param]) -> Result<(), BoxedError> {
         match self.mode {
             Mode::Server => {
                 self.params.clear();
                 for p in params {
+                    log::trace!("configure server with: {}", p);
                     match p.name() {
                         CLIENT_MAX_WINDOW_BITS =>
                             if self.set_their_max_window_bits(&p, None).is_err() {
@@ -152,7 +159,7 @@ impl Extension for Deflate {
                                 // The RFC allows 8 to 15 bits, but due to zlib limitations we
                                 // only support 9 to 15.
                                 if v < 9 || v > 15 {
-                                    debug!("unacceptable server_max_window_bits: {}", v);
+                                    log::debug!("unacceptable server_max_window_bits: {}", v);
                                     return Ok(())
                                 }
                                 let mut x = Param::new(SERVER_MAX_WINDOW_BITS);
@@ -160,7 +167,7 @@ impl Extension for Deflate {
                                 self.params.push(x);
                                 self.our_max_window_bits = v;
                             } else {
-                                debug!("invalid server_max_window_bits: {:?}", p.value());
+                                log::debug!("invalid server_max_window_bits: {:?}", p.value());
                                 return Ok(())
                             }
                         }
@@ -169,7 +176,7 @@ impl Extension for Deflate {
                         SERVER_NO_CONTEXT_TAKEOVER =>
                             self.params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER)),
                         _ => {
-                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            log::debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
                         }
                     }
@@ -178,6 +185,7 @@ impl Extension for Deflate {
             Mode::Client => {
                 let mut server_no_context_takeover = false;
                 for p in params {
+                    log::trace!("configure client with: {}", p);
                     match p.name() {
                         SERVER_NO_CONTEXT_TAKEOVER => server_no_context_takeover = true,
                         CLIENT_NO_CONTEXT_TAKEOVER => {} // must be supported
@@ -190,7 +198,7 @@ impl Extension for Deflate {
                         CLIENT_MAX_WINDOW_BITS =>
                             if let Some(Ok(v)) = p.value().map(|s| s.parse::<u8>()) {
                                 if v < 8 || v > 15 {
-                                    debug!("unacceptable client_max_window_bits: {}", v);
+                                    log::debug!("unacceptable client_max_window_bits: {}", v);
                                     return Ok(())
                                 }
                                 use std::cmp::{min, max};
@@ -199,13 +207,13 @@ impl Extension for Deflate {
                                 self.our_max_window_bits = min(self.our_max_window_bits, max(9, v));
                             }
                         _ => {
-                            debug!("{}: unknown parameter: {}", self.name(), p.name());
+                            log::debug!("{}: unknown parameter: {}", self.name(), p.name());
                             return Ok(())
                         }
                     }
                 }
                 if !server_no_context_takeover {
-                    debug!("{}: server did not confirm no context takeover", self.name());
+                    log::debug!("{}: server did not confirm no context takeover", self.name());
                     return Ok(())
                 }
             }
@@ -218,51 +226,90 @@ impl Extension for Deflate {
         (true, false, false)
     }
 
-    fn decode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        match hdr.opcode() {
-            OpCode::Binary | OpCode::Text if hdr.is_rsv1() && hdr.is_fin() => {}
-            OpCode::Continue if hdr.is_fin() => {}
-            _ => return Ok(())
+    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+        if data.is_empty() {
+            return Ok(())
         }
-        if let Some(data) = data {
-            data.bytes_mut().extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, section 7.2.2
-            self.buffer.clear();
-            let mut d = Decompress::new_with_window_bits(false, self.their_max_window_bits);
-            while (d.total_in() as usize) < data.as_ref().len() {
-                let off = d.total_in() as usize;
-                self.buffer.reserve(data.as_ref().len() - off);
-                d.decompress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushDecompress::Sync)?;
+
+        match header.opcode() {
+            OpCode::Binary | OpCode::Text if header.is_rsv1() => {
+                if !header.is_fin() {
+                    self.await_last_fragment = true;
+                    log::trace!("deflate: not decoding {}; awaiting last fragment", header);
+                    return Ok(())
+                }
+                log::trace!("deflate: decoding {}", header)
             }
-            data.bytes_mut().clear();
-            data.bytes_mut().extend_from_slice(&self.buffer);
-            hdr.set_rsv1(false);
+            OpCode::Continue if header.is_fin() && self.await_last_fragment => {
+                self.await_last_fragment = false;
+                log::trace!("deflate: decoding {}", header)
+            }
+            _ => {
+                log::trace!("deflate: not decoding {}", header);
+                return Ok(())
+            }
         }
+
+        // Restore LEN and NLEN:
+        data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, 7.2.2
+
+        self.buffer.clear();
+        let mut decoder = DeflateDecoder::new(self.buffer.take().into_bytes().writer());
+        decoder.write_all(&data)?;
+        *data = decoder.finish()?.into_inner();
+
+        header.set_rsv1(false);
+        header.set_payload_len(data.len());
+
         Ok(())
     }
 
-    fn encode(&mut self, hdr: &mut Header, data: &mut Option<Data>) -> Result<(), crate::BoxError> {
-        match hdr.opcode() {
-            OpCode::Text | OpCode::Binary => {},
-            _ => return Ok(())
+    fn encode(&mut self, header: &mut Header, data: &mut Storage) -> Result<(), BoxedError> {
+        if data.as_ref().is_empty() {
+            return Ok(())
         }
-        if let Some(data) = data {
-            let mut c = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
-            self.buffer.clear();
-            while (c.total_in() as usize) < data.as_ref().len() {
-                let off = c.total_in() as usize;
-                self.buffer.reserve(data.as_ref().len() - off);
-                c.compress_vec(&data.as_ref()[off ..], &mut self.buffer, FlushCompress::Sync)?;
-            }
-            if self.buffer.capacity() - self.buffer.len() < 5 {
-                self.buffer.reserve(5); // Make room for the trailing end bytes
-                c.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)?;
-            }
-            let n = self.buffer.len() - 4;
-            self.buffer.truncate(n); // Remove [0, 0, 0xFF, 0xFF]; cf. RFC 7692, section 7.2.1
-            data.bytes_mut().clear();
-            data.bytes_mut().extend_from_slice(&self.buffer);
-            hdr.set_rsv1(true);
+
+        if let OpCode::Binary | OpCode::Text = header.opcode() {
+            log::trace!("deflate: encoding {}", header)
+        } else {
+            log::trace!("deflate: not encoding {}", header);
+            return Ok(())
         }
+
+        self.buffer.clear();
+
+        let mut encoder =
+            Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
+
+        // Compress all input bytes.
+        while encoder.total_in() < as_u64(data.as_ref().len()) {
+            let off: usize = encoder.total_in().try_into()?;
+            self.buffer.reserve(data.as_ref().len() - off);
+            let n = encoder.total_out();
+            encoder.compress(&data.as_ref()[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
+        }
+
+        // We need to append an empty deflate block if not there yet (RFC 7692, 7.2.1).
+        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+            self.buffer.reserve(5); // Make sure there is room for the trailing end bytes.
+            let n = encoder.total_out();
+            encoder.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
+            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
+        }
+
+        // If we still have not seen the empty deflate block appended, something is wrong.
+        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+            log::error!("missing 00 00 FF FF");
+            return Err(io::Error::new(io::ErrorKind::Other, "missing 00 00 FF FF").into())
+        }
+
+        self.buffer.truncate(self.buffer.len() - 4); // Remove 00 00 FF FF; cf. RFC 7692, 7.2.1
+        let compressed = self.buffer.take().into_bytes();
+        header.set_rsv1(true);
+        header.set_payload_len(compressed.len());
+        *data = Storage::Owned(compressed);
+
         Ok(())
     }
 }
