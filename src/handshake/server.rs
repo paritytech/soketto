@@ -56,6 +56,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         }
     }
 
+    /// Get out the inner socket of the server.
     pub fn into_inner(self) -> T {
         self.socket
     }
