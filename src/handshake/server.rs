@@ -56,6 +56,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         }
     }
 
+    /// Get out the inner socket of the server.
+    pub fn into_inner(self) -> T {
+        self.socket
+    }
+
     /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = crate::Buffer::from(b);
