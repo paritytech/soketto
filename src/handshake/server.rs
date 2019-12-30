@@ -56,11 +56,6 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         }
     }
 
-    /// Get out the inner socket of the server.
-    pub fn into_inner(self) -> T {
-        self.socket
-    }
-
     /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = crate::Buffer::from(b);
@@ -120,6 +115,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         builder.set_buffer(self.buffer.into_bytes());
         builder.add_extensions(self.extensions.drain(..));
         builder
+    }
+
+    /// Get out the inner socket of the server.
+    pub fn into_inner(self) -> T {
+        self.socket
     }
 
     // Decode client handshake request.

@@ -1,3 +1,8 @@
+# 0.3.1
+
+- A method `into_inner` to get back the socket has been added to
+  `handshake::{Client, Server}`.
+
 # 0.3.0
 
 Update to use and work with async/await:
