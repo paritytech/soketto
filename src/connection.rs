@@ -94,12 +94,12 @@ pub struct Builder<T> {
 impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     /// Create a new `Builder` from the given async I/O resource and mode.
     ///
-    /// **Note**: Use this type only after a successful handshake
-    /// (cf. [`Client::into_builder`][1] and [`Server::into_builder`][2]
-    /// for examples).
+    /// **Note**: Use this type only after a successful [handshake][0].
+    /// You can either use this crate's [handshake functionality][1]
+    /// or perform the handshake by some other means.
     ///
-    /// [1]: crate::handshake::Client::into_builder
-    /// [2]: crate::handshake::Server::into_builder
+    /// [0]: https://tools.ietf.org/html/rfc6455#section-4
+    /// [1]: crate::handshake
     pub fn new(socket: T, mode: Mode) -> Self {
         let mut codec = base::Codec::default();
         codec.set_max_data_size(MAX_FRAME_SIZE);

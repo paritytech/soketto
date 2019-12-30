@@ -132,6 +132,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         builder
     }
 
+    /// Get out the inner socket of the client.
+    pub fn into_inner(self) -> T {
+        self.socket
+    }
+
     /// Encode the client handshake as a request, ready to be sent to the server.
     fn encode_request(&mut self) {
         let nonce: [u8; 16] = rand::random();

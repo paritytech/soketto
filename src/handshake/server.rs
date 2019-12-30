@@ -117,6 +117,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         builder
     }
 
+    /// Get out the inner socket of the server.
+    pub fn into_inner(self) -> T {
+        self.socket
+    }
+
     // Decode client handshake request.
     fn decode_request(&mut self) -> Result<Parsing<ClientRequest<'a>>, Error> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
