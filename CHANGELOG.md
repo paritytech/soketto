@@ -1,3 +1,9 @@
+# 0.3.2
+
+- Bugfix release. `Codec::encode_header` contained a hidden assumption that
+  a `usize` would be 8 bytes long, which is obviously only true on 64-bit
+  architectures. See #18 for details.
+
 # 0.3.1
 
 - A method `into_inner` to get back the socket has been added to

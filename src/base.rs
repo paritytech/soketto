@@ -513,7 +513,7 @@ impl Codec {
             second_byte |= EIGHT_EXT;
             self.header_buffer[offset] = second_byte;
             offset += 1;
-            self.header_buffer[offset .. offset + 8].copy_from_slice(&len.to_be_bytes());
+            self.header_buffer[offset .. offset + 8].copy_from_slice(&as_u64(len).to_be_bytes());
             offset += 8;
         }
 
