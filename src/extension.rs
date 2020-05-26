@@ -14,7 +14,6 @@
 #[cfg(feature = "deflate")]
 pub mod deflate;
 
-use bytes::BytesMut;
 use crate::{BoxedError, Storage, base::Header};
 use std::{borrow::Cow, fmt};
 
@@ -67,7 +66,7 @@ pub trait Extension: std::fmt::Debug {
     ///
     /// The frame header is given, as well as the accumulated payload data, i.e.
     /// the concatenated payload data of all message fragments.
-    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError>;
+    fn decode(&mut self, header: &mut Header, data: &mut Vec<u8>) -> Result<(), BoxedError>;
 
     /// The reserved bits this extension uses.
     fn reserved_bits(&self) -> (bool, bool, bool) {
@@ -96,7 +95,7 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
         (**self).encode(header, data)
     }
 
-    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+    fn decode(&mut self, header: &mut Header, data: &mut Vec<u8>) -> Result<(), BoxedError> {
         (**self).decode(header, data)
     }
 
