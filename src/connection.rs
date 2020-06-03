@@ -270,7 +270,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 (true, OpCode::Continue) => { // Last message fragment.
                     if let Some(oc) = first_fragment_opcode.take() {
                         header.set_payload_len(message.len());
-                        log::trace!("last fragement: total length = {} bytes", message.len());
+                        log::trace!("last fragment: total length = {} bytes", message.len());
                         self.decode_with_extensions(&mut header, message).await?;
                         header.set_opcode(oc);
                     } else {
@@ -612,4 +612,3 @@ impl From<base::Error> for Error {
         Error::Codec(e)
     }
 }
-
