@@ -10,13 +10,12 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
 use futures::prelude::*;
-use sha1::Sha1;
-use smallvec::SmallVec;
-use std::str;
+use sha1::{Digest, Sha1};
+use std::{mem, str};
 use super::{
     Error,
     KEY,
@@ -47,11 +46,11 @@ pub struct Client<'a, T> {
     /// The offset into the nonce buffer.
     nonce_offset: usize,
     /// The protocols to include in the handshake.
-    protocols: SmallVec<[&'a str; 4]>,
+    protocols: Vec<&'a str>,
     /// The extensions the client wishes to include in the request.
-    extensions: SmallVec<[Box<dyn Extension + Send>; 4]>,
+    extensions: Vec<Box<dyn Extension + Send>>,
     /// Encoding/decoding buffer.
-    buffer: crate::Buffer
+    buffer: BytesMut
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
@@ -64,21 +63,21 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             origin: None,
             nonce: [0; 32],
             nonce_offset: 0,
-            protocols: SmallVec::new(),
-            extensions: SmallVec::new(),
-            buffer: crate::Buffer::new()
+            protocols: Vec::new(),
+            extensions: Vec::new(),
+            buffer: BytesMut::new()
         }
     }
 
     /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
-        self.buffer = crate::Buffer::from(b);
+        self.buffer = b;
         self
     }
 
     /// Extract the buffer.
     pub fn take_buffer(&mut self) -> BytesMut {
-        self.buffer.take().into_bytes()
+        mem::take(&mut self.buffer)
     }
 
     /// Set the handshake origin header.
@@ -108,17 +107,14 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     pub async fn handshake(&mut self) -> Result<ServerResponse, Error> {
         self.buffer.clear();
         self.encode_request();
-        self.socket.write_all(self.buffer.as_ref()).await?;
+        self.socket.write_all(&self.buffer).await?;
         self.socket.flush().await?;
         self.buffer.clear();
 
         loop {
-            if self.buffer.remaining_mut() < BLOCK_SIZE {
-                self.buffer.reserve(BLOCK_SIZE)
-            }
-            self.buffer.read_from(&mut self.socket).await?;
+            crate::read(&mut self.socket, &mut self.buffer, BLOCK_SIZE).await?;
             if let Parsing::Done { value, offset } = self.decode_response()? {
-                self.buffer.split_to(offset);
+                self.buffer.advance(offset);
                 return Ok(value)
             }
         }
@@ -127,7 +123,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     /// Turn this handshake into a [`connection::Builder`].
     pub fn into_builder(mut self) -> connection::Builder<T> {
         let mut builder = connection::Builder::new(self.socket, Mode::Client);
-        builder.set_buffer(self.buffer.into_bytes());
+        builder.set_buffer(self.buffer);
         builder.add_extensions(self.extensions.drain(..));
         builder
     }
@@ -201,9 +197,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         let nonce = &self.nonce[.. self.nonce_offset];
         with_first_header(&response.headers, "Sec-WebSocket-Accept", |theirs| {
             let mut digest = Sha1::new();
-            digest.update(nonce);
-            digest.update(KEY);
-            let ours = base64::encode(&digest.digest().bytes());
+            digest.input(nonce);
+            digest.input(KEY);
+            let ours = base64::encode(&digest.result());
             if ours.as_bytes() != theirs {
                 return Err(Error::InvalidSecWebSocketAccept)
             }
