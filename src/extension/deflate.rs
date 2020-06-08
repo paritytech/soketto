@@ -18,7 +18,7 @@ use crate::{
     connection::Mode,
     extension::{Extension, Param}
 };
-use flate2::{Compress, Compression, FlushCompress, write::DeflateDecoder};
+use flate2::{Compress, Compression, FlushCompress, Status, write::DeflateDecoder};
 use std::{convert::TryInto, io::{self, Write}, mem};
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
@@ -276,26 +276,29 @@ impl Extension for Deflate {
         }
 
         self.buffer.clear();
-        self.buffer.resize(data.as_ref().len(), 0u8);
+        self.buffer.reserve(data.as_ref().len());
 
         let mut encoder =
             Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
 
         // Compress all input bytes.
         while encoder.total_in() < as_u64(data.as_ref().len()) {
-            let k: usize = encoder.total_in().try_into()?;
-            let n: usize = encoder.total_out().try_into()?;
-            encoder.compress(&data.as_ref()[k ..], &mut self.buffer[n ..], FlushCompress::Sync)?;
+            let i: usize = encoder.total_in().try_into()?;
+            match encoder.compress_vec(&data.as_ref()[i ..], &mut self.buffer, FlushCompress::None)? {
+                Status::BufError => self.buffer.reserve(4096),
+                Status::Ok => continue,
+                Status::StreamEnd => break
+            }
         }
 
-        self.buffer.truncate(encoder.total_out().try_into()?);
-
         // We need to append an empty deflate block if not there yet (RFC 7692, 7.2.1).
-        if !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
-            let i = self.buffer.len();
-            self.buffer.resize(i + 16, 0u8); // Make sure there is room for the trailing end bytes.
-            encoder.compress(&[], &mut self.buffer[i ..], FlushCompress::Sync)?;
-            self.buffer.truncate(encoder.total_out().try_into()?)
+        while !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
+            self.buffer.reserve(5); // Make sure there is room for the trailing end bytes.
+            match encoder.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)? {
+                Status::Ok => continue,
+                Status::BufError => continue, // more capacity is reserved above
+                Status::StreamEnd => break
+            }
         }
 
         // If we still have not seen the empty deflate block appended, something is wrong.
@@ -305,6 +308,7 @@ impl Extension for Deflate {
         }
 
         self.buffer.truncate(self.buffer.len() - 4); // Remove 00 00 FF FF; cf. RFC 7692, 7.2.1
+
         if let Storage::Owned(d) = data {
             mem::swap(d, &mut self.buffer)
         } else {
