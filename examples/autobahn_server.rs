@@ -14,6 +14,7 @@
 //
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
+use futures::io::{BufReader, BufWriter};
 use async_std::{net::{TcpListener, TcpStream}, prelude::*, task};
 use soketto::{BoxedError, connection, handshake};
 
@@ -30,17 +31,23 @@ fn main() -> Result<(), BoxedError> {
             let accept = handshake::server::Response::Accept { key: &key, protocol: None };
             server.send_response(&accept).await?;
             let (mut sender, mut receiver) = server.into_builder().finish();
+            let mut message = Vec::new();
             loop {
-                match receiver.receive_data().await {
-                    Ok(mut data) => {
-                        if data.is_binary() {
-                            sender.send_binary_mut(&mut data).await?;
-                        } else if let Ok(txt) = std::str::from_utf8(data.as_ref()) {
-                            sender.send_text(txt).await?
+                message.clear();
+                match receiver.receive_data(&mut message).await {
+                    Ok(soketto::Data::Binary(n)) => {
+                        assert_eq!(n, message.len());
+                        sender.send_binary_mut(&mut message).await?;
+                        sender.flush().await?
+                    }
+                    Ok(soketto::Data::Text(n)) => {
+                        assert_eq!(n, message.len());
+                        if let Ok(txt) = std::str::from_utf8(&message) {
+                            sender.send_text(txt).await?;
+                            sender.flush().await?
                         } else {
                             break
                         }
-                        sender.flush().await?
                     }
                     Err(connection::Error::Closed) => break,
                     Err(e) => {
@@ -55,12 +62,13 @@ fn main() -> Result<(), BoxedError> {
 }
 
 #[cfg(not(feature = "deflate"))]
-fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
-    handshake::Server::new(socket)
+fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWriter<TcpStream>>> {
+    handshake::Server::new(BufReader::new(BufWriter::new(socket)))
 }
 
 #[cfg(feature = "deflate")]
-fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, TcpStream> {
+fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWriter<TcpStream>>> {
+    let socket = BufReader::with_capacity(8 * 1024, BufWriter::with_capacity(16 * 1024, socket));
     let mut server = handshake::Server::new(socket);
     let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Server);
     server.add_extension(Box::new(deflate));

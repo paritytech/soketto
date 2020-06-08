@@ -118,9 +118,16 @@ impl fmt::Display for OpCode {
 
 /// Error returned by `OpCode::try_from` if an unknown opcode
 /// number is encountered.
-#[derive(Clone, Debug, thiserror::Error)]
-#[error("unknown opcode")]
+#[derive(Clone, Debug)]
 pub struct UnknownOpCode(());
+
+impl fmt::Display for UnknownOpCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("unknown opcode")
+    }
+}
+
+impl std::error::Error for UnknownOpCode {}
 
 impl TryFrom<u8> for OpCode {
     type Error = UnknownOpCode;
@@ -538,35 +545,64 @@ impl Codec {
 
 /// Error cases the base frame decoder may encounter.
 #[non_exhaustive]
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum Error {
     /// An I/O error has been encountered.
-    #[error("i/o error: {0}")]
-    Io(#[from] io::Error),
-
+    Io(io::Error),
     /// Some unknown opcode number has been decoded.
-    #[error("unknown opcode")]
     UnknownOpCode,
-
     /// The opcode decoded is reserved.
-    #[error("reserved opcode")]
     ReservedOpCode,
-
     /// A fragmented control frame (fin bit not set) has been decoded.
-    #[error("fragmented control frame")]
     FragmentedControl,
-
     /// A control frame with an invalid length code has been decoded.
-    #[error("invalid control frame length")]
     InvalidControlFrameLen,
-
     /// The reserved bit is invalid.
-    #[error("invalid reserved bit: {0}")]
     InvalidReservedBit(u8),
-
     /// The payload length of a frame exceeded the configured maximum.
-    #[error("payload too large: len = {actual}, maximum = {maximum}")]
     PayloadTooLarge { actual: u64, maximum: u64 }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Io(e) =>
+                write!(f, "i/o error: {}", e),
+            Error::UnknownOpCode =>
+                f.write_str("unknown opcode"),
+            Error::ReservedOpCode =>
+                f.write_str("reserved opcode"),
+            Error::FragmentedControl =>
+                f.write_str("fragmented control frame"),
+            Error::InvalidControlFrameLen =>
+                f.write_str("invalid control frame length"),
+            Error::InvalidReservedBit(n) =>
+                write!(f, "invalid reserved bit: {}", n),
+            Error::PayloadTooLarge { actual, maximum } =>
+                write!(f, "payload too large: len = {}, maximum = {}", actual, maximum)
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(e) => Some(e),
+            Error::UnknownOpCode
+            | Error::ReservedOpCode
+            | Error::FragmentedControl
+            | Error::InvalidControlFrameLen
+            | Error::InvalidReservedBit(_)
+            | Error::PayloadTooLarge {..}
+            => None
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(e)
+    }
 }
 
 impl From<UnknownOpCode> for Error {
@@ -575,11 +611,11 @@ impl From<UnknownOpCode> for Error {
     }
 }
 
+
 // Tests //////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
-    use assert_matches::assert_matches;
     use crate::Parsing;
     use quickcheck::QuickCheck;
     use super::{OpCode, Codec, Error};
@@ -587,33 +623,33 @@ mod test {
     #[test]
     fn decode_partial_header() {
         let partial_header: &[u8] = &[0x89];
-        assert_matches! {
+        assert!(matches! {
             Codec::new().decode_header(partial_header),
             Ok(Parsing::NeedMore(1))
-        }
+        })
     }
 
     #[test]
     fn decode_partial_len() {
         let partial_length_1: &[u8] = &[0x89, 0xFE, 0x01];
-        assert_matches! {
+        assert!(matches! {
             Codec::new().decode_header(partial_length_1),
             Ok(Parsing::NeedMore(1))
-        }
+        });
         let partial_length_2: &[u8] = &[0x89, 0xFF, 0x01, 0x02, 0x03, 0x04];
-        assert_matches! {
+        assert!(matches! {
             Codec::new().decode_header(partial_length_2),
             Ok(Parsing::NeedMore(4))
-        }
+        })
     }
 
     #[test]
     fn decode_partial_mask() {
         let partial_mask: &[u8] = &[0x82, 0xFE, 0x01, 0x02, 0x00, 0x00];
-        assert_matches! {
+        assert!(matches! {
             Codec::new().decode_header(partial_mask),
             Ok(Parsing::NeedMore(2))
-        }
+        })
     }
 
     #[test]
@@ -630,10 +666,10 @@ mod test {
     fn decode_invalid_control_payload_len() {
         // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
         let ctrl_payload_len : &[u8] = &[0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        assert_matches! {
+        assert!(matches! {
             Codec::new().decode_header(ctrl_payload_len),
             Err(Error::InvalidControlFrameLen)
-        }
+        })
     }
 
     /// Checking that rsv1, rsv2, and rsv3 bit set returns error.
@@ -644,10 +680,10 @@ mod test {
         for res in &reserved {
             let mut buf = [0; 2];
             buf[0] |= *res;
-            assert_matches! {
+            assert!(matches! {
                 Codec::new().decode_header(&buf),
                 Err(Error::InvalidReservedBit(_))
-            }
+            })
         }
     }
 
@@ -658,10 +694,10 @@ mod test {
         for sb in &second_bytes {
             let mut buf = [0; 2];
             buf[0] |= *sb;
-            assert_matches! {
+            assert!(matches! {
                 Codec::new().decode_header(&buf),
                 Err(Error::FragmentedControl)
-            }
+            })
         }
     }
 
@@ -672,10 +708,10 @@ mod test {
         for res in &reserved {
             let mut buf = [0; 2];
             buf[0] |= 0x80 | *res;
-            assert_matches! {
+            assert!(matches! {
                 Codec::new().decode_header(&buf),
                 Err(Error::ReservedOpCode)
-            }
+            })
         }
     }
 

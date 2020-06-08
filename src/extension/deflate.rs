@@ -10,7 +10,6 @@
 //!
 //! [rfc7692]: https://tools.ietf.org/html/rfc7692
 
-use bytes::{buf::BufMutExt, BytesMut};
 use crate::{
     as_u64,
     BoxedError,
@@ -19,9 +18,8 @@ use crate::{
     connection::Mode,
     extension::{Extension, Param}
 };
-use flate2::{Compress, Compression, FlushCompress, write::DeflateDecoder};
-use smallvec::SmallVec;
-use std::{convert::TryInto, io::{self, Write}};
+use flate2::{Compress, Compression, FlushCompress, Status, write::DeflateDecoder};
+use std::{convert::TryInto, io::{self, Write}, mem};
 
 const SERVER_NO_CONTEXT_TAKEOVER: &str = "server_no_context_takeover";
 const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
@@ -37,8 +35,8 @@ const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
 pub struct Deflate {
     mode: Mode,
     enabled: bool,
-    buffer: crate::Buffer,
-    params: SmallVec<[Param<'static>; 2]>,
+    buffer: Vec<u8>,
+    params: Vec<Param<'static>>,
     our_max_window_bits: u8,
     their_max_window_bits: u8,
     await_last_fragment: bool
@@ -48,9 +46,9 @@ impl Deflate {
     /// Create a new deflate extension either on client or server side.
     pub fn new(mode: Mode) -> Self {
         let params = match mode {
-            Mode::Server => SmallVec::new(),
+            Mode::Server => Vec::new(),
             Mode::Client => {
-                let mut params = SmallVec::new();
+                let mut params = Vec::new();
                 params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER));
                 params.push(Param::new(CLIENT_NO_CONTEXT_TAKEOVER));
                 params.push(Param::new(CLIENT_MAX_WINDOW_BITS));
@@ -60,7 +58,7 @@ impl Deflate {
         Deflate {
             mode,
             enabled: false,
-            buffer: crate::Buffer::new(),
+            buffer: Vec::new(),
             params,
             our_max_window_bits: 15,
             their_max_window_bits: 15,
@@ -226,7 +224,7 @@ impl Extension for Deflate {
         (true, false, false)
     }
 
-    fn decode(&mut self, header: &mut Header, data: &mut BytesMut) -> Result<(), BoxedError> {
+    fn decode(&mut self, header: &mut Header, data: &mut Vec<u8>) -> Result<(), BoxedError> {
         if data.is_empty() {
             return Ok(())
         }
@@ -254,9 +252,10 @@ impl Extension for Deflate {
         data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, 7.2.2
 
         self.buffer.clear();
-        let mut decoder = DeflateDecoder::new(self.buffer.take().into_bytes().writer());
+        let mut decoder = DeflateDecoder::new(&mut self.buffer);
         decoder.write_all(&data)?;
-        *data = decoder.finish()?.into_inner();
+        decoder.finish()?;
+        mem::swap(data, &mut self.buffer);
 
         header.set_rsv1(false);
         header.set_payload_len(data.len());
@@ -277,39 +276,46 @@ impl Extension for Deflate {
         }
 
         self.buffer.clear();
+        self.buffer.reserve(data.as_ref().len());
 
         let mut encoder =
             Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
 
         // Compress all input bytes.
         while encoder.total_in() < as_u64(data.as_ref().len()) {
-            let off: usize = encoder.total_in().try_into()?;
-            self.buffer.reserve(data.as_ref().len() - off);
-            let n = encoder.total_out();
-            encoder.compress(&data.as_ref()[off ..], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
+            let i: usize = encoder.total_in().try_into()?;
+            match encoder.compress_vec(&data.as_ref()[i ..], &mut self.buffer, FlushCompress::None)? {
+                Status::BufError => self.buffer.reserve(4096),
+                Status::Ok => continue,
+                Status::StreamEnd => break
+            }
         }
 
         // We need to append an empty deflate block if not there yet (RFC 7692, 7.2.1).
-        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+        while !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
             self.buffer.reserve(5); // Make sure there is room for the trailing end bytes.
-            let n = encoder.total_out();
-            encoder.compress(&[], self.buffer.bytes_mut(), FlushCompress::Sync)?;
-            self.buffer.advance_mut((encoder.total_out() - n).try_into()?)
+            match encoder.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)? {
+                Status::Ok => continue,
+                Status::BufError => continue, // more capacity is reserved above
+                Status::StreamEnd => break
+            }
         }
 
         // If we still have not seen the empty deflate block appended, something is wrong.
-        if !self.buffer.as_ref().ends_with(&[0, 0, 0xFF, 0xFF]) {
+        if !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
             log::error!("missing 00 00 FF FF");
             return Err(io::Error::new(io::ErrorKind::Other, "missing 00 00 FF FF").into())
         }
 
         self.buffer.truncate(self.buffer.len() - 4); // Remove 00 00 FF FF; cf. RFC 7692, 7.2.1
-        let compressed = self.buffer.take().into_bytes();
-        header.set_rsv1(true);
-        header.set_payload_len(compressed.len());
-        *data = Storage::Owned(compressed);
 
+        if let Storage::Owned(d) = data {
+            mem::swap(d, &mut self.buffer)
+        } else {
+            *data = Storage::Owned(mem::take(&mut self.buffer))
+        }
+        header.set_rsv1(true);
+        header.set_payload_len(data.as_ref().len());
         Ok(())
     }
 }

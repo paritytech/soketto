@@ -1,3 +1,14 @@
+# 0.4.0
+
+- Remove all `unsafe` code blocks.
+- Remove internal use of `futures::io::BufWriter`.
+- `Extension::decode` now takes a `&mut Vec<u8>` instead of a `BytesMut`.
+- `Incoming::Pong` contains the PONG payload data slice inline.
+- `Data` not longer contains application data, but reports only the number
+  of bytes. The actual data is written directly into the `&mut Vec<u8>`
+  parameter of `Receiver::receive` or `Receiver::receive_data`.
+- `Receiver::into_stream` has been removed.
+
 # 0.3.2
 
 - Bugfix release. `Codec::encode_header` contained a hidden assumption that
