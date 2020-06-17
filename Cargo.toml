@@ -1,6 +1,6 @@
 [package]
 name = "soketto"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation."
 keywords = ["websocket", "codec", "async", "futures"]
@@ -27,5 +27,6 @@ rand = "0.7"
 sha-1 = "0.8"
 
 [dev-dependencies]
-async-std = "1"
 quickcheck = "0.9"
+tokio = { version = "0.2", features = ["dns", "stream", "tcp", "rt-threaded", "macros"] }
+tokio-util = { version = "0.3", features = ["compat"] }

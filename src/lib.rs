@@ -27,15 +27,15 @@
 //! # Client example
 //!
 //! ```no_run
-//! # use async_std::net::TcpStream;
-//! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
+//! # use tokio_util::compat::Tokio02AsyncReadCompatExt;
+//! # async fn doc() -> Result<(), soketto::BoxedError> {
 //! use soketto::handshake::{Client, ServerResponse};
 //!
 //! // First, we need to establish a TCP connection.
-//! let socket = TcpStream::connect("...").await?;
+//! let socket = tokio::net::TcpStream::connect("...").await?;
 //!
 //! // Then we configure the client handshake.
-//! let mut client = Client::new(socket, "...", "/");
+//! let mut client = Client::new(socket.compat(), "...", "/");
 //!
 //! // And finally we perform the handshake and handle the result.
 //! let (mut sender, mut receiver) = match client.handshake().await? {
@@ -54,24 +54,25 @@
 //! receiver.receive_data(&mut data).await?;
 //!
 //! # Ok(())
-//! # });
+//! # }
 //!
 //! ```
 //!
 //! # Server example
 //!
 //! ```no_run
-//! # use async_std::{net::TcpListener, prelude::*};
-//! # let _: Result<(), soketto::BoxedError> = async_std::task::block_on(async {
+//! # use tokio_util::compat::Tokio02AsyncReadCompatExt;
+//! # use tokio::stream::StreamExt;
+//! # async fn doc() -> Result<(), soketto::BoxedError> {
 //! use soketto::{handshake::{Server, ClientRequest, server::Response}};
 //!
 //! // First, we listen for incoming connections.
-//! let listener = TcpListener::bind("...").await?;
+//! let mut listener = tokio::net::TcpListener::bind("...").await?;
 //! let mut incoming = listener.incoming();
 //!
 //! while let Some(socket) = incoming.next().await {
 //!     // For each incoming connection we perform a handshake.
-//!     let mut server = Server::new(socket?);
+//!     let mut server = Server::new(socket?.compat());
 //!
 //!     let websocket_key = {
 //!         let req = server.receive_request().await?;
@@ -94,11 +95,11 @@
 //!         sender.send_binary(&data).await?
 //!     }
 //!
-//!     sender.close().await?;
+//!     sender.close().await?
 //! }
 //!
 //! # Ok(())
-//! # });
+//! # }
 //!
 //! ```
 //! [client]: handshake::Client
