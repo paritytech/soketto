@@ -1,3 +1,7 @@
+# 0.4.1
+
+- Update some `dev-dependencies`.
+
 # 0.4.0
 
 - Remove all `unsafe` code blocks.
