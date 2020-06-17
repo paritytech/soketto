@@ -15,23 +15,23 @@
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
 use futures::io::{BufReader, BufWriter};
-use async_std::{net::TcpStream, task};
 use soketto::{BoxedError, connection, handshake};
 use std::str::FromStr;
+use tokio::net::TcpStream;
+use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn main() -> Result<(), BoxedError> {
-    task::block_on(async {
-        let n = num_of_cases().await?;
-        for i in 1 ..= n {
-            if let Err(e) = run_case(i).await {
-                log::error!("case {}: {:?}", i, e)
-            }
+#[tokio::main]
+async fn main() -> Result<(), BoxedError> {
+    let n = num_of_cases().await?;
+    for i in 1 ..= n {
+        if let Err(e) = run_case(i).await {
+            log::error!("case {}: {:?}", i, e)
         }
-        update_report().await?;
-        Ok(())
-    })
+    }
+    update_report().await?;
+    Ok(())
 }
 
 async fn num_of_cases() -> Result<usize, BoxedError> {
@@ -85,13 +85,13 @@ async fn update_report() -> Result<(), BoxedError> {
 }
 
 #[cfg(not(feature = "deflate"))]
-fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<BufWriter<TcpStream>>> {
-    handshake::Client::new(BufReader::new(BufWriter::new(socket)), "127.0.0.1:9001", path)
+fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<BufWriter<Compat<TcpStream>>>> {
+    handshake::Client::new(BufReader::new(BufWriter::new(socket.compat())), "127.0.0.1:9001", path)
 }
 
 #[cfg(feature = "deflate")]
-fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<BufWriter<TcpStream>>> {
-    let socket = BufReader::with_capacity(8 * 1024, BufWriter::with_capacity(64 * 1024, socket));
+fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<BufWriter<Compat<TcpStream>>>> {
+    let socket = BufReader::with_capacity(8 * 1024, BufWriter::with_capacity(64 * 1024, socket.compat()));
     let mut client = handshake::Client::new(socket, "127.0.0.1:9001", path);
     let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Client);
     client.add_extension(Box::new(deflate));
