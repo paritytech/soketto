@@ -83,8 +83,7 @@ pub struct Sender<T> {
     writer: BiLock<WriteHalf<T>>,
     mask_buffer: Vec<u8>,
     extensions: BiLock<Vec<Box<dyn Extension + Send>>>,
-    has_extensions: bool,
-    token: Option<SendToken>
+    has_extensions: bool
 }
 
 /// The receiving half of a connection.
@@ -100,8 +99,7 @@ pub struct Receiver<T> {
     buffer: BytesMut,
     ctrl_buffer: BytesMut,
     max_message_size: usize,
-    is_closed: bool,
-    token: Option<RecvToken>
+    is_closed: bool
 }
 
 /// A connection builder.
@@ -178,7 +176,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     }
 
     /// Create a configured [`Sender`]/[`Receiver`] pair.
-    pub fn finish(self) -> (Sender<T>, Receiver<T>) {
+    pub fn finish(self) -> (Sender<T>, SendToken, Receiver<T>, RecvToken) {
         let (rhlf, whlf) = self.socket.split();
         let (wrt1, wrt2) = BiLock::new(whlf);
         let has_extensions = !self.extensions.is_empty();
@@ -195,8 +193,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             buffer: self.buffer,
             ctrl_buffer: BytesMut::new(),
             max_message_size: self.max_message_size,
-            is_closed: false,
-            token: Some(RecvToken(self.id))
+            is_closed: false
         };
 
         let send = Sender {
@@ -206,30 +203,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             mask_buffer: Vec::new(),
             codec: self.codec,
             extensions: ext2,
-            has_extensions,
-            token: Some(SendToken(self.id))
+            has_extensions
         };
 
-        (send, recv)
+        (send, SendToken(self.id), recv, RecvToken(self.id))
     }
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
-    /// Get the token needed to receive data.
-    ///
-    /// **NB**: Only one token can be used at a time. Unless the token is returned
-    /// with `Receiver::set_token`, every subsequent call to `Receiver::token`
-    /// will return `None`.
-    pub fn token(&mut self) -> Option<RecvToken> {
-        self.token.take()
-    }
-
-    /// Return the token retrieved from `Receiver::token`.
-    pub fn set_token(&mut self, t: RecvToken) {
-        assert_eq!(self.id, t.0);
-        self.token = Some(t)
-    }
-
     /// Receive the next websocket message.
     ///
     /// The received frames forming the complete message will be appended to
@@ -458,21 +439,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
-    /// Get the token needed to send data.
-    ///
-    /// **NB**: Only one token can be used at a time. Unless the token is returned
-    /// with `Sender::set_token`, every subsequent call to `Sender::token` will
-    /// return `None`.
-    pub fn token(&mut self) -> Option<SendToken> {
-        self.token.take()
-    }
-
-    /// Return the token retrieved from `Sender::token`.
-    pub fn set_token(&mut self, t: SendToken) {
-        assert_eq!(self.id, t.0);
-        self.token = Some(t)
-    }
-
     /// Send a text value over the websocket connection.
     pub async fn send_text(&mut self, token: SendToken, data: impl AsRef<str>) -> Result<SendToken, Error> {
         assert_eq!(self.id, token.0);

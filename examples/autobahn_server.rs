@@ -31,9 +31,7 @@ async fn main() -> Result<(), BoxedError> {
         };
         let accept = handshake::server::Response::Accept { key: &key, protocol: None };
         server.send_response(&accept).await?;
-        let (mut sender, mut receiver) = server.into_builder().finish();
-        let mut rtoken = receiver.token().unwrap();
-        let mut wtoken = sender.token().unwrap();
+        let (mut sender, mut wtoken, mut receiver, mut rtoken) = server.into_builder().finish();
         let mut message = Vec::new();
         loop {
             message.clear();

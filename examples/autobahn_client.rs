@@ -38,9 +38,8 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, "/getCaseCount");
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (_, mut receiver) = client.into_builder().finish();
+    let (.., mut receiver, token) = client.into_builder().finish();
     let mut data = Vec::new();
-    let token = receiver.token().unwrap();
     let kind = receiver.receive_data(token, &mut data).await?;
     assert!(kind.0.is_text());
     let num = usize::from_str(std::str::from_utf8(&data)?)?;
@@ -54,9 +53,7 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (mut sender, mut receiver) = client.into_builder().finish();
-    let mut rtoken = receiver.token().unwrap();
-    let mut wtoken = sender.token().unwrap();
+    let (mut sender, mut wtoken, mut receiver, mut rtoken) = client.into_builder().finish();
     let mut message = Vec::new();
     loop {
         message.clear();
@@ -85,8 +82,7 @@ async fn update_report() -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (mut sender, _) = client.into_builder().finish();
-    let token = sender.token().unwrap();
+    let (mut sender, token, ..) = client.into_builder().finish();
     sender.close(token).await?;
     Ok(())
 }
