@@ -45,7 +45,7 @@ impl Mode {
 }
 
 /// Connection ID.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Id(u32);
 
 impl fmt::Display for Id {
@@ -54,7 +54,27 @@ impl fmt::Display for Id {
     }
 }
 
+/// A `SendToken` is required in order to send websocket data.
+///
+/// The token serves as proof that the previous send operation was
+/// completed successfully.
+#[derive(Debug)]
+pub struct SendToken(Id);
+
+/// A `RecvToken` is required in order to receive websocket data.
+///
+/// The token serves as proof that the previous receive operation was
+/// completed successfully.
+#[derive(Debug)]
+pub struct RecvToken(Id);
+
 /// The sending half of a connection.
+///
+/// **NB**: While it is possible to only receive websocket messages it is
+/// not possible to only send websocket messages. Receiving data is required
+/// in order to react to control frames such as PING or CLOSE. While those will be
+/// answered transparently they have to be received in the first place, so
+/// calling [`connection::Receiver::receive`] is imperative.
 #[derive(Debug)]
 pub struct Sender<T> {
     id: Id,
@@ -63,7 +83,8 @@ pub struct Sender<T> {
     writer: BiLock<WriteHalf<T>>,
     mask_buffer: Vec<u8>,
     extensions: BiLock<Vec<Box<dyn Extension + Send>>>,
-    has_extensions: bool
+    has_extensions: bool,
+    token: Option<SendToken>
 }
 
 /// The receiving half of a connection.
@@ -79,7 +100,8 @@ pub struct Receiver<T> {
     buffer: BytesMut,
     ctrl_buffer: BytesMut,
     max_message_size: usize,
-    is_closed: bool
+    is_closed: bool,
+    token: Option<RecvToken>
 }
 
 /// A connection builder.
@@ -101,7 +123,7 @@ pub struct Builder<T> {
 impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     /// Create a new `Builder` from the given async I/O resource and mode.
     ///
-    /// **Note**: Use this type only after a successful [handshake][0].
+    /// **NB**: Use this type only after a successful [handshake][0].
     /// You can either use this crate's [handshake functionality][1]
     /// or perform the handshake by some other means.
     ///
@@ -173,7 +195,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             buffer: self.buffer,
             ctrl_buffer: BytesMut::new(),
             max_message_size: self.max_message_size,
-            is_closed: false
+            is_closed: false,
+            token: Some(RecvToken(self.id))
         };
 
         let send = Sender {
@@ -183,7 +206,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             mask_buffer: Vec::new(),
             codec: self.codec,
             extensions: ext2,
-            has_extensions
+            has_extensions,
+            token: Some(SendToken(self.id))
         };
 
         (send, recv)
@@ -191,6 +215,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
+    /// Get the token needed to receive data.
+    ///
+    /// **NB**: Only one token can be used at a time. Unless the token is returned
+    /// with `Receiver::set_token`, every subsequent call to `Receiver::token`
+    /// will return `None`.
+    pub fn token(&mut self) -> Option<RecvToken> {
+        self.token.take()
+    }
+
+    /// Return the token retrieved from `Receiver::token`.
+    pub fn set_token(&mut self, t: RecvToken) {
+        assert_eq!(self.id, t.0);
+        self.token = Some(t)
+    }
+
     /// Receive the next websocket message.
     ///
     /// The received frames forming the complete message will be appended to
@@ -201,7 +240,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     /// values. If PONGs are not expected or uninteresting,
     /// [`Receiver::receive_data`] may be used instead which skips over PONGs
     /// and considers only application payload data.
-    pub async fn receive(&mut self, message: &mut Vec<u8>) -> Result<Incoming<'_>, Error> {
+    pub async fn receive(&mut self, token: RecvToken, message: &mut Vec<u8>) -> Result<(Incoming<'_>, RecvToken), Error> {
+        assert_eq!(self.id, token.0);
         let mut first_fragment_opcode = None;
         let mut length: usize = 0;
         let message_len = message.len();
@@ -221,7 +261,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 self.ctrl_buffer = self.buffer.split_to(header.payload_len());
                 base::Codec::apply_mask(&header, &mut self.ctrl_buffer);
                 if header.opcode() == OpCode::Pong {
-                    return Ok(Incoming::Pong(&self.ctrl_buffer[..]))
+                    return Ok((Incoming::Pong(&self.ctrl_buffer[..]), token))
                 }
                 self.on_control(&header).await?;
                 continue
@@ -306,19 +346,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             let num_bytes = message.len() - message_len;
 
             if header.opcode() == OpCode::Text {
-                return Ok(Incoming::Data(Data::Text(num_bytes)))
+                return Ok((Incoming::Data(Data::Text(num_bytes)), token))
             } else {
-                return Ok(Incoming::Data(Data::Binary(num_bytes)))
+                return Ok((Incoming::Data(Data::Binary(num_bytes)), token))
             }
         }
     }
 
     /// Receive the next websocket message, skipping over control frames.
-    pub async fn receive_data(&mut self, message: &mut Vec<u8>) -> Result<Data, Error> {
+    pub async fn receive_data(&mut self, mut token: RecvToken, message: &mut Vec<u8>) -> Result<(Data, RecvToken), Error> {
         loop {
-            if let Incoming::Data(d) = self.receive(message).await? {
-                return Ok(d)
+            let (i, t) = self.receive(token, message).await?;
+            if let Incoming::Data(d) = i {
+                return Ok((d, t))
             }
+            token = t
         }
     }
 
@@ -416,52 +458,73 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
+    /// Get the token needed to send data.
+    ///
+    /// **NB**: Only one token can be used at a time. Unless the token is returned
+    /// with `Sender::set_token`, every subsequent call to `Sender::token` will
+    /// return `None`.
+    pub fn token(&mut self) -> Option<SendToken> {
+        self.token.take()
+    }
+
+    /// Return the token retrieved from `Sender::token`.
+    pub fn set_token(&mut self, t: SendToken) {
+        assert_eq!(self.id, t.0);
+        self.token = Some(t)
+    }
+
     /// Send a text value over the websocket connection.
-    pub async fn send_text(&mut self, data: impl AsRef<str>) -> Result<(), Error> {
+    pub async fn send_text(&mut self, token: SendToken, data: impl AsRef<str>) -> Result<SendToken, Error> {
         let mut header = Header::new(OpCode::Text);
-        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes())).await
+        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes())).await?;
+        Ok(token)
     }
 
     /// Send some binary data over the websocket connection.
-    pub async fn send_binary(&mut self, data: impl AsRef<[u8]>) -> Result<(), Error> {
+    pub async fn send_binary(&mut self, token: SendToken, data: impl AsRef<[u8]>) -> Result<SendToken, Error> {
         let mut header = Header::new(OpCode::Binary);
-        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref())).await?;
+        Ok(token)
     }
 
     /// Send some binary data over the websocket connection.
     ///
     /// In contrast to [`Sender::send_binary`] the provided data is modified
     /// in-place, e.g. if masking is necessary.
-    pub async fn send_binary_mut(&mut self, mut data: impl AsMut<[u8]>) -> Result<(), Error> {
+    pub async fn send_binary_mut(&mut self, token: SendToken, mut data: impl AsMut<[u8]>) -> Result<SendToken, Error> {
         let mut header = Header::new(OpCode::Binary);
-        self.send_frame(&mut header, &mut Storage::Unique(data.as_mut())).await
+        self.send_frame(&mut header, &mut Storage::Unique(data.as_mut())).await?;
+        Ok(token)
     }
 
     /// Ping the remote end.
-    pub async fn send_ping(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
+    pub async fn send_ping(&mut self, token: SendToken, data: ByteSlice125<'_>) -> Result<SendToken, Error> {
         let mut header = Header::new(OpCode::Ping);
-        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await?;
+        Ok(token)
     }
 
     /// Send an unsolicited Pong to the remote.
-    pub async fn send_pong(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
+    pub async fn send_pong(&mut self, token: SendToken, data: ByteSlice125<'_>) -> Result<SendToken, Error> {
         let mut header = Header::new(OpCode::Pong);
-        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await?;
+        Ok(token)
     }
 
     /// Flush the socket buffer.
-    pub async fn flush(&mut self) -> Result<(), Error> {
+    pub async fn flush(&mut self, token: SendToken) -> Result<SendToken, Error> {
         log::trace!("{}: flushing connection", self.id);
-        self.writer.lock().await.flush().await.or(Err(Error::Closed))
+        self.writer.lock().await.flush().await.or(Err(Error::Closed))?;
+        Ok(token)
     }
 
     /// Send a close message and close the connection.
-    pub async fn close(&mut self) -> Result<(), Error> {
+    pub async fn close(&mut self, token: SendToken) -> Result<(), Error> {
         log::trace!("{}: closing connection", self.id);
         let mut header = Header::new(OpCode::Close);
         let code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut Storage::Shared(&code[..])).await?;
-        self.flush().await?;
+        self.flush(token).await?;
         self.writer.lock().await.close().await.or(Err(Error::Closed))
     }
 

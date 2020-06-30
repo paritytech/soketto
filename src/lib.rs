@@ -15,15 +15,6 @@
 //! i.e. a [Sender]/[Receiver] pair and send and receive textual or
 //! binary data.
 //!
-//! **Note**: While it is possible to only receive websocket messages it is
-//! not possible to only send websocket messages. Receiving data is required
-//! in order to react to control frames such as PING or CLOSE. While those will be
-//! answered transparently they have to be received in the first place, so
-//! calling [`connection::Receiver::receive`] is imperative.
-//!
-//! **Note**: None of the `async` methods are safe to cancel so their `Future`s
-//! must not be dropped unless they return `Poll::Ready`.
-//!
 //! # Client example
 //!
 //! ```no_run
