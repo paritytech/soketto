@@ -475,6 +475,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send a text value over the websocket connection.
     pub async fn send_text(&mut self, token: SendToken, data: impl AsRef<str>) -> Result<SendToken, Error> {
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Text);
         self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes())).await?;
         Ok(token)
@@ -482,6 +483,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send some binary data over the websocket connection.
     pub async fn send_binary(&mut self, token: SendToken, data: impl AsRef<[u8]>) -> Result<SendToken, Error> {
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Binary);
         self.send_frame(&mut header, &mut Storage::Shared(data.as_ref())).await?;
         Ok(token)
@@ -492,6 +494,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// In contrast to [`Sender::send_binary`] the provided data is modified
     /// in-place, e.g. if masking is necessary.
     pub async fn send_binary_mut(&mut self, token: SendToken, mut data: impl AsMut<[u8]>) -> Result<SendToken, Error> {
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Binary);
         self.send_frame(&mut header, &mut Storage::Unique(data.as_mut())).await?;
         Ok(token)
@@ -499,6 +502,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Ping the remote end.
     pub async fn send_ping(&mut self, token: SendToken, data: ByteSlice125<'_>) -> Result<SendToken, Error> {
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Ping);
         self.write(&mut header, &mut Storage::Shared(data.as_ref())).await?;
         Ok(token)
@@ -506,6 +510,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send an unsolicited Pong to the remote.
     pub async fn send_pong(&mut self, token: SendToken, data: ByteSlice125<'_>) -> Result<SendToken, Error> {
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Pong);
         self.write(&mut header, &mut Storage::Shared(data.as_ref())).await?;
         Ok(token)
@@ -514,6 +519,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Flush the socket buffer.
     pub async fn flush(&mut self, token: SendToken) -> Result<SendToken, Error> {
         log::trace!("{}: flushing connection", self.id);
+        assert_eq!(self.id, token.0);
         self.writer.lock().await.flush().await.or(Err(Error::Closed))?;
         Ok(token)
     }
@@ -521,6 +527,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send a close message and close the connection.
     pub async fn close(&mut self, token: SendToken) -> Result<(), Error> {
         log::trace!("{}: closing connection", self.id);
+        assert_eq!(self.id, token.0);
         let mut header = Header::new(OpCode::Close);
         let code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut Storage::Shared(&code[..])).await?;
