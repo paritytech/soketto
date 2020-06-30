@@ -74,7 +74,7 @@ pub struct RecvToken(Id);
 /// not possible to only send websocket messages. Receiving data is required
 /// in order to react to control frames such as PING or CLOSE. While those will be
 /// answered transparently they have to be received in the first place, so
-/// calling [`connection::Receiver::receive`] is imperative.
+/// calling [`Receiver::receive`] is imperative.
 #[derive(Debug)]
 pub struct Sender<T> {
     id: Id,
