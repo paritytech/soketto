@@ -29,21 +29,20 @@
 //! let mut client = Client::new(socket.compat(), "...", "/");
 //!
 //! // And finally we perform the handshake and handle the result.
-//! let (mut sender, mut send_token, mut receiver, receive_token) =
-//!     match client.handshake().await? {
-//!         ServerResponse::Accepted { .. } => client.into_builder().finish(),
-//!         ServerResponse::Redirect { status_code, location } => unimplemented!("follow location URL"),
-//!         ServerResponse::Rejected { status_code } => unimplemented!("handle failure")
-//!     };
+//! let (mut sender, receiver) = match client.handshake().await? {
+//!     ServerResponse::Accepted { .. } => client.into_builder().finish(),
+//!     ServerResponse::Redirect { status_code, location } => unimplemented!("follow location URL"),
+//!     ServerResponse::Rejected { status_code } => unimplemented!("handle failure")
+//! };
 //!
 //! // Over the established websocket connection we can send
-//! send_token = sender.send_text(send_token, "some text").await?;
-//! send_token = sender.send_text(send_token, "some more text").await?;
-//! sender.flush(send_token).await?;
+//! sender = sender.send_text("some text").await?;
+//! sender = sender.send_text("some more text").await?;
+//! sender = sender.flush().await?;
 //!
 //! // ... and receive data.
 //! let mut data = Vec::new();
-//! receiver.receive_data(receive_token, &mut data).await?;
+//! receiver.receive_data(&mut data).await?;
 //!
 //! # Ok(())
 //! # }
@@ -76,18 +75,18 @@
 //!     server.send_response(&accept).await?;
 //!
 //!     // And we can finally transition to a websocket connection.
-//!     let (mut sender, mut send_token, mut receiver, receive_token) = server.into_builder().finish();
+//!     let (mut sender, receiver) = server.into_builder().finish();
 //!
 //!     let mut data = Vec::new();
-//!     let (data_type, _) = receiver.receive_data(receive_token, &mut data).await?;
+//!     let (data_type, _) = receiver.receive_data(&mut data).await?;
 //!
 //!     if data_type.is_text() {
-//!         send_token = sender.send_text(send_token, std::str::from_utf8(&data)?).await?
+//!         sender = sender.send_text(std::str::from_utf8(&data)?).await?
 //!     } else {
-//!         send_token = sender.send_binary(send_token, &data).await?
+//!         sender = sender.send_binary(&data).await?
 //!     }
 //!
-//!     sender.close(send_token).await?
+//!     sender.close().await?
 //! }
 //!
 //! # Ok(())

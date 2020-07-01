@@ -31,23 +31,23 @@ async fn main() -> Result<(), BoxedError> {
         };
         let accept = handshake::server::Response::Accept { key: &key, protocol: None };
         server.send_response(&accept).await?;
-        let (mut sender, mut wtoken, mut receiver, mut rtoken) = server.into_builder().finish();
+        let (mut sender, mut receiver) = server.into_builder().finish();
         let mut message = Vec::new();
         loop {
             message.clear();
-            match receiver.receive_data(rtoken, &mut message).await {
-                Ok((soketto::Data::Binary(n), t)) => {
+            match receiver.receive_data(&mut message).await {
+                Ok((soketto::Data::Binary(n), r)) => {
                     assert_eq!(n, message.len());
-                    rtoken = t;
-                    wtoken = sender.send_binary_mut(wtoken, &mut message).await?;
-                    wtoken = sender.flush(wtoken).await?
+                    receiver = r;
+                    sender = sender.send_binary_mut(&mut message).await?;
+                    sender = sender.flush().await?
                 }
-                Ok((soketto::Data::Text(n), t)) => {
+                Ok((soketto::Data::Text(n), r)) => {
                     assert_eq!(n, message.len());
-                    rtoken = t;
+                    receiver = r;
                     if let Ok(txt) = std::str::from_utf8(&message) {
-                        wtoken = sender.send_text(wtoken, txt).await?;
-                        wtoken = sender.flush(wtoken).await?
+                        sender = sender.send_text(txt).await?;
+                        sender = sender.flush().await?
                     } else {
                         break
                     }

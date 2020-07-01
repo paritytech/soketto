@@ -38,9 +38,9 @@ async fn num_of_cases() -> Result<usize, BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, "/getCaseCount");
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (.., mut receiver, token) = client.into_builder().finish();
+    let (_, receiver) = client.into_builder().finish();
     let mut data = Vec::new();
-    let kind = receiver.receive_data(token, &mut data).await?;
+    let kind = receiver.receive_data(&mut data).await?;
     assert!(kind.0.is_text());
     let num = usize::from_str(std::str::from_utf8(&data)?)?;
     log::info!("{} cases to run", num);
@@ -53,22 +53,22 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (mut sender, mut wtoken, mut receiver, mut rtoken) = client.into_builder().finish();
+    let (mut sender, mut receiver) = client.into_builder().finish();
     let mut message = Vec::new();
     loop {
         message.clear();
-        match receiver.receive_data(rtoken, &mut message).await {
-            Ok((soketto::Data::Binary(n), t)) => {
+        match receiver.receive_data(&mut message).await {
+            Ok((soketto::Data::Binary(n), r)) => {
                 assert_eq!(n, message.len());
-                rtoken = t;
-                wtoken = sender.send_binary_mut(wtoken, &mut message).await?;
-                wtoken = sender.flush(wtoken).await?
+                receiver = r;
+                sender = sender.send_binary_mut(&mut message).await?;
+                sender = sender.flush().await?
             }
-            Ok((soketto::Data::Text(n), t)) => {
+            Ok((soketto::Data::Text(n), r)) => {
                 assert_eq!(n, message.len());
-                rtoken = t;
-                wtoken = sender.send_text(wtoken, std::str::from_utf8(&message)?).await?;
-                wtoken = sender.flush(wtoken).await?
+                receiver = r;
+                sender = sender.send_text(std::str::from_utf8(&message)?).await?;
+                sender = sender.flush().await?
             }
             Err(connection::Error::Closed) => return Ok(()),
             Err(e) => return Err(e.into())
@@ -82,8 +82,8 @@ async fn update_report() -> Result<(), BoxedError> {
     let socket = TcpStream::connect("127.0.0.1:9001").await?;
     let mut client = new_client(socket, &resource);
     assert!(matches!(client.handshake().await?, handshake::ServerResponse::Accepted {..}));
-    let (mut sender, token, ..) = client.into_builder().finish();
-    sender.close(token).await?;
+    let (sender, _) = client.into_builder().finish();
+    sender.close().await?;
     Ok(())
 }
 

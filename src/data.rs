@@ -12,14 +12,14 @@ use std::{convert::TryFrom, fmt};
 
 /// Data received from the remote end.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Incoming<'a> {
+pub enum Incoming {
     /// Text or binary data.
     Data(Data),
     /// Data sent with a PONG control frame.
-    Pong(&'a [u8])
+    Pong(Vec<u8>)
 }
 
-impl Incoming<'_> {
+impl Incoming {
     /// Is this text or binary data?
     pub fn is_data(&self) -> bool {
         if let Incoming::Data(_) = self { true } else { false }
