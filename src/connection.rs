@@ -61,6 +61,10 @@ impl fmt::Display for Id {
 /// in order to react to control frames such as PING or CLOSE. While those will be
 /// answered transparently they have to be received in the first place, so
 /// calling [`Receiver::receive`] is imperative.
+///
+/// **NB**: Async sender methods consume and return `self` to force application
+/// code to complete the futures representing those async methods, otherwise
+/// `self` or the websocket connection could end up in an invalid state.
 #[derive(Debug)]
 pub struct Sender<T> {
     id: Id,
@@ -73,6 +77,11 @@ pub struct Sender<T> {
 }
 
 /// The receiving half of a connection.
+///
+/// **NB**: Async receiver methods consume and return `self` to force
+/// application code to complete the futures representing those async
+/// methods, otherwise `self` or the websocket connection could end up
+/// in an invalid state.
 #[derive(Debug)]
 pub struct Receiver<T> {
     id: Id,
