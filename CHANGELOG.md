@@ -1,3 +1,9 @@
+# 0.4.2
+
+- Added `ClientRequest::path` to access the path requested by the client
+  (See #23 by @mward for details).
+- Updated `sha-1` dependency to 0.9 (#24).
+
 # 0.4.1
 
 - Update some `dev-dependencies`.
