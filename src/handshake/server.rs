@@ -161,7 +161,14 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             }
         }
 
-        Ok(Parsing::Done { value: ClientRequest { ws_key, protocols }, offset })
+        let mut path = String::new();
+        if let Some(val) = request.path {
+            path.push_str(val)
+        }
+
+        Ok(Parsing::Done {
+            value: ClientRequest { ws_key, protocols, path }, offset,
+        })
     }
 
     // Encode server handshake response.
@@ -171,9 +178,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                 let mut key_buf = [0; 32];
                 let accept_value = {
                     let mut digest = Sha1::new();
-                    digest.input(key);
-                    digest.input(KEY);
-                    let d = digest.result();
+                    digest.update(key);
+                    digest.update(KEY);
+                    let d = digest.finalize();
                     let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
                     &key_buf[.. n]
                 };
@@ -211,7 +218,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 #[derive(Debug)]
 pub struct ClientRequest<'a> {
     ws_key: Vec<u8>,
-    protocols: Vec<&'a str>
+    protocols: Vec<&'a str>,
+    path: String,
 }
 
 impl<'a> ClientRequest<'a> {
@@ -227,6 +235,11 @@ impl<'a> ClientRequest<'a> {
     /// The protocols the client is proposing.
     pub fn protocols(&self) -> impl Iterator<Item = &str> {
         self.protocols.iter().cloned()
+    }
+
+    /// The path the client is requesting.
+    pub fn path(&self) -> &str {
+        &self.path
     }
 }
 
