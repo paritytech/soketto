@@ -197,9 +197,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         let nonce = &self.nonce[.. self.nonce_offset];
         with_first_header(&response.headers, "Sec-WebSocket-Accept", |theirs| {
             let mut digest = Sha1::new();
-            digest.input(nonce);
-            digest.input(KEY);
-            let ours = base64::encode(&digest.result());
+            digest.update(nonce);
+            digest.update(KEY);
+            let ours = base64::encode(&digest.finalize());
             if ours.as_bytes() != theirs {
                 return Err(Error::InvalidSecWebSocketAccept)
             }

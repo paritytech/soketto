@@ -178,9 +178,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                 let mut key_buf = [0; 32];
                 let accept_value = {
                     let mut digest = Sha1::new();
-                    digest.input(key);
-                    digest.input(KEY);
-                    let d = digest.result();
+                    digest.update(key);
+                    digest.update(KEY);
+                    let d = digest.finalize();
                     let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
                     &key_buf[.. n]
                 };
