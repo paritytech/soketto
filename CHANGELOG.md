@@ -1,5 +1,6 @@
 # 0.4.2
 
+- Added connection ID to log output (#21).
 - Added `ClientRequest::path` to access the path requested by the client
   (See #23 by @mward for details).
 - Updated `sha-1` dependency to 0.9 (#24).
