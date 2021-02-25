@@ -27,7 +27,7 @@
 //! # Client example
 //!
 //! ```no_run
-//! # use tokio_util::compat::Tokio02AsyncReadCompatExt;
+//! # use tokio_util::compat::TokioAsyncReadCompatExt;
 //! # async fn doc() -> Result<(), soketto::BoxedError> {
 //! use soketto::handshake::{Client, ServerResponse};
 //!
@@ -61,14 +61,14 @@
 //! # Server example
 //!
 //! ```no_run
-//! # use tokio_util::compat::Tokio02AsyncReadCompatExt;
-//! # use tokio::stream::StreamExt;
+//! # use tokio_util::compat::TokioAsyncReadCompatExt;
+//! # use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 //! # async fn doc() -> Result<(), soketto::BoxedError> {
 //! use soketto::{handshake::{Server, ClientRequest, server::Response}};
 //!
 //! // First, we listen for incoming connections.
-//! let mut listener = tokio::net::TcpListener::bind("...").await?;
-//! let mut incoming = listener.incoming();
+//! let listener = tokio::net::TcpListener::bind("...").await?;
+//! let mut incoming = TcpListenerStream::new(listener);
 //!
 //! while let Some(socket) = incoming.next().await {
 //!     // For each incoming connection we perform a handshake.
