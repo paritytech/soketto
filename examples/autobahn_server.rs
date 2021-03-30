@@ -50,7 +50,7 @@ async fn main() -> Result<(), BoxedError> {
                         break
                     }
                 }
-                Err(connection::Error::Closed) => break,
+                Err(connection::Error::Closed(_)) => break,
                 Err(e) => {
                     log::error!("connection error: {}", e);
                     break
@@ -74,4 +74,3 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
     server.add_extension(Box::new(deflate));
     server
 }
-

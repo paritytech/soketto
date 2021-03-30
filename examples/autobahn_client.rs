@@ -68,7 +68,7 @@ async fn run_case(n: usize) -> Result<(), BoxedError> {
                 sender.send_text(std::str::from_utf8(&message)?).await?;
                 sender.flush().await?
             }
-            Err(connection::Error::Closed) => return Ok(()),
+            Err(connection::Error::Closed(_)) => return Ok(()),
             Err(e) => return Err(e.into())
         }
     }
@@ -97,4 +97,3 @@ fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<
     client.add_extension(Box::new(deflate));
     client
 }
-
