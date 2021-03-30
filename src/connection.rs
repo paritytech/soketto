@@ -205,11 +205,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
         let mut first_fragment_opcode = None;
         let mut length: usize = 0;
         let message_len = message.len();
-        let mut close_reason: Option<CloseReason> = None;
         loop {
             if self.is_closed {
                 log::debug!("{}: cannot receive, connection is closed", self.id);
-                return Err(Error::Closed(close_reason));
+                return Err(Error::Closed(None));
             }
 
             self.ctrl_buffer.clear();
@@ -224,8 +223,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if header.opcode() == OpCode::Pong {
                     return Ok(Incoming::Pong(&self.ctrl_buffer[..]));
                 }
-                close_reason = self.on_control(&header).await?;
-                // TODO: why not return Err::Closed(reason) here?
+                self.on_control(&header).await?;
+
                 continue;
             }
 
@@ -353,7 +352,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     }
 
     /// Answer incoming control frames.
-    async fn on_control(&mut self, header: &Header) -> Result<Option<CloseReason>, Error> {
+    /// `PING`: replied to immediately with a `PONG`
+    /// `PONG`: no action
+    /// `CLOSE`: replied to immediately with a `CLOSE`; returns an [`Error::Closed`] with the [`CloseReason`]
+    /// All other [`OpCode`]s return [`Error::UnexpectedOpCode`]
+    async fn on_control(&mut self, header: &Header) -> Result<(), Error> {
         match header.opcode() {
             OpCode::Ping => {
                 let mut answer = Header::new(OpCode::Pong);
@@ -361,9 +364,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let mut data = Storage::Unique(&mut self.ctrl_buffer);
                 write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut answer, &mut data, &mut unused).await?;
                 self.flush().await?;
-                Ok(None)
+                Ok(())
             }
-            OpCode::Pong => Ok(None),
+            OpCode::Pong => Ok(()),
             OpCode::Close => {
                 log::trace!("Acknowledging close to sender");
                 self.is_closed = true;
@@ -380,7 +383,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 }
                 self.flush().await?;
                 self.writer.lock().await.close().await.or(Err(Error::Closed(reason.clone())))?; // TODO: how to avoid the clone here?
-                Ok(reason)
+                Err(Error::Closed(reason))
             }
             OpCode::Binary
             | OpCode::Text
