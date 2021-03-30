@@ -205,26 +205,28 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
         let mut first_fragment_opcode = None;
         let mut length: usize = 0;
         let message_len = message.len();
+        let mut close_reason: Option<CloseReason> = None;
         loop {
             if self.is_closed {
-                log::debug!("{}: can not receive, connection is closed", self.id);
-                return Err(Error::Closed)
+                log::debug!("{}: cannot receive, connection is closed", self.id);
+                return Err(Error::Closed(close_reason));
             }
 
             self.ctrl_buffer.clear();
             let mut header = self.receive_header().await?;
             log::trace!("{}: recv: {}", self.id, header);
 
-            // Handle control frames.
+            // Handle control frames: PING, PONG and CLOSE.
             if header.opcode().is_control() {
                 self.read_buffer(&header).await?;
                 self.ctrl_buffer = self.buffer.split_to(header.payload_len());
                 base::Codec::apply_mask(&header, &mut self.ctrl_buffer);
                 if header.opcode() == OpCode::Pong {
-                    return Ok(Incoming::Pong(&self.ctrl_buffer[..]))
+                    return Ok(Incoming::Pong(&self.ctrl_buffer[..]));
                 }
-                self.on_control(&header).await?;
-                continue
+                close_reason = self.on_control(&header).await?;
+                // TODO: why not return Err::Closed(reason) here?
+                continue;
             }
 
             length = length.saturating_add(header.payload_len());
@@ -351,7 +353,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     }
 
     /// Answer incoming control frames.
-    async fn on_control(&mut self, header: &Header) -> Result<(), Error> {
+    async fn on_control(&mut self, header: &Header) -> Result<Option<CloseReason>, Error> {
         match header.opcode() {
             OpCode::Ping => {
                 let mut answer = Header::new(OpCode::Pong);
@@ -359,15 +361,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let mut data = Storage::Unique(&mut self.ctrl_buffer);
                 write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut answer, &mut data, &mut unused).await?;
                 self.flush().await?;
-                Ok(())
+                Ok(None)
             }
-            OpCode::Pong => Ok(()),
+            OpCode::Pong => Ok(None),
             OpCode::Close => {
+                log::trace!("Acknowledging close to sender");
                 self.is_closed = true;
-                let (mut header, code) = close_answer(&self.ctrl_buffer)?;
+                let (mut header, reason) = close_answer(&self.ctrl_buffer)?;
+                // Write back a Close frame
                 let mut unused = Vec::new();
-                if let Some(c) = code {
-                    let mut data = c.to_be_bytes();
+                if let Some(CloseReason { code, ..} ) = reason {
+                    let mut data = code.to_be_bytes();
                     let mut data = Storage::Unique(&mut data);
                     write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
                 } else {
@@ -375,7 +379,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                     write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
                 }
                 self.flush().await?;
-                self.writer.lock().await.close().await.or(Err(Error::Closed))
+                self.writer.lock().await.close().await.or(Err(Error::Closed(reason.clone())))?; // TODO: how to avoid the clone here?
+                Ok(reason)
             }
             OpCode::Binary
             | OpCode::Text
@@ -411,7 +416,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
         if self.is_closed {
             return Ok(())
         }
-        self.writer.lock().await.flush().await.or(Err(Error::Closed))
+        self.writer.lock().await.flush().await.or(Err(Error::Closed(None)))
     }
 }
 
@@ -452,17 +457,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Flush the socket buffer.
     pub async fn flush(&mut self) -> Result<(), Error> {
         log::trace!("{}: flushing connection", self.id);
-        self.writer.lock().await.flush().await.or(Err(Error::Closed))
+        self.writer.lock().await.flush().await.or(Err(Error::Closed(None)))
     }
 
     /// Send a close message and close the connection.
+    // TODO: send optional close reason
     pub async fn close(&mut self) -> Result<(), Error> {
         log::trace!("{}: closing connection", self.id);
         let mut header = Header::new(OpCode::Close);
         let code = 1000_u16.to_be_bytes(); // 1000 = normal closure
         self.write(&mut header, &mut Storage::Shared(&code[..])).await?;
         self.flush().await?;
-        self.writer.lock().await.close().await.or(Err(Error::Closed))
+        self.writer.lock().await.close().await.or(Err(Error::Closed(None)))
     }
 
     /// Send arbitrary websocket frames.
@@ -511,10 +517,10 @@ async fn write<T: AsyncWrite + Unpin>
 
     let header_bytes = codec.encode_header(&header);
     let mut w = writer.lock().await;
-    w.write_all(&header_bytes).await.or(Err(Error::Closed))?;
+    w.write_all(&header_bytes).await.or(Err(Error::Closed(None)))?;
 
     if !header.is_masked() {
-        return w.write_all(data.as_ref()).await.or(Err(Error::Closed))
+        return w.write_all(data.as_ref()).await.or(Err(Error::Closed(None)))
     }
 
     match data {
@@ -522,33 +528,46 @@ async fn write<T: AsyncWrite + Unpin>
             mask_buffer.clear();
             mask_buffer.extend_from_slice(slice);
             base::Codec::apply_mask(header, mask_buffer);
-            w.write_all(mask_buffer).await.or(Err(Error::Closed))
+            w.write_all(mask_buffer).await.or(Err(Error::Closed(None)))
         }
         Storage::Unique(slice) => {
             base::Codec::apply_mask(header, slice);
-            w.write_all(slice).await.or(Err(Error::Closed))
+            w.write_all(slice).await.or(Err(Error::Closed(None)))
         }
         Storage::Owned(ref mut bytes) => {
             base::Codec::apply_mask(header, bytes);
-            w.write_all(bytes).await.or(Err(Error::Closed))
+            w.write_all(bytes).await.or(Err(Error::Closed(None)))
         }
     }
 }
 
-/// Create a close frame based on the given data.
-fn close_answer(data: &[u8]) -> Result<(Header, Option<u16>), Error> {
+/// Create a close frame based on the given data. The close frame is echoed back
+/// to the sender.
+fn close_answer(data: &[u8]) -> Result<(Header, Option<CloseReason>), Error> {
     let answer = Header::new(OpCode::Close);
     if data.len() < 2 {
-        return Ok((answer, None))
+        return Ok((answer, None));
     }
-    std::str::from_utf8(&data[2 ..])?; // check reason is properly encoded
+    // Check that the reason string is properly encoded
+    let descr = std::str::from_utf8(&data[2..])?.into();
     let code = u16::from_be_bytes([data[0], data[1]]);
+    let reason = CloseReason { code, descr: Some(descr) };
+    log::trace!("Closing reason: {:?}", reason);
+
+    // Status codes are defined in
+    // https://tools.ietf.org/html/rfc6455#section-7.4.1 and
+    // https://mailarchive.ietf.org/arch/msg/hybi/P_1vbD9uyHl63nbIIbFxKMfSwcM/
     match code {
         | 1000 ..= 1003
         | 1007 ..= 1011
+        | 1012 // Service Restart
+        | 1013 // Try Again Later
         | 1015
-        | 3000 ..= 4999 => Ok((answer, Some(code))), // acceptable codes
-        _               => Ok((answer, Some(1002))) // invalid code => protocol error (1002)
+        | 3000 ..= 4999 => Ok((answer, Some(reason))), // acceptable codes
+        _               => {
+            // invalid code => protocol error (1002)
+            Ok((answer, CloseReason::invalid()))
+        }
     }
 }
 
@@ -569,7 +588,25 @@ pub enum Error {
     /// The total message payload data size exceeds the configured maximum.
     MessageTooLarge { current: usize, maximum: usize },
     /// The connection is closed.
-    Closed
+    Closed(Option<CloseReason>),
+}
+
+/// Reason for closing the connection.
+#[derive(Debug, Clone)]
+pub struct CloseReason {
+    code: u16,
+    descr: Option<String>,
+}
+
+// TODO: does this carry its weight?
+impl CloseReason {
+    fn invalid() -> Option<Self> {
+        Some(Self {
+            // protocol error
+            code: 1002,
+            descr: None,
+        })
+    }
 }
 
 impl fmt::Display for Error {
@@ -587,8 +624,8 @@ impl fmt::Display for Error {
                 write!(f, "utf-8 error: {}", e),
             Error::MessageTooLarge { current, maximum } =>
                 write!(f, "message too large: len >= {}, maximum = {}", current, maximum),
-            Error::Closed =>
-                f.write_str("connection closed")
+            Error::Closed(reason) =>
+                write!(f, "connection closed (reason: {:?})", reason)
         }
     }
 }
@@ -602,7 +639,7 @@ impl std::error::Error for Error {
             Error::Utf8(e) => Some(e),
             Error::UnexpectedOpCode(_)
             | Error::MessageTooLarge {..}
-            | Error::Closed
+            | Error::Closed(_)
             => None
         }
     }
@@ -611,7 +648,7 @@ impl std::error::Error for Error {
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         if e.kind() == io::ErrorKind::UnexpectedEof {
-            Error::Closed
+            Error::Closed(None)
         } else {
             Error::Io(e)
         }
