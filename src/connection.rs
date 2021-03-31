@@ -382,7 +382,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                     write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
                 }
                 self.flush().await?;
-                self.writer.lock().await.close().await.or(Err(Error::Closed(reason.clone())))?; // TODO: how to avoid the clone here?
+                self.writer.lock().await.close().await?;
                 Err(Error::Closed(reason))
             }
             OpCode::Binary
@@ -464,7 +464,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     }
 
     /// Send a close message and close the connection.
-    // TODO: send optional close reason
     pub async fn close(&mut self) -> Result<(), Error> {
         log::trace!("{}: closing connection", self.id);
         let mut header = Header::new(OpCode::Close);
@@ -569,7 +568,7 @@ fn close_answer(data: &[u8]) -> Result<(Header, Option<CloseReason>), Error> {
         | 3000 ..= 4999 => Ok((answer, Some(reason))), // acceptable codes
         _               => {
             // invalid code => protocol error (1002)
-            Ok((answer, CloseReason::invalid()))
+            Ok((answer, Some(CloseReason { code: 1002, descr: None})))
         }
     }
 }
@@ -595,21 +594,10 @@ pub enum Error {
 }
 
 /// Reason for closing the connection.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CloseReason {
     code: u16,
     descr: Option<String>,
-}
-
-// TODO: does this carry its weight?
-impl CloseReason {
-    fn invalid() -> Option<Self> {
-        Some(Self {
-            // protocol error
-            code: 1002,
-            descr: None,
-        })
-    }
 }
 
 impl fmt::Display for Error {
