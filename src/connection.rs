@@ -373,7 +373,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let (mut header, reason) = close_answer(&self.ctrl_buffer)?;
                 // Write back a Close frame
                 let mut unused = Vec::new();
-                if let Some(CloseReason { code, ..} ) = reason {
+                if let Some(CloseReason { code, .. }) = reason {
                     let mut data = code.to_be_bytes();
                     let mut data = Storage::Unique(&mut data);
                     write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
