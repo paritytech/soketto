@@ -29,5 +29,6 @@ sha-1 = { default-features = false, version = "0.9" }
 
 [dev-dependencies]
 quickcheck = "0.9"
-tokio = { version = "0.2", features = ["dns", "stream", "tcp", "rt-threaded", "macros"] }
-tokio-util = { version = "0.3", features = ["compat"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.6", features = ["compat"] }
+tokio-stream = { version = "0.1", features = ["net"] }
