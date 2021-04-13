@@ -10,13 +10,17 @@
 
 use std::{convert::TryFrom, fmt};
 
+use crate::connection::CloseReason;
+
 /// Data received from the remote end.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Incoming<'a> {
     /// Text or binary data.
     Data(Data),
     /// Data sent with a PONG control frame.
-    Pong(&'a [u8])
+    Pong(&'a [u8]),
+    /// The other end closed the connection.
+    Closed(CloseReason),
 }
 
 impl Incoming<'_> {
@@ -48,11 +52,22 @@ impl Incoming<'_> {
         }
     }
 
+    /// Is this a CLOSE frame?
+    // TODO: return `Option<CloseReason>`? Is this even needed?
+    pub fn is_close(&self) -> bool {
+        if let Incoming::Closed(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
     /// The length of data (number of bytes).
     pub fn len(&self) -> usize {
         match self {
             Incoming::Data(d) => d.len(),
-            Incoming::Pong(d) => d.len()
+            Incoming::Pong(d) => d.len(),
+            Incoming::Closed(reason) => std::mem::size_of_val(reason), // TODO: this makes no sense; use `unimplemented!()` here?
         }
     }
 }
@@ -118,4 +133,3 @@ impl AsRef<[u8]> for ByteSlice125<'_> {
         self.0
     }
 }
-
