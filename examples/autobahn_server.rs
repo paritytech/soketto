@@ -50,7 +50,7 @@ async fn main() -> Result<(), BoxedError> {
                         break
                     }
                 }
-                Err(connection::Error::Closed(_)) => break,
+                Err(connection::Error::Closed) => break,
                 Err(e) => {
                     log::error!("connection error: {}", e);
                     break
