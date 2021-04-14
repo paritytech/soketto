@@ -378,10 +378,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if let Some(CloseReason { code, .. }) = reason {
                     let mut data = code.to_be_bytes();
                     let mut data = Storage::Unique(&mut data);
-                    write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
+                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
                 } else {
                     let mut data = Storage::Unique(&mut []);
-                    write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
+                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
                 }
                 self.flush().await?;
                 self.writer.lock().await.close().await?;
