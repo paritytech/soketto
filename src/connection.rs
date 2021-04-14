@@ -417,7 +417,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 
     /// Flush the socket buffer.
     async fn flush(&mut self) -> Result<(), Error> {
-        log::trace!("{}: flushing connection (Receiver::flush())", self.id);
+        log::trace!("{}: Receiver flushing connection", self.id);
         if self.is_closed {
             return Ok(())
         }
@@ -461,7 +461,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Flush the socket buffer.
     pub async fn flush(&mut self) -> Result<(), Error> {
-        log::trace!("{}: flushing connection (Sender::flush())", self.id);
+        log::trace!("{}: Sender flushing connection", self.id);
         self.writer.lock().await.flush().await.or(Err(Error::Closed))
     }
 
@@ -616,8 +616,7 @@ impl fmt::Display for Error {
                 write!(f, "utf-8 error: {}", e),
             Error::MessageTooLarge { current, maximum } =>
                 write!(f, "message too large: len >= {}, maximum = {}", current, maximum),
-            Error::Closed =>
-                write!(f, "connection closed")
+            Error::Closed => f.write_str("connection closed")
         }
     }
 }
