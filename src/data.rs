@@ -51,25 +51,6 @@ impl Incoming<'_> {
             false
         }
     }
-
-    /// Is this a CLOSE frame?
-    // TODO: return `Option<CloseReason>`? Is this even needed?
-    pub fn is_close(&self) -> bool {
-        if let Incoming::Closed(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    /// The length of data (number of bytes).
-    pub fn len(&self) -> usize {
-        match self {
-            Incoming::Data(d) => d.len(),
-            Incoming::Pong(d) => d.len(),
-            Incoming::Closed(reason) => std::mem::size_of_val(reason), // TODO: this makes no sense; use `unimplemented!()` here?
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
