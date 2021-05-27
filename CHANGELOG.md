@@ -1,15 +1,28 @@
-# 0.4.2
+# Changelog
+
+The format is based on [Keep a Changelog].
+
+[Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
+
+## 0.5.0
+
+- Update examples to Tokio 1 [#27](https://github.com/paritytech/soketto/pull/27)
+- Update deps and remove unnecessary transients [#30](https://github.com/paritytech/soketto/pull/30)
+- Add CLOSE reason handling [#31](https://github.com/paritytech/soketto/pull/31)
+- Fix handshake with case-sensible servers [#32](https://github.com/paritytech/soketto/pull/32)
+
+## 0.4.2
 
 - Added connection ID to log output (#21).
 - Added `ClientRequest::path` to access the path requested by the client
   (See #23 by @mward for details).
 - Updated `sha-1` dependency to 0.9 (#24).
 
-# 0.4.1
+## 0.4.1
 
 - Update some `dev-dependencies`.
 
-# 0.4.0
+## 0.4.0
 
 - Remove all `unsafe` code blocks.
 - Remove internal use of `futures::io::BufWriter`.
@@ -20,18 +33,18 @@
   parameter of `Receiver::receive` or `Receiver::receive_data`.
 - `Receiver::into_stream` has been removed.
 
-# 0.3.2
+## 0.3.2
 
 - Bugfix release. `Codec::encode_header` contained a hidden assumption that
   a `usize` would be 8 bytes long, which is obviously only true on 64-bit
   architectures. See #18 for details.
 
-# 0.3.1
+## 0.3.1
 
 - A method `into_inner` to get back the socket has been added to
   `handshake::{Client, Server}`.
 
-# 0.3.0
+## 0.3.0
 
 Update to use and work with async/await:
 
@@ -57,21 +70,21 @@ Update to use and work with async/await:
   instead of `Data`. For `encode` a new type `Storage` has been added
   which unifies different types of data, i.e. shared, unique and owned data.
 
-# 0.2.3
+## 0.2.3
 
 - Maintenance release.
 
-# 0.2.2
+## 0.2.2
 
 - Improved handshake header matching which is now more robust and can cope with
   repeated header names and comma separated values.
 
-# 0.2.1
+## 0.2.1
 
 - The DEFLATE extension now allows custom maximum window bits for client and server.
 - Fix handling of reserved bits in base codec.
 
-# 0.2.0
+## 0.2.0
 
 - Change `Extension` trait and add an optional DEFLATE extension (RFC 7692).
   For now the possibility to use reserved opcodes in extensions is not enabled.
@@ -79,6 +92,6 @@ Update to use and work with async/await:
   currently.
 - Limit the max. buffer size in `Connection` (see `Connection::set_max_buffer_size`).
 
-# 0.1.0
+## 0.1.0
 
 Initial release.
