@@ -207,24 +207,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
         let message_len = message.len();
         loop {
             if self.is_closed {
-                log::debug!("{}: can not receive, connection is closed", self.id);
-                return Err(Error::Closed)
+                log::debug!("{}: cannot receive, connection is closed", self.id);
+                return Err(Error::Closed);
             }
 
             self.ctrl_buffer.clear();
             let mut header = self.receive_header().await?;
             log::trace!("{}: recv: {}", self.id, header);
 
-            // Handle control frames.
+            // Handle control frames: PING, PONG and CLOSE.
             if header.opcode().is_control() {
                 self.read_buffer(&header).await?;
                 self.ctrl_buffer = self.buffer.split_to(header.payload_len());
                 base::Codec::apply_mask(&header, &mut self.ctrl_buffer);
                 if header.opcode() == OpCode::Pong {
-                    return Ok(Incoming::Pong(&self.ctrl_buffer[..]))
+                    return Ok(Incoming::Pong(&self.ctrl_buffer[..]));
                 }
-                self.on_control(&header).await?;
-                continue
+                if let Some(close_reason) = self.on_control(&header).await? {
+                    log::trace!("{}: recv, incoming CLOSE: {:?}", self.id, close_reason);
+                    return Ok(Incoming::Closed(close_reason));
+                }
+                continue;
             }
 
             length = length.saturating_add(header.payload_len());
@@ -351,7 +354,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     }
 
     /// Answer incoming control frames.
-    async fn on_control(&mut self, header: &Header) -> Result<(), Error> {
+    /// `PING`: replied to immediately with a `PONG`
+    /// `PONG`: no action
+    /// `CLOSE`: replied to immediately with a `CLOSE`; returns the [`CloseReason`]
+    /// All other [`OpCode`]s return [`Error::UnexpectedOpCode`]
+    async fn on_control(&mut self, header: &Header) -> Result<Option<CloseReason>, Error> {
         match header.opcode() {
             OpCode::Ping => {
                 let mut answer = Header::new(OpCode::Pong);
@@ -359,23 +366,26 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let mut data = Storage::Unique(&mut self.ctrl_buffer);
                 write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut answer, &mut data, &mut unused).await?;
                 self.flush().await?;
-                Ok(())
+                Ok(None)
             }
-            OpCode::Pong => Ok(()),
+            OpCode::Pong => Ok(None),
             OpCode::Close => {
+                log::trace!("{}: Acknowledging CLOSE to sender", self.id);
                 self.is_closed = true;
-                let (mut header, code) = close_answer(&self.ctrl_buffer)?;
+                let (mut header, reason) = close_answer(&self.ctrl_buffer)?;
+                // Write back a Close frame
                 let mut unused = Vec::new();
-                if let Some(c) = code {
-                    let mut data = c.to_be_bytes();
+                if let Some(CloseReason { code, .. }) = reason {
+                    let mut data = code.to_be_bytes();
                     let mut data = Storage::Unique(&mut data);
-                    write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
+                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
                 } else {
                     let mut data = Storage::Unique(&mut []);
-                    write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await?
+                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
                 }
                 self.flush().await?;
-                self.writer.lock().await.close().await.or(Err(Error::Closed))
+                self.writer.lock().await.close().await?;
+                Ok(reason)
             }
             OpCode::Binary
             | OpCode::Text
@@ -407,7 +417,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 
     /// Flush the socket buffer.
     async fn flush(&mut self) -> Result<(), Error> {
-        log::trace!("{}: flushing connection", self.id);
+        log::trace!("{}: Receiver flushing connection", self.id);
         if self.is_closed {
             return Ok(())
         }
@@ -451,7 +461,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Flush the socket buffer.
     pub async fn flush(&mut self) -> Result<(), Error> {
-        log::trace!("{}: flushing connection", self.id);
+        log::trace!("{}: Sender flushing connection", self.id);
         self.writer.lock().await.flush().await.or(Err(Error::Closed))
     }
 
@@ -535,20 +545,32 @@ async fn write<T: AsyncWrite + Unpin>
     }
 }
 
-/// Create a close frame based on the given data.
-fn close_answer(data: &[u8]) -> Result<(Header, Option<u16>), Error> {
+/// Create a close frame based on the given data. The close frame is echoed back
+/// to the sender.
+fn close_answer(data: &[u8]) -> Result<(Header, Option<CloseReason>), Error> {
     let answer = Header::new(OpCode::Close);
     if data.len() < 2 {
-        return Ok((answer, None))
+        return Ok((answer, None));
     }
-    std::str::from_utf8(&data[2 ..])?; // check reason is properly encoded
+    // Check that the reason string is properly encoded
+    let descr = std::str::from_utf8(&data[2..])?.into();
     let code = u16::from_be_bytes([data[0], data[1]]);
+    let reason = CloseReason { code, descr: Some(descr) };
+
+    // Status codes are defined in
+    // https://tools.ietf.org/html/rfc6455#section-7.4.1 and
+    // https://mailarchive.ietf.org/arch/msg/hybi/P_1vbD9uyHl63nbIIbFxKMfSwcM/
     match code {
         | 1000 ..= 1003
         | 1007 ..= 1011
+        | 1012 // Service Restart
+        | 1013 // Try Again Later
         | 1015
-        | 3000 ..= 4999 => Ok((answer, Some(code))), // acceptable codes
-        _               => Ok((answer, Some(1002))) // invalid code => protocol error (1002)
+        | 3000 ..= 4999 => Ok((answer, Some(reason))), // acceptable codes
+        _               => {
+            // invalid code => protocol error (1002)
+            Ok((answer, Some(CloseReason { code: 1002, descr: None})))
+        }
     }
 }
 
@@ -569,7 +591,14 @@ pub enum Error {
     /// The total message payload data size exceeds the configured maximum.
     MessageTooLarge { current: usize, maximum: usize },
     /// The connection is closed.
-    Closed
+    Closed,
+}
+
+/// Reason for closing the connection.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CloseReason {
+    pub code: u16,
+    pub descr: Option<String>,
 }
 
 impl fmt::Display for Error {
@@ -587,8 +616,7 @@ impl fmt::Display for Error {
                 write!(f, "utf-8 error: {}", e),
             Error::MessageTooLarge { current, maximum } =>
                 write!(f, "message too large: len >= {}, maximum = {}", current, maximum),
-            Error::Closed =>
-                f.write_str("connection closed")
+            Error::Closed => f.write_str("connection closed")
         }
     }
 }

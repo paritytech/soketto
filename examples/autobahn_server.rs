@@ -74,4 +74,3 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
     server.add_extension(Box::new(deflate));
     server
 }
-

@@ -97,4 +97,3 @@ fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<
     client.add_extension(Box::new(deflate));
     client
 }
-
