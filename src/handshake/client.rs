@@ -142,7 +142,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         self.buffer.extend_from_slice(b" HTTP/1.1");
         self.buffer.extend_from_slice(b"\r\nHost: ");
         self.buffer.extend_from_slice(self.host.as_bytes());
-        self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: upgrade");
+        self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
         self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
         self.buffer.extend_from_slice(&self.nonce[.. self.nonce_offset]);
         if let Some(o) = &self.origin {

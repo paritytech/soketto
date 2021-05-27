@@ -16,13 +16,13 @@
 
 use futures::io::{BufReader, BufWriter};
 use soketto::{BoxedError, connection, handshake};
-use tokio::{net::{TcpListener, TcpStream}, stream::StreamExt};
-use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
-
+use tokio::{net::{TcpListener, TcpStream}};
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 #[tokio::main]
 async fn main() -> Result<(), BoxedError> {
-    let mut listener = TcpListener::bind("127.0.0.1:9001").await?;
-    let mut incoming = listener.incoming();
+    let listener = TcpListener::bind("127.0.0.1:9001").await?;
+    let mut incoming = TcpListenerStream::new(listener);
     while let Some(socket) = incoming.next().await {
         let mut server = new_server(socket?);
         let key = {
