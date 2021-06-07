@@ -13,9 +13,10 @@
 use bytes::{Buf, BytesMut};
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
+use crate::domain::DomainCheck;
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
-use std::{mem, str};
+use std::{mem, str, fmt::Debug};
 use super::{
     Error,
     KEY,
@@ -33,24 +34,33 @@ const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Websocket handshake client.
 #[derive(Debug)]
-pub struct Server<'a, T> {
-    socket: T,
+pub struct Server<'a, Socket> {
+    socket: Socket,
     /// Protocols the server supports.
     protocols: Vec<&'a str>,
     /// Extensions the server supports.
     extensions: Vec<Box<dyn Extension + Send>>,
     /// Encoding/decoding buffer.
-    buffer: BytesMut
+    buffer: BytesMut,
+    /// Check to be performed on `Host` header during the handshake.
+    hosts: DomainCheck,
+    /// Check to be performed on `Origin` header during the handshake.
+    origins: DomainCheck,
 }
 
-impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
+impl<'a, Socket> Server<'a, Socket>
+where
+    Socket: AsyncRead + AsyncWrite + Unpin,
+{
     /// Create a new server handshake.
-    pub fn new(socket: T) -> Self {
+    pub fn new(socket: Socket) -> Self {
         Server {
             socket,
             protocols: Vec::new(),
             extensions: Vec::new(),
-            buffer: BytesMut::new()
+            buffer: BytesMut::new(),
+            hosts: DomainCheck::AllowAny,
+            origins: DomainCheck::AllowAny,
         }
     }
 
@@ -82,6 +92,18 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         self.extensions.drain(..)
     }
 
+    /// Sets the check for allowed `Host` headers.
+    pub fn set_hosts(&mut self, hosts: DomainCheck) -> &mut Self {
+        self.hosts = hosts;
+        self
+    }
+
+    /// Sets the check for allowed `Origin` headers.
+    pub fn set_origins(&mut self, origins: DomainCheck) -> &mut Self {
+        self.origins = origins;
+        self
+    }
+
     /// Await an incoming client handshake request.
     pub async fn receive_request(&mut self) -> Result<ClientRequest<'a>, Error> {
         self.buffer.clear();
@@ -105,7 +127,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     /// Turn this handshake into a [`connection::Builder`].
-    pub fn into_builder(mut self) -> connection::Builder<T> {
+    pub fn into_builder(mut self) -> connection::Builder<Socket> {
         let mut builder = connection::Builder::new(self.socket, Mode::Server);
         builder.set_buffer(self.buffer);
         builder.add_extensions(self.extensions.drain(..));
@@ -113,7 +135,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     /// Get out the inner socket of the server.
-    pub fn into_inner(self) -> T {
+    pub fn into_inner(self) -> Socket {
         self.socket
     }
 
@@ -135,8 +157,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             return Err(Error::UnsupportedHttpVersion)
         }
 
-        // TODO: Host Validation
-        with_first_header(&request.headers, "Host", |_h| Ok(()))?;
+        with_first_header(&request.headers, "Host", |host| if self.hosts.is_allowed(host) {
+            println!("hosts? {:?} {:?}", self.hosts, host);
+            Ok(())
+        } else {
+            Err(Error::InvalidHost(String::from_utf8_lossy(host).into()))
+        })?;
 
         expect_ascii_header(request.headers, "Upgrade", "websocket")?;
         expect_ascii_header(request.headers, "Connection", "upgrade")?;
@@ -145,6 +171,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
             Ok(Vec::from(k))
         })?;
+
+        if let Some(h) = request.headers.iter().find(|h| h.name.eq_ignore_ascii_case("Origin")) {
+            if !self.hosts.is_allowed(h.value) {
+                return Err(Error::InvalidOrigin(String::from_utf8_lossy(h.value).into()));
+            }
+        }
 
         for h in request.headers.iter()
             .filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))

@@ -16,6 +16,7 @@
 
 use futures::io::{BufReader, BufWriter};
 use soketto::{BoxedError, connection, handshake};
+use soketto::domain::DomainCheck;
 use tokio::{net::{TcpListener, TcpStream}, stream::StreamExt};
 use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
 
@@ -25,6 +26,7 @@ async fn main() -> Result<(), BoxedError> {
     let mut incoming = listener.incoming();
     while let Some(socket) = incoming.next().await {
         let mut server = new_server(socket?);
+        server.set_hosts(DomainCheck::AllowList(vec!["notlocalhost".into()]));
         let key = {
             let req = server.receive_request().await?;
             req.into_key()
