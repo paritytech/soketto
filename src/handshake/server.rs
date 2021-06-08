@@ -13,7 +13,7 @@
 use bytes::{Buf, BytesMut};
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
-use crate::domain::DomainCheck;
+use crate::access_control::{Policy, AllowAny};
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str, fmt::Debug};
@@ -34,7 +34,7 @@ const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Websocket handshake client.
 #[derive(Debug)]
-pub struct Server<'a, Socket> {
+pub struct Server<'a, Socket, Hosts = AllowAny, Origins = AllowAny> {
     socket: Socket,
     /// Protocols the server supports.
     protocols: Vec<&'a str>,
@@ -43,9 +43,9 @@ pub struct Server<'a, Socket> {
     /// Encoding/decoding buffer.
     buffer: BytesMut,
     /// Check to be performed on `Host` header during the handshake.
-    hosts: DomainCheck,
+    hosts: Hosts,
     /// Check to be performed on `Origin` header during the handshake.
-    origins: DomainCheck,
+    origins: Origins,
 }
 
 impl<'a, Socket> Server<'a, Socket>
@@ -59,11 +59,65 @@ where
             protocols: Vec::new(),
             extensions: Vec::new(),
             buffer: BytesMut::new(),
-            hosts: DomainCheck::AllowAny,
-            origins: DomainCheck::AllowAny,
+            hosts: AllowAny,
+            origins: AllowAny,
+        }
+    }
+}
+
+impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins> {
+    /// Set the allowed `Host` headers.
+    pub fn set_hosts<NewHosts>(self, hosts: NewHosts) -> Server<'a, Socket, NewHosts, Origins>
+    where
+        NewHosts: Policy,
+    {
+        let Server {
+            socket,
+            protocols,
+            extensions,
+            buffer,
+            origins,
+            ..
+        } = self;
+
+        Server {
+            socket,
+            protocols,
+            extensions,
+            buffer,
+            hosts,
+            origins,
         }
     }
 
+    /// Set the allowed `Origin` headers.
+    pub fn set_origins<NewOrigins>(self, origins: NewOrigins) -> Server<'a, Socket, Hosts, NewOrigins> {
+        let Server {
+            socket,
+            protocols,
+            extensions,
+            buffer,
+            hosts,
+            ..
+        } = self;
+
+        Server {
+            socket,
+            protocols,
+            extensions,
+            buffer,
+            hosts,
+            origins,
+        }
+    }
+}
+
+impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins>
+where
+    Socket: AsyncRead + AsyncWrite + Unpin,
+    Hosts: Policy + Debug,
+    Origins: Policy + Debug,
+{
     /// Override the buffer to use for request/response handling.
     pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
         self.buffer = b;
@@ -90,18 +144,6 @@ where
     /// Get back all extensions.
     pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
         self.extensions.drain(..)
-    }
-
-    /// Sets the check for allowed `Host` headers.
-    pub fn set_hosts(&mut self, hosts: DomainCheck) -> &mut Self {
-        self.hosts = hosts;
-        self
-    }
-
-    /// Sets the check for allowed `Origin` headers.
-    pub fn set_origins(&mut self, origins: DomainCheck) -> &mut Self {
-        self.origins = origins;
-        self
     }
 
     /// Await an incoming client handshake request.
@@ -173,7 +215,7 @@ where
         })?;
 
         if let Some(h) = request.headers.iter().find(|h| h.name.eq_ignore_ascii_case("Origin")) {
-            if !self.hosts.is_allowed(h.value) {
+            if !self.origins.is_allowed(h.value) {
                 return Err(Error::InvalidOrigin(String::from_utf8_lossy(h.value).into()));
             }
         }
