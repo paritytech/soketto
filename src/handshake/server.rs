@@ -200,7 +200,6 @@ where
         }
 
         with_first_header(&request.headers, "Host", |host| if self.hosts.is_allowed(host) {
-            println!("hosts? {:?} {:?}", self.hosts, host);
             Ok(())
         } else {
             Err(Error::DeniedHost(String::from_utf8_lossy(host).into()))
