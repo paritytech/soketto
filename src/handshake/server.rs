@@ -203,7 +203,7 @@ where
             println!("hosts? {:?} {:?}", self.hosts, host);
             Ok(())
         } else {
-            Err(Error::InvalidHost(String::from_utf8_lossy(host).into()))
+            Err(Error::DeniedHost(String::from_utf8_lossy(host).into()))
         })?;
 
         expect_ascii_header(request.headers, "Upgrade", "websocket")?;
@@ -216,7 +216,7 @@ where
 
         if let Some(h) = request.headers.iter().find(|h| h.name.eq_ignore_ascii_case("Origin")) {
             if !self.origins.is_allowed(h.value) {
-                return Err(Error::InvalidOrigin(String::from_utf8_lossy(h.value).into()));
+                return Err(Error::DeniedOrigin(String::from_utf8_lossy(h.value).into()));
             }
         }
 

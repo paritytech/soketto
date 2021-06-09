@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 /// Access control policy used to check if a domain is allowed in
 /// either the `Host` or `Origin` header.
 pub trait Policy {
+    /// Checks if a `domain` is allowed to handshake with us.
     fn is_allowed(&self, domain: &[u8]) -> bool;
 }
 

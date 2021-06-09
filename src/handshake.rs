@@ -142,9 +142,9 @@ pub enum Error {
     /// The Sec-WebSocket-Accept header value did not match.
     InvalidSecWebSocketAccept,
     /// The Host header domain is not allowed,
-    InvalidHost(String),
+    DeniedHost(String),
     /// The Origin header domain is not allowed,
-    InvalidOrigin(String),
+    DeniedOrigin(String),
     /// The server returned an extension we did not ask for.
     UnsolicitedExtension,
     /// The server returned a protocol we did not ask for.
@@ -172,9 +172,9 @@ impl fmt::Display for Error {
                 write!(f, "header {} had an unexpected value", name),
             Error::InvalidSecWebSocketAccept =>
                 f.write_str("websocket key mismatch"),
-            Error::InvalidHost(h) =>
+            Error::DeniedHost(h) =>
                 write!(f, "invalid Host domain: {}", h),
-            Error::InvalidOrigin(o) =>
+            Error::DeniedOrigin(o) =>
                 write!(f, "invalid Origin domain: {}", o),
             Error::UnsolicitedExtension =>
                 f.write_str("unsolicited extension returned"),
@@ -199,8 +199,8 @@ impl std::error::Error for Error {
             Error::Utf8(e) => Some(e),
             Error::UnsupportedHttpVersion
             | Error::InvalidRequestMethod
-            | Error::InvalidHost(_)
-            | Error::InvalidOrigin(_)
+            | Error::DeniedHost(_)
+            | Error::DeniedOrigin(_)
             | Error::HeaderNotFound(_)
             | Error::UnexpectedHeader(_)
             | Error::InvalidSecWebSocketAccept
