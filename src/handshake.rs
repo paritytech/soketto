@@ -175,9 +175,9 @@ impl fmt::Display for Error {
             Error::InvalidSecWebSocketAccept =>
                 f.write_str("websocket key mismatch"),
             Error::DeniedHost(h) =>
-                write!(f, "invalid Host domain: {}", h),
+                write!(f, "The Host header value is not allowed: {}", h),
             Error::DeniedOrigin(o) =>
-                write!(f, "invalid Origin domain: {}", o),
+                write!(f, "The Origin header value is not allowed: {}", o),
             Error::UnsolicitedExtension =>
                 f.write_str("unsolicited extension returned"),
             Error::UnsolicitedProtocol =>

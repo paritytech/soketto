@@ -32,12 +32,26 @@ impl Policy for AllowAny {
 
 /// Allow only values from the list, implements [`Policy`].
 #[derive(Debug)]
-pub struct AllowList<List, Domain> {
+pub struct AllowList<List, Value> {
     list: List,
-    _marker: PhantomData<Domain>,
+    _marker: PhantomData<Value>,
 }
 
-impl<List, Domain> AllowList<List, Domain> {
+impl<List, Value> AllowList<List, Value>
+where
+    List: AsRef<[Value]>,
+    Value: AsRef<str>,
+{
+    /// Create a new list. The `list` source can be an array, a slice, or a `Vec` of
+    /// `&str` slices or `String`s:
+    ///
+    /// ```rust
+    /// use soketto::handshake::AllowList;
+    ///
+    /// let array = AllowList::new(["localhost"]);
+    /// let slice = AllowList::new(&["localhost"]);
+    /// let owned = AllowList::new(vec!["localhost".to_string()]);
+    /// ```
     pub fn new(list: List) -> Self {
         AllowList {
             list,
@@ -46,15 +60,37 @@ impl<List, Domain> AllowList<List, Domain> {
     }
 }
 
-impl<List, Domain> Policy for AllowList<List, Domain>
+impl<List, Value> Policy for AllowList<List, Value>
 where
-    List: AsRef<[Domain]>,
-    Domain: AsRef<str>,
+    List: AsRef<[Value]>,
+    Value: AsRef<str>,
 {
-    fn is_allowed(&self, domain: &[u8]) -> bool {
+    fn is_allowed(&self, value: &[u8]) -> bool {
         self.list
             .as_ref()
             .iter()
-            .any(|d| d.as_ref().as_bytes() == domain)
+            .any(|d| d.as_ref().as_bytes() == value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allow_any() {
+        let policy = AllowAny;
+
+        assert_eq!(true, policy.is_allowed(b"foobar"));
+        assert_eq!(true, policy.is_allowed(b"localhost"));
+    }
+
+    #[test]
+    fn allow_list() {
+        let policy = AllowList::new(["localhost", "127.0.0.1"]);
+
+        assert_eq!(true, policy.is_allowed(b"localhost"));
+        assert_eq!(true, policy.is_allowed(b"127.0.0.1"));
+        assert_eq!(false, policy.is_allowed(b"foobar"));
     }
 }
