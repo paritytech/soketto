@@ -12,6 +12,7 @@
 
 pub mod client;
 pub mod server;
+pub mod access_control;
 
 use bytes::BytesMut;
 use crate::extension::{Param, Extension};
@@ -19,6 +20,7 @@ use std::{fmt, io, str};
 
 pub use client::{Client, ServerResponse};
 pub use server::{Server, ClientRequest};
+pub use access_control::{Policy, AllowAny, AllowList};
 
 // Defined in RFC 6455 and used to generate the `Sec-WebSocket-Accept` header
 // in the server handshake response.

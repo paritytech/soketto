@@ -16,7 +16,6 @@
 
 use futures::io::{BufReader, BufWriter};
 use soketto::{BoxedError, connection, handshake};
-use soketto::access_control::AllowList;
 use tokio::{net::{TcpListener, TcpStream}, stream::StreamExt};
 use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
 
@@ -25,7 +24,7 @@ async fn main() -> Result<(), BoxedError> {
     let mut listener = TcpListener::bind("127.0.0.1:9001").await?;
     let mut incoming = listener.incoming();
     while let Some(socket) = incoming.next().await {
-        let mut server = new_server(socket?).set_hosts(AllowList::new(["localhost:9001"]));
+        let mut server = new_server(socket?);
         let key = {
             let req = server.receive_request().await?;
             req.into_key()

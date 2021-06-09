@@ -13,12 +13,13 @@
 use bytes::{Buf, BytesMut};
 use crate::{Parsing, extension::Extension};
 use crate::connection::{self, Mode};
-use crate::access_control::{Policy, AllowAny};
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str, fmt::Debug};
 use super::{
     Error,
+    Policy,
+    AllowAny,
     KEY,
     MAX_NUM_HEADERS,
     SEC_WEBSOCKET_EXTENSIONS,
@@ -67,6 +68,8 @@ where
 
 impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins> {
     /// Set the allowed `Host` headers.
+    ///
+    /// Values must not include the protocol, e.g.: `server.set_hosts(AllowList::new(["example.com"]))`
     pub fn set_hosts<NewHosts>(self, hosts: NewHosts) -> Server<'a, Socket, NewHosts, Origins>
     where
         NewHosts: Policy,
@@ -91,6 +94,8 @@ impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins> {
     }
 
     /// Set the allowed `Origin` headers.
+    ///
+    /// Values must include the protocol, e.g.: `server.set_origins(AllowList::new(["https://example.com"]))`
     pub fn set_origins<NewOrigins>(self, origins: NewOrigins) -> Server<'a, Socket, Hosts, NewOrigins> {
         let Server {
             socket,

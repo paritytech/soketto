@@ -111,7 +111,6 @@
 
 #![forbid(unsafe_code)]
 
-pub mod access_control;
 pub mod base;
 pub mod data;
 pub mod extension;
