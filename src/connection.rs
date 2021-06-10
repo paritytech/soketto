@@ -432,6 +432,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
         self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes())).await
     }
 
+    /// Send a text value over the websocket connection.
+    ///
+    /// In contrast to [`Sender::send_text`] the provided data is modified
+    /// in-place, e.g. if masking is necessary.
+    pub async fn send_text_owned(&mut self, data: String) -> Result<(), Error> {
+        let mut header = Header::new(OpCode::Text);
+        self.send_frame(&mut header, &mut Storage::Owned(data.into_bytes())).await
+    }
+
     /// Send some binary data over the websocket connection.
     pub async fn send_binary(&mut self, data: impl AsRef<[u8]>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Binary);
