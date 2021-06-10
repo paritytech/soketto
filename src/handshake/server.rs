@@ -29,6 +29,8 @@ use super::{
     with_first_header
 };
 
+// Most HTTP servers default to 8KB limit on headers
+const MAX_HEADERS_SIZE: usize = 8 * 1024;
 const BLOCK_SIZE: usize = 8 * 1024;
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -92,14 +94,23 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         loop {
             crate::read(&mut self.socket, &mut self.buffer, BLOCK_SIZE).await?;
 
+            let limit = std::cmp::min(self.buffer.len(), MAX_HEADERS_SIZE);
+
             // We don't expect body, so can search for the CRLF headers tail from
             // the end of the buffer.
-            if self.buffer[skip..].windows(4).rev().find(|w| w == b"\r\n\r\n").is_some() {
+            if self.buffer[skip..limit].windows(4).rev().find(|w| w == b"\r\n\r\n").is_some() {
+                break;
+            }
+
+            // Give up if we've reached the limit. We could emit a specific error here,
+            // but httparse will produce meaningful error for us regardless.
+            if limit == MAX_HEADERS_SIZE {
                 break;
             }
 
             // Skip bytes that did not contain CRLF in the next iteration.
-            // If we only read a partial CRLF sequence, we would miss it if we skipped the full buffer length, hence backing off the full 4 bytes.
+            // If we only read a partial CRLF sequence, we would miss it if we skipped the full buffer
+            // length, hence backing off the full 4 bytes.
             skip = self.buffer.len().saturating_sub(4);
         }
 
