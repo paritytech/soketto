@@ -69,7 +69,11 @@ where
 impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins> {
     /// Set the allowed `Host` headers.
     ///
-    /// Values must not include the protocol, e.g.: `server.set_hosts(AllowList::new(["example.com"]))`
+    /// Values MUST NOT include the protocol.
+    ///
+    /// ```ignore
+    /// server.set_hosts(AllowList::new(["example.com"]))
+    /// ```
     pub fn set_hosts<NewHosts>(self, hosts: NewHosts) -> Server<'a, Socket, NewHosts, Origins>
     where
         NewHosts: Policy,
@@ -95,7 +99,11 @@ impl<'a, Socket, Hosts, Origins> Server<'a, Socket, Hosts, Origins> {
 
     /// Set the allowed `Origin` headers.
     ///
-    /// Values must include the protocol, e.g.: `server.set_origins(AllowList::new(["https://example.com"]))`
+    /// Values MUST include the protocol.
+    ///
+    /// ```ignore
+    /// server.set_origins(AllowList::new(["https://example.com"]))
+    /// ```
     pub fn set_origins<NewOrigins>(self, origins: NewOrigins) -> Server<'a, Socket, Hosts, NewOrigins> {
         let Server {
             socket,
