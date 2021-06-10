@@ -148,7 +148,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             return Err(Error::UnsupportedHttpVersion)
         }
 
-        let host = with_first_header(&request.headers, "Host", |h| Ok(header_to_str(h)))?;
+        let host = with_first_header(&request.headers, "Host", |h| Ok(h))?;
 
         expect_ascii_header(request.headers, "Upgrade", "websocket")?;
         expect_ascii_header(request.headers, "Connection", "upgrade")?;
@@ -156,7 +156,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
         let origin = request.headers.iter().find_map(|h| {
             if h.name.eq_ignore_ascii_case("Origin") {
-                Some(header_to_str(h.value))
+                Some(h.value)
             } else {
                 None
             }
@@ -235,10 +235,6 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 }
 
-fn header_to_str(bytes: &[u8]) -> &str {
-    str::from_utf8(bytes).unwrap_or("INVALID_UTF8")
-}
-
 /// Handshake request received from the client.
 #[derive(Debug)]
 pub struct ClientRequest<'a> {
@@ -252,9 +248,9 @@ pub struct ClientRequest<'a> {
 #[derive(Debug)]
 pub struct RequestHeaders<'a> {
     /// The [`Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Host) header.
-    pub host: &'a str,
+    pub host: &'a [u8],
     /// The [`Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin) header, if provided.
-    pub origin: Option<&'a str>,
+    pub origin: Option<&'a [u8]>,
 }
 
 impl<'a> ClientRequest<'a> {
