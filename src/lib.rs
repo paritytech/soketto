@@ -76,11 +76,11 @@
 //!
 //!     let websocket_key = {
 //!         let req = server.receive_request().await?;
-//!         req.into_key()
+//!         req.key()
 //!     };
 //!
 //!     // Here we accept the client unconditionally.
-//!     let accept = Response::Accept { key: &websocket_key, protocol: None };
+//!     let accept = Response::Accept { key: websocket_key, protocol: None };
 //!     server.send_response(&accept).await?;
 //!
 //!     // And we can finally transition to a websocket connection.

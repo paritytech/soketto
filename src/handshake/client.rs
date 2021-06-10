@@ -17,6 +17,7 @@ use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
 use super::{
+    WebSocketKey,
     Error,
     KEY,
     MAX_NUM_HEADERS,
@@ -42,9 +43,7 @@ pub struct Client<'a, T> {
     /// The HTTP origin header.
     origin: Option<&'a str>,
     /// A buffer holding the base-64 encoded request nonce.
-    nonce: [u8; 32],
-    /// The offset into the nonce buffer.
-    nonce_offset: usize,
+    nonce: WebSocketKey,
     /// The protocols to include in the handshake.
     protocols: Vec<&'a str>,
     /// The extensions the client wishes to include in the request.
@@ -61,8 +60,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             host,
             resource,
             origin: None,
-            nonce: [0; 32],
-            nonce_offset: 0,
+            nonce: [0; 24],
             protocols: Vec::new(),
             extensions: Vec::new(),
             buffer: BytesMut::new()
@@ -136,7 +134,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
     /// Encode the client handshake as a request, ready to be sent to the server.
     fn encode_request(&mut self) {
         let nonce: [u8; 16] = rand::random();
-        self.nonce_offset = base64::encode_config_slice(&nonce, base64::STANDARD, &mut self.nonce);
+        base64::encode_config_slice(&nonce, base64::STANDARD, &mut self.nonce);
         self.buffer.extend_from_slice(b"GET ");
         self.buffer.extend_from_slice(self.resource.as_bytes());
         self.buffer.extend_from_slice(b" HTTP/1.1");
@@ -144,7 +142,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         self.buffer.extend_from_slice(self.host.as_bytes());
         self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
         self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
-        self.buffer.extend_from_slice(&self.nonce[.. self.nonce_offset]);
+        self.buffer.extend_from_slice(&self.nonce);
         if let Some(o) = &self.origin {
             self.buffer.extend_from_slice(b"\r\nOrigin: ");
             self.buffer.extend_from_slice(o.as_bytes())
@@ -194,10 +192,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         expect_ascii_header(response.headers, "Upgrade", "websocket")?;
         expect_ascii_header(response.headers, "Connection", "upgrade")?;
 
-        let nonce = &self.nonce[.. self.nonce_offset];
         with_first_header(&response.headers, "Sec-WebSocket-Accept", |theirs| {
             let mut digest = Sha1::new();
-            digest.update(nonce);
+            digest.update(&self.nonce);
             digest.update(KEY);
             let ours = base64::encode(&digest.finalize());
             if ours.as_bytes() != theirs {

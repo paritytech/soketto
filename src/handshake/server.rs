@@ -10,7 +10,6 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use arrayvec::ArrayVec;
 use bytes::BytesMut;
 use crate::extension::Extension;
 use crate::connection::{self, Mode};
@@ -18,6 +17,7 @@ use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
 use super::{
+    WebSocketKey,
     Error,
     KEY,
     MAX_NUM_HEADERS,
@@ -161,12 +161,14 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         let headers = RequestHeaders { host, origin };
 
         let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
-            let mut key = WebSocketKey::new();
-
-            match key.try_extend_from_slice(k) {
-                Ok(()) => Ok(key),
-                Err(_) => Err(Error::SecWebsocketKeyTooLong)
+            if k.len() != 24 {
+                return Err(Error::SecWebsocketKeyInvalidLength(k.len()));
             }
+            let mut key = [0; 24];
+
+            key.copy_from_slice(k);
+
+            Ok(key)
         })?;
 
         for h in request.headers.iter()
@@ -232,9 +234,6 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 }
 
-/// Owned value of the `Sec-WebSocket-Key` header.
-pub type WebSocketKey = ArrayVec<u8, 28>;
-
 /// Handshake request received from the client.
 #[derive(Debug)]
 pub struct ClientRequest<'a> {
@@ -255,11 +254,7 @@ pub struct RequestHeaders<'a> {
 
 impl<'a> ClientRequest<'a> {
     /// A reference to the nonce.
-    pub fn key(&self) -> &[u8] {
-        &self.ws_key
-    }
-
-    pub fn into_key(self) -> WebSocketKey {
+    pub fn key(&self) -> WebSocketKey {
         self.ws_key
     }
 
@@ -283,7 +278,7 @@ impl<'a> ClientRequest<'a> {
 pub enum Response<'a> {
     /// The server accepts the handshake request.
     Accept {
-        key: &'a [u8],
+        key: WebSocketKey,
         protocol: Option<&'a str>
     },
     /// The server rejects the handshake request.
@@ -355,13 +350,3 @@ const STATUSCODES: &[(u16, &str, &str)] = &[
     (510, "510", "Not Extended"),
     (511, "511", "Network Authentication Required")
 ];
-
-#[cfg(test)]
-mod tests {
-    use super::WebSocketKey;
-
-    #[test]
-    fn ws_key_stack_size() {
-        assert_eq!(32, std::mem::size_of::<WebSocketKey>());
-    }
-}
