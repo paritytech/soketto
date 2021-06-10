@@ -86,7 +86,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     /// Await an incoming client handshake request.
-    pub async fn receive_request<'r>(&'r mut self) -> Result<ClientRequest<'r>, Error> {
+    pub async fn receive_request(&mut self) -> Result<ClientRequest<'_>, Error> {
         self.buffer.clear();
 
         let mut skip = 0;
