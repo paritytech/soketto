@@ -90,15 +90,19 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     pub async fn receive_request<'r>(&'r mut self) -> Result<ClientRequest<'r>, Error> {
         self.buffer.clear();
 
+        let mut skip = 0;
+
         loop {
             crate::read(&mut self.socket, &mut self.buffer, BLOCK_SIZE).await?;
 
-            // We don't expect body, so can safely check for CRLF headers tail.
-            // TODO: some sanity check on buffer size, e.g.: going over BLOCK_SIZE
-            // is likely an error?
-            if self.buffer.ends_with(b"\r\n\r\n") {
+            // We don't expect body, so can search for the CRLF headers tail from
+            // the end of the buffer.
+            if self.buffer[skip..].windows(4).rev().find(|w| w == b"\r\n\r\n").is_some() {
                 break;
             }
+
+            // Skip bytes that did not contain CRLF in the next iteration
+            skip = self.buffer.len().saturating_sub(4);
         }
 
         self.decode_request()
