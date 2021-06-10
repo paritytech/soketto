@@ -135,7 +135,7 @@ pub enum Error {
     UnsupportedHttpVersion,
     /// An incomplete HTTP request.
     IncompleteHttpRequest,
-    /// The value of the `Sec-WebSocket-Key` header is too long
+    /// The value of the `Sec-WebSocket-Key` header is of unexpected length.
     SecWebSocketKeyInvalidLength(usize),
     /// The handshake request was not a GET request.
     InvalidRequestMethod,
