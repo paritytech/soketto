@@ -265,7 +265,7 @@ pub struct RequestHeaders<'a> {
 }
 
 impl<'a> ClientRequest<'a> {
-    /// A reference to the nonce.
+    /// The `Sec-WebSocket-Key` header nonce value.
     pub fn key(&self) -> WebSocketKey {
         self.ws_key
     }
