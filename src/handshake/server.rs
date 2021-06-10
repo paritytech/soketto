@@ -173,14 +173,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         let headers = RequestHeaders { host, origin };
 
         let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
-            if k.len() != 24 {
-                return Err(Error::SecWebsocketKeyInvalidLength(k.len()));
-            }
-            let mut key = [0; 24];
+            use std::convert::TryFrom;
 
-            key.copy_from_slice(k);
-
-            Ok(key)
+            WebSocketKey::try_from(k).map_err(|_| Error::SecWebsocketKeyInvalidLength(k.len()))
         })?;
 
         for h in request.headers.iter()
