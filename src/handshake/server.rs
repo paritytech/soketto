@@ -256,7 +256,7 @@ pub struct ClientRequest<'a> {
 }
 
 /// Select HTTP headers sent by the client.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct RequestHeaders<'a> {
     /// The [`Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Host) header.
     pub host: &'a [u8],
@@ -280,8 +280,8 @@ impl<'a> ClientRequest<'a> {
         self.path
     }
 
-    pub fn headers(&self) -> &RequestHeaders {
-        &self.headers
+    pub fn headers(&self) -> RequestHeaders {
+        self.headers
     }
 }
 
