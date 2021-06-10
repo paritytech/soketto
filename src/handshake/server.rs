@@ -98,7 +98,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                 break;
             }
 
-            // Skip bytes that did not contain CRLF in the next iteration
+            // Skip bytes that did not contain CRLF in the next iteration.
+            // If we only read a partial CRLF sequence, we would miss it if we skipped the full buffer length, hence backing off the full 4 bytes.
             skip = self.buffer.len().saturating_sub(4);
         }
 
