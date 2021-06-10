@@ -128,7 +128,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     // Decode client handshake request.
-    fn decode_request<'r>(&'r mut self) -> Result<ClientRequest<'r>, Error> {
+    fn decode_request(&mut self) -> Result<ClientRequest, Error> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut request = httparse::Request::new(&mut header_buf);
 
