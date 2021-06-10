@@ -227,11 +227,13 @@ impl From<str::Utf8Error> for Error {
 ///
 /// Per [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455#section-4.1):
 ///
-/// > (...) The value of this header field MUST be a
-/// > nonce consisting of a randomly selected 16-byte value that has
-/// > been base64-encoded (see Section 4 of [RFC4648]).
+/// ```text
+/// (...) The value of this header field MUST be a
+/// nonce consisting of a randomly selected 16-byte value that has
+/// been base64-encoded (see Section 4 of [RFC4648]). (...)
+/// ```
 ///
-/// base64 encoded 16-byte nonce with padding is always 24 bytes long.
+/// Base64 encoding of the nonce produces 24 ASCII bytes, padding included.
 pub type WebSocketKey = [u8; 24];
 
 #[cfg(test)]
