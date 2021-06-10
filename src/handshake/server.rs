@@ -44,9 +44,6 @@ pub struct Server<'a, T> {
     buffer: BytesMut
 }
 
-/// Owned value of the `Sec-WebSocket-Key` header.
-pub type WebSocketKey = ArrayVec<u8, 28>;
-
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     /// Create a new server handshake.
     pub fn new(socket: T) -> Self {
@@ -164,7 +161,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         let headers = RequestHeaders { host, origin };
 
         let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
-            let mut key = ArrayVec::new();
+            let mut key = WebSocketKey::new();
 
             match key.try_extend_from_slice(k) {
                 Ok(()) => Ok(key),
@@ -234,6 +231,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         }
     }
 }
+
+/// Owned value of the `Sec-WebSocket-Key` header.
+pub type WebSocketKey = ArrayVec<u8, 28>;
 
 /// Handshake request received from the client.
 #[derive(Debug)]
