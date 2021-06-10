@@ -136,7 +136,7 @@ pub enum Error {
     /// An incomplete HTTP request.
     IncompleteHttpRequest,
     /// The value of the `Sec-WebSocket-Key` header is too long
-    SecWebsocketKeyInvalidLength(usize),
+    SecWebSocketKeyInvalidLength(usize),
     /// The handshake request was not a GET request.
     InvalidRequestMethod,
     /// An HTTP header has not been present.
@@ -166,7 +166,7 @@ impl fmt::Display for Error {
                 f.write_str("http version was not 1.1"),
             Error::IncompleteHttpRequest =>
                 f.write_str("http request was incomplete"),
-            Error::SecWebsocketKeyInvalidLength(len) =>
+            Error::SecWebSocketKeyInvalidLength(len) =>
                 write!(f, "Sec-WebSocket-Key header was {} bytes longth, expected 24", len),
             Error::InvalidRequestMethod =>
                 f.write_str("handshake was not a GET request"),
@@ -199,7 +199,7 @@ impl std::error::Error for Error {
             Error::Utf8(e) => Some(e),
             Error::UnsupportedHttpVersion
             | Error::IncompleteHttpRequest
-            | Error::SecWebsocketKeyInvalidLength(_)
+            | Error::SecWebSocketKeyInvalidLength(_)
             | Error::InvalidRequestMethod
             | Error::HeaderNotFound(_)
             | Error::UnexpectedHeader(_)
