@@ -18,7 +18,7 @@ use futures::io::{BufReader, BufWriter};
 use soketto::{BoxedError, connection, handshake};
 use std::str::FromStr;
 use tokio::net::TcpStream;
-use tokio_util::compat::{Compat, Tokio02AsyncReadCompatExt};
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -97,4 +97,3 @@ fn new_client(socket: TcpStream, path: &str) -> handshake::Client<'_, BufReader<
     client.add_extension(Box::new(deflate));
     client
 }
-
