@@ -275,6 +275,7 @@ impl<'a> ClientRequest<'a> {
         self.path
     }
 
+    /// Select HTTP headers sent by the client.
     pub fn headers(&self) -> RequestHeaders {
         self.headers
     }
