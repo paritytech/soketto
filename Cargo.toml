@@ -18,6 +18,7 @@ default = []
 deflate = ["flate2"]
 
 [dependencies]
+arrayvec = { default-features = false, version = "0.7.1" }
 base64 = { default-features = false, features = ["alloc"], version = "0.13" }
 bytes = { default-features = false, version = "1.0" }
 flate2 = { default-features = false, features = ["zlib"], optional = true, version = "1.0.13" }

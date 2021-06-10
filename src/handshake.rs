@@ -133,6 +133,10 @@ pub enum Error {
     Io(io::Error),
     /// An HTTP version =/= 1.1 was encountered.
     UnsupportedHttpVersion,
+    /// An incomplete HTTP request.
+    IncompleteHttpRequest,
+    /// The value of the `Sec-WebSocket-Key` header is too long
+    SecWebsocketKeyTooLong,
     /// The handshake request was not a GET request.
     InvalidRequestMethod,
     /// An HTTP header has not been present.
@@ -160,6 +164,10 @@ impl fmt::Display for Error {
                 write!(f, "i/o error: {}", e),
             Error::UnsupportedHttpVersion =>
                 f.write_str("http version was not 1.1"),
+            Error::IncompleteHttpRequest =>
+                f.write_str("http request was incomplete"),
+            Error::SecWebsocketKeyTooLong =>
+                f.write_str("Sec-WebSocket-Key header is too long"),
             Error::InvalidRequestMethod =>
                 f.write_str("handshake was not a GET request"),
             Error::HeaderNotFound(name) =>
@@ -190,6 +198,8 @@ impl std::error::Error for Error {
             Error::Http(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnsupportedHttpVersion
+            | Error::IncompleteHttpRequest
+            | Error::SecWebsocketKeyTooLong
             | Error::InvalidRequestMethod
             | Error::HeaderNotFound(_)
             | Error::UnexpectedHeader(_)

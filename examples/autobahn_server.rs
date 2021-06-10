@@ -26,11 +26,11 @@ async fn main() -> Result<(), BoxedError> {
     while let Some(socket) = incoming.next().await {
         let mut server = new_server(socket?);
         let key = {
-            let req = server.receive_request().await?;
+            let req = server.receive_request().await?; // READS STUFF INTO BUFFER UNTIL HEADERS CAN BE PARSED
             req.into_key()
         };
         let accept = handshake::server::Response::Accept { key: &key, protocol: None };
-        server.send_response(&accept).await?;
+        server.send_response(&accept).await?; // WIPES INTERNAL BUFFER TO USE IT TO CONSTRUCT THE RESPONSE
         let (mut sender, mut receiver) = server.into_builder().finish();
         let mut message = Vec::new();
         loop {
