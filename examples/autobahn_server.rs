@@ -16,7 +16,7 @@
 
 use futures::io::{BufReader, BufWriter};
 use soketto::{BoxedError, connection, handshake};
-use tokio::{net::{TcpListener, TcpStream}};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 #[tokio::main]
@@ -27,9 +27,9 @@ async fn main() -> Result<(), BoxedError> {
         let mut server = new_server(socket?);
         let key = {
             let req = server.receive_request().await?;
-            req.into_key()
+            req.key()
         };
-        let accept = handshake::server::Response::Accept { key: &key, protocol: None };
+        let accept = handshake::server::Response::Accept { key, protocol: None };
         server.send_response(&accept).await?;
         let (mut sender, mut receiver) = server.into_builder().finish();
         let mut message = Vec::new();

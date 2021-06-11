@@ -10,13 +10,14 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::{Buf, BytesMut};
-use crate::{Parsing, extension::Extension};
+use bytes::BytesMut;
+use crate::extension::Extension;
 use crate::connection::{self, Mode};
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
 use super::{
+    WebSocketKey,
     Error,
     KEY,
     MAX_NUM_HEADERS,
@@ -28,6 +29,8 @@ use super::{
     with_first_header
 };
 
+// Most HTTP servers default to 8KB limit on headers
+const MAX_HEADERS_SIZE: usize = 8 * 1024;
 const BLOCK_SIZE: usize = 8 * 1024;
 const SOKETTO_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -83,15 +86,35 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     /// Await an incoming client handshake request.
-    pub async fn receive_request(&mut self) -> Result<ClientRequest<'a>, Error> {
+    pub async fn receive_request(&mut self) -> Result<ClientRequest<'_>, Error> {
         self.buffer.clear();
+
+        let mut skip = 0;
+
         loop {
             crate::read(&mut self.socket, &mut self.buffer, BLOCK_SIZE).await?;
-            if let Parsing::Done { value, offset } = self.decode_request()? {
-                self.buffer.advance(offset);
-                return Ok(value)
+
+            let limit = std::cmp::min(self.buffer.len(), MAX_HEADERS_SIZE);
+
+            // We don't expect body, so can search for the CRLF headers tail from
+            // the end of the buffer.
+            if self.buffer[skip..limit].windows(4).rev().any(|w| w == b"\r\n\r\n") {
+                break;
             }
+
+            // Give up if we've reached the limit. We could emit a specific error here,
+            // but httparse will produce meaningful error for us regardless.
+            if limit == MAX_HEADERS_SIZE {
+                break;
+            }
+
+            // Skip bytes that did not contain CRLF in the next iteration.
+            // If we only read a partial CRLF sequence, we would miss it if we skipped the full buffer
+            // length, hence backing off the full 4 bytes.
+            skip = self.buffer.len().saturating_sub(4);
         }
+
+        self.decode_request()
     }
 
     /// Respond to the client.
@@ -118,16 +141,15 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
     }
 
     // Decode client handshake request.
-    fn decode_request(&mut self) -> Result<Parsing<ClientRequest<'a>>, Error> {
+    fn decode_request(&mut self) -> Result<ClientRequest, Error> {
         let mut header_buf = [httparse::EMPTY_HEADER; MAX_NUM_HEADERS];
         let mut request = httparse::Request::new(&mut header_buf);
 
-        let offset = match request.parse(self.buffer.as_ref()) {
-            Ok(httparse::Status::Complete(off)) => off,
-            Ok(httparse::Status::Partial) => return Ok(Parsing::NeedMore(())),
+        match request.parse(self.buffer.as_ref()) {
+            Ok(httparse::Status::Complete(_)) => (),
+            Ok(httparse::Status::Partial) => return Err(Error::IncompleteHttpRequest),
             Err(e) => return Err(Error::Http(Box::new(e)))
         };
-
         if request.method != Some("GET") {
             return Err(Error::InvalidRequestMethod)
         }
@@ -135,15 +157,25 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             return Err(Error::UnsupportedHttpVersion)
         }
 
-        // TODO: Host Validation
-        with_first_header(&request.headers, "Host", |_h| Ok(()))?;
+        let host = with_first_header(&request.headers, "Host", Ok)?;
 
         expect_ascii_header(request.headers, "Upgrade", "websocket")?;
         expect_ascii_header(request.headers, "Connection", "upgrade")?;
         expect_ascii_header(request.headers, "Sec-WebSocket-Version", "13")?;
 
+        let origin = request.headers.iter().find_map(|h| {
+            if h.name.eq_ignore_ascii_case("Origin") {
+                Some(h.value)
+            } else {
+                None
+            }
+        });
+        let headers = RequestHeaders { host, origin };
+
         let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
-            Ok(Vec::from(k))
+            use std::convert::TryFrom;
+
+            WebSocketKey::try_from(k).map_err(|_| Error::SecWebSocketKeyInvalidLength(k.len()))
         })?;
 
         for h in request.headers.iter()
@@ -161,14 +193,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             }
         }
 
-        let mut path = String::new();
-        if let Some(val) = request.path {
-            path.push_str(val)
-        }
+        let path = request.path.unwrap_or("/");
 
-        Ok(Parsing::Done {
-            value: ClientRequest { ws_key, protocols, path }, offset,
-        })
+        Ok(ClientRequest { ws_key, protocols, path, headers })
     }
 
     // Encode server handshake response.
@@ -217,18 +244,24 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 /// Handshake request received from the client.
 #[derive(Debug)]
 pub struct ClientRequest<'a> {
-    ws_key: Vec<u8>,
+    ws_key: WebSocketKey,
     protocols: Vec<&'a str>,
-    path: String,
+    path: &'a str,
+    headers: RequestHeaders<'a>,
+}
+
+/// Select HTTP headers sent by the client.
+#[derive(Debug, Copy, Clone)]
+pub struct RequestHeaders<'a> {
+    /// The [`Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Host) header.
+    pub host: &'a [u8],
+    /// The [`Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin) header, if provided.
+    pub origin: Option<&'a [u8]>,
 }
 
 impl<'a> ClientRequest<'a> {
-    /// A reference to the nonce.
-    pub fn key(&self) -> &[u8] {
-        &self.ws_key
-    }
-
-    pub fn into_key(self) -> Vec<u8> {
+    /// The `Sec-WebSocket-Key` header nonce value.
+    pub fn key(&self) -> WebSocketKey {
         self.ws_key
     }
 
@@ -239,7 +272,12 @@ impl<'a> ClientRequest<'a> {
 
     /// The path the client is requesting.
     pub fn path(&self) -> &str {
-        &self.path
+        self.path
+    }
+
+    /// Select HTTP headers sent by the client.
+    pub fn headers(&self) -> RequestHeaders {
+        self.headers
     }
 }
 
@@ -248,7 +286,7 @@ impl<'a> ClientRequest<'a> {
 pub enum Response<'a> {
     /// The server accepts the handshake request.
     Accept {
-        key: &'a [u8],
+        key: WebSocketKey,
         protocol: Option<&'a str>
     },
     /// The server rejects the handshake request.
@@ -320,4 +358,3 @@ const STATUSCODES: &[(u16, &str, &str)] = &[
     (510, "510", "Not Extended"),
     (511, "511", "Network Authentication Required")
 ];
-

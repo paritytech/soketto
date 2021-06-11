@@ -133,6 +133,10 @@ pub enum Error {
     Io(io::Error),
     /// An HTTP version =/= 1.1 was encountered.
     UnsupportedHttpVersion,
+    /// An incomplete HTTP request.
+    IncompleteHttpRequest,
+    /// The value of the `Sec-WebSocket-Key` header is of unexpected length.
+    SecWebSocketKeyInvalidLength(usize),
     /// The handshake request was not a GET request.
     InvalidRequestMethod,
     /// An HTTP header has not been present.
@@ -160,6 +164,10 @@ impl fmt::Display for Error {
                 write!(f, "i/o error: {}", e),
             Error::UnsupportedHttpVersion =>
                 f.write_str("http version was not 1.1"),
+            Error::IncompleteHttpRequest =>
+                f.write_str("http request was incomplete"),
+            Error::SecWebSocketKeyInvalidLength(len) =>
+                write!(f, "Sec-WebSocket-Key header was {} bytes longth, expected 24", len),
             Error::InvalidRequestMethod =>
                 f.write_str("handshake was not a GET request"),
             Error::HeaderNotFound(name) =>
@@ -190,6 +198,8 @@ impl std::error::Error for Error {
             Error::Http(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
             Error::UnsupportedHttpVersion
+            | Error::IncompleteHttpRequest
+            | Error::SecWebSocketKeyInvalidLength(_)
             | Error::InvalidRequestMethod
             | Error::HeaderNotFound(_)
             | Error::UnexpectedHeader(_)
@@ -212,6 +222,19 @@ impl From<str::Utf8Error> for Error {
         Error::Utf8(e)
     }
 }
+
+/// Owned value of the `Sec-WebSocket-Key` header.
+///
+/// Per [RFC 6455](https://datatracker.ietf.org/doc/html/rfc6455#section-4.1):
+///
+/// ```text
+/// (...) The value of this header field MUST be a
+/// nonce consisting of a randomly selected 16-byte value that has
+/// been base64-encoded (see Section 4 of [RFC4648]). (...)
+/// ```
+///
+/// Base64 encoding of the nonce produces 24 ASCII bytes, padding included.
+pub type WebSocketKey = [u8; 24];
 
 #[cfg(test)]
 mod tests {
