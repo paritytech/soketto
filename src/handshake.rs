@@ -167,7 +167,7 @@ impl fmt::Display for Error {
             Error::IncompleteHttpRequest =>
                 f.write_str("http request was incomplete"),
             Error::SecWebSocketKeyInvalidLength(len) =>
-                write!(f, "Sec-WebSocket-Key header was {} bytes longth, expected 24", len),
+                write!(f, "Sec-WebSocket-Key header was {} bytes long, expected 24", len),
             Error::InvalidRequestMethod =>
                 f.write_str("handshake was not a GET request"),
             Error::HeaderNotFound(name) =>
