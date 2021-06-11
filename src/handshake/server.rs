@@ -98,7 +98,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
             // We don't expect body, so can search for the CRLF headers tail from
             // the end of the buffer.
-            if self.buffer[skip..limit].windows(4).rev().find(|w| w == b"\r\n\r\n").is_some() {
+            if self.buffer[skip..limit].windows(4).rev().any(|w| w == b"\r\n\r\n") {
                 break;
             }
 
