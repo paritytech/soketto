@@ -434,8 +434,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send a text value over the websocket connection.
     ///
-    /// In contrast to [`Sender::send_text`] the provided data is modified
-    /// in-place, e.g. if masking is necessary.
+    /// This method performs one fewer copy than [`Sender::send_text`].
     pub async fn send_text_owned(&mut self, data: String) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Text);
         self.send_frame(&mut header, &mut Storage::Owned(data.into_bytes())).await
@@ -449,8 +448,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
 
     /// Send some binary data over the websocket connection.
     ///
-    /// In contrast to [`Sender::send_binary`] the provided data is modified
-    /// in-place, e.g. if masking is necessary.
+    /// This method performs one fewer copy than [`Sender::send_binary`].
+    /// The `data` buffer may be modified by this method, e.g. if masking is necessary.
     pub async fn send_binary_mut(&mut self, mut data: impl AsMut<[u8]>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Binary);
         self.send_frame(&mut header, &mut Storage::Unique(data.as_mut())).await
