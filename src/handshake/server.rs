@@ -157,7 +157,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             return Err(Error::UnsupportedHttpVersion)
         }
 
-        let host = with_first_header(&request.headers, "Host", |h| Ok(h))?;
+        let host = with_first_header(&request.headers, "Host", Ok)?;
 
         expect_ascii_header(request.headers, "Upgrade", "websocket")?;
         expect_ascii_header(request.headers, "Connection", "upgrade")?;
