@@ -34,7 +34,7 @@ const BLOCK_SIZE: usize = 8 * 1024;
 /// Websocket client handshake.
 #[derive(Debug)]
 pub struct Client<'a, T> {
-    /// The underlying async I/O resource.
+    /// The underlying async I/O resource. [`Clients`] <- BROKEN DOC LINK
     socket: T,
     /// The HTTP host to send the handshake to.
     host: &'a str,
