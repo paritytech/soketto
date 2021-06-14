@@ -6,11 +6,9 @@ The format is based on [Keep a Changelog].
 
 ## 0.6.0
 
-- Updated headers on `ClientRequest` to expose them without copies (mostly).
-- Update handshake error to expose a couple of new variants (`IncompleteHttpRequest` 
-  and `SecWebSocketKeyInvalidLength`).
-- Added `send_text_owned` method to `Sender` as an optimisation when you can pass 
-  an owned `String` in.
+- [changed] Expose the `Origin` headers from the client handshake on `ClientRequest` [#35](https://github.com/paritytech/soketto/pull/35)
+- [changed] Update handshake error to expose a couple of new variants (`IncompleteHttpRequest` and `SecWebSocketKeyInvalidLength`) [#35](https://github.com/paritytech/soketto/pull/35)
+- Added `send_text_owned` method to `Sender` as an optimisation when you can pass an owned `String` in [#36](https://github.com/paritytech/soketto/pull/36)
 
 ## 0.5.0
 
