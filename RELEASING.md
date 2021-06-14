@@ -8,11 +8,10 @@ These steps assume that you've checked out the Soketto repository and are in the
    far the version needs to be bumped based on the changes to date. If unsure what to bump the version 
    to (eg is it a major, minor or patch release), check with the Parity Tools team.
 
-2. Make sure that the tests pass (also checking that all examples compile).
+2. Make sure that the tests pass.
    
    ```
    cargo test
-   cargo test --examples
    ```
 
    If anything fails, it's likely worth fixing the failures in a PR and postponing the release. Minor 
