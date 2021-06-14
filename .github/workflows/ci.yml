@@ -18,7 +18,7 @@ env:
 
 jobs:
   build:
-    name: Build
+    name: Check Code
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -34,7 +34,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v1.3.0
 
-      - name: Cargo check all targets
+      - name: Build
         uses: actions-rs/cargo@v1.0.3
         with:
           command: check
