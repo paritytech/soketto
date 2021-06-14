@@ -1,6 +1,6 @@
 # Release Checklist
 
-These steps assume that you've checked out the Socketto repository and are in the root directory of it.
+These steps assume that you've checked out the Soketto repository and are in the root directory of it.
 
 1. Ensure that everything you'd like to see released is on the `develop` branch.
 
