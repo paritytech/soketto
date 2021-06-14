@@ -63,7 +63,7 @@ These steps assume that you've checked out the Soketto repository and are in the
 
    ```
    git tag v0.6.0 # use the version number you've just published to crates.io
-   git push origin RELEASE_BRANCH --tags
+   git push --tags
    ```
 
 9. Merge the release branch back to develop so that we keep hold of any changes that we made there.
