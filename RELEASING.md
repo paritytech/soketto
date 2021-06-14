@@ -43,3 +43,27 @@ These steps assume that you've checked out the Socketto repository and are in th
    the last version (eg `git log --pretty LAST_VERSION_TAG..HEAD`).
 
    Alternately, look at the commit history: https://github.com/paritytech/soketto/commits/develop.
+
+6. Commit any of the above changes to the release branch and open a PR in GitHub with a base of `develop`.
+
+7. Once the branch has been reviewed, we are ready to publish this branch to crates.io.
+   
+   First, do a dry run to make sure that things seem sane:
+   ```
+   cargo publish --dry-run
+   ```
+
+   If we're happy with everything, proceed with the release:
+   ```
+   cargo publish
+   ```
+
+8. If the release was successful, then tag the latest commit in our release branch so that somebody can
+   get back to this exact state in the future.
+
+   ```
+   git tag v0.6.0 # use the version number you've just published to crates.io
+   git push origin RELEASE_BRANCH --tags
+   ```
+
+9. Merge the release branch back to develop so that we keep hold of any changes that we made there.
