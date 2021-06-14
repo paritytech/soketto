@@ -14,7 +14,7 @@
 //
 // See https://github.com/crossbario/autobahn-testsuite for details.
 
-use futures::io::{BufReader, BufWriter};
+use futures::io::{BufReader, BufWriter};d
 use soketto::{BoxedError, connection, handshake};
 use std::str::FromStr;
 use tokio::net::TcpStream;
