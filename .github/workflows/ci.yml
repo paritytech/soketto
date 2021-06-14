@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-code:
+  build:
     name: Check Code
     runs-on: ubuntu-latest
     steps:
