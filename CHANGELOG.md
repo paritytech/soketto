@@ -4,6 +4,14 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## 0.6.0
+
+- Updated headers on `ClientRequest` to expose them without copies (mostly).
+- Update handshake error to expose a couple of new variants (`IncompleteHttpRequest` 
+  and `SecWebSocketKeyInvalidLength`).
+- Added `send_text_owned` method to `Sender` as an optimisation when you can pass 
+  an owned `String` in.
+
 ## 0.5.0
 
 - Update examples to Tokio 1 [#27](https://github.com/paritytech/soketto/pull/27)
