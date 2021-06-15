@@ -320,6 +320,8 @@ pub enum Response<'a> {
     },
 }
 
+/// Optional body to be passed into the [`Response::Reject`] if
+/// the handshake failed.
 #[derive(Debug, Clone, Copy)]
 pub enum Body<'a> {
     // Text body
