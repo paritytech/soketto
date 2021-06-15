@@ -56,4 +56,4 @@ These steps assume that you've checked out the Soketto repository and are in the
    git push --tags
    ```
 
-9. Merge the release branch back to develop so that we keep hold of any changes that we made there.
+9. Merge the release branch back to develop so that we keep track of any changes that we made there.
