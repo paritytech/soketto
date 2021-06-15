@@ -19,7 +19,7 @@ use crate::extension::Extension;
 use bytes::BytesMut;
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
-use std::{mem, str};
+use std::{fmt::Write, mem, str};
 
 // Most HTTP servers default to 8KB limit on headers
 const MAX_HEADERS_SIZE: usize = 8 * 1024;
@@ -238,7 +238,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                 );
                 self.buffer.extend_from_slice(b"\r\n\r\n")
             }
-            Response::Reject { status_code } => {
+            Response::Reject { status_code, body } => {
                 self.buffer.extend_from_slice(b"HTTP/1.1 ");
                 let (_, reason) =
                     if let Ok(i) = STATUSCODES.binary_search_by_key(status_code, |(n, _)| *n) {
@@ -247,7 +247,19 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                         (500, "500 Internal Server Error")
                     };
                 self.buffer.extend_from_slice(reason.as_bytes());
-                self.buffer.extend_from_slice(b"\r\n\r\n")
+                if let Some(body) = body {
+                    let (content_type, bytes) = body.type_and_bytes();
+
+                    self.buffer.extend_from_slice(b"\r\nContent-Type: ");
+                    self.buffer.extend_from_slice(content_type.as_bytes());
+                    self.buffer.extend_from_slice(b"\r\nContent-Length: ");
+                    write!(&mut self.buffer, "{}", bytes.len())
+                        .expect("Must be able to format integer into BytesMut; qed");
+                    self.buffer.extend_from_slice(b"\r\n\r\n");
+                    self.buffer.extend_from_slice(bytes);
+                } else {
+                    self.buffer.extend_from_slice(b"\r\n\r\n");
+                }
             }
         }
     }
@@ -302,7 +314,30 @@ pub enum Response<'a> {
         protocol: Option<&'a str>,
     },
     /// The server rejects the handshake request.
-    Reject { status_code: u16 },
+    Reject {
+        status_code: u16,
+        body: Option<Body<'a>>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Body<'a> {
+    // Text body
+    Text(&'a str),
+    // JSON body
+    Json(&'a str),
+    // Binary body
+    Binary(&'a [u8]),
+}
+
+impl<'a> Body<'a> {
+    fn type_and_bytes(self) -> (&'static str, &'a [u8]) {
+        match self {
+            Body::Text(text) => ("text/plain; charset=utf-8", text.as_bytes()),
+            Body::Json(json) => ("application/json; charset=utf-8", json.as_bytes()),
+            Body::Binary(bytes) => ("application/octet-stream", bytes),
+        }
+    }
 }
 
 /// Known status codes and their reason phrases.
