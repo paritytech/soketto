@@ -4,6 +4,13 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## 0.6.0
+
+- [changed] Expose the `Origin` headers from the client handshake on `ClientRequest` [#35](https://github.com/paritytech/soketto/pull/35)
+- [changed] Update handshake error to expose a couple of new variants (`IncompleteHttpRequest` and `SecWebSocketKeyInvalidLength`) [#35](https://github.com/paritytech/soketto/pull/35)
+- [added] Add `send_text_owned` method to `Sender` as an optimisation when you can pass an owned `String` in [#36](https://github.com/paritytech/soketto/pull/36)
+- [updated] Run rustfmt over the repository, and minor tidy up [#41](https://github.com/paritytech/soketto/pull/41)
+
 ## 0.5.0
 
 - Update examples to Tokio 1 [#27](https://github.com/paritytech/soketto/pull/27)
