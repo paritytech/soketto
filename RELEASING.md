@@ -33,9 +33,15 @@ These steps assume that you've checked out the Soketto repository and are in the
 
     You can also look through the commit history to find the code changes since the last release (eg `git log --pretty LAST_VERSION_TAG..HEAD`).
 
-6.  Commit any of the above changes to the release branch and open a PR in GitHub with a base of `master`.
+6.  Commit any of the above changes to the release branch and open a PR in GitHub with a base of `develop`.
 
-7.  Once the branch has been reviewed and passes CI, it can be merged to `master`.
+    **Note:** We'll change this to `master` prior to merging, but setting the initial base branch to `develop`
+    gives us an easier to review PR, and the code changes that would show up if it were set to `master` have
+    already been reviewed.
+
+7.  Once the branch has been reviewed and passes CI:
+    - **Change the base branch to `master`**
+    - Merge the PR to `master`.
 
 8.  Now, we're ready to publish the release to crates.io.
 
