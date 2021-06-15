@@ -23,7 +23,7 @@ These steps assume that you've checked out the Soketto repository and are in the
    ```
    cargo doc --open
    ```
- 
+
    It's probably a good idea to check for broken links in the documentation, which
    can be done using the third party tool `cargo-deadlinks`:
 
