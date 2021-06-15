@@ -29,10 +29,9 @@ These steps assume that you've checked out the Soketto repository and are in the
 5.  Update `CHANGELOG.md` to reflect the difference between this release and last. If you're unsure of
     what to add, check with the Tools team.
 
-    One way to gain some inspiration about what to write is by looking through the commit history since
-    the last version (eg `git log --pretty LAST_VERSION_TAG..HEAD`).
+    One way to gain some inspiration on what to write is to look at the [closed PRs](https://github.com/paritytech/soketto/pulls?q=is%3Apr+is%3Aclosed).
 
-    Alternately, look at the commit history: https://github.com/paritytech/soketto/commits/develop.
+    You can also look through the commit history to find the code changes since the last release (eg `git log --pretty LAST_VERSION_TAG..HEAD`).
 
 6.  Commit any of the above changes to the release branch and open a PR in GitHub with a base of `master`.
 
@@ -58,7 +57,7 @@ These steps assume that you've checked out the Soketto repository and are in the
     ```
     git tag v0.6.0 # use the version number you've just published to crates.io, not this one
     git push --tags
-   ```
+    ```
 
 10. Merge the `master` branch back to develop so that we keep track of any changes that we made on
     the release branch.
