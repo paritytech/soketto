@@ -9,23 +9,14 @@ These steps assume that you've checked out the Soketto repository and are in the
    based on the changes to date. If unsure what to bump the version to (eg is it a major, minor or patch 
    release), check with the Parity Tools team.
 
-2. Make sure that the tests pass.
-   
-   ```
-   cargo test
-   ```
-
-   If anything fails, it's likely worth fixing the failures in a PR and postponing the release. Minor 
-   issues can be fixed on this release branch.
-
 3. Check that you're happy with the current documentation.
    
    ```
    cargo doc --open
    ```
 
-   It's probably a good idea to check for broken links in the documentation, which
-   can be done using the third party tool `cargo-deadlinks`:
+   CI checks for broken internal links at the moment. Optionally you can also confirm that any external links
+   are still valid like so:
 
    ```
    cargo install cargo-deadlinks
