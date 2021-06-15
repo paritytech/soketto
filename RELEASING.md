@@ -66,7 +66,8 @@ These steps assume that you've checked out the Soketto repository and are in the
     ```
 
     Once this is pushed, go along to [the releases page on GitHub](https://github.com/paritytech/soketto/releases)
-    and draft a new release which points to the tag you just pushed to `master` above. Copy the changelog comments for the current release into the release description.
+    and draft a new release which points to the tag you just pushed to `master` above. Copy the changelog comments
+    for the current release into the release description.
 
 10. Merge the `master` branch back to develop so that we keep track of any changes that we made on
     the release branch.
