@@ -10,24 +10,16 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::{Buf, BytesMut};
-use crate::{Parsing, extension::Extension};
+use super::{
+    append_extensions, configure_extensions, expect_ascii_header, with_first_header, Error,
+    WebSocketKey, KEY, MAX_NUM_HEADERS, SEC_WEBSOCKET_EXTENSIONS, SEC_WEBSOCKET_PROTOCOL,
+};
 use crate::connection::{self, Mode};
+use crate::{extension::Extension, Parsing};
+use bytes::{Buf, BytesMut};
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
-use super::{
-    WebSocketKey,
-    Error,
-    KEY,
-    MAX_NUM_HEADERS,
-    SEC_WEBSOCKET_EXTENSIONS,
-    SEC_WEBSOCKET_PROTOCOL,
-    append_extensions,
-    configure_extensions,
-    expect_ascii_header,
-    with_first_header
-};
 
 const BLOCK_SIZE: usize = 8 * 1024;
 
@@ -49,7 +41,7 @@ pub struct Client<'a, T> {
     /// The extensions the client wishes to include in the request.
     extensions: Vec<Box<dyn Extension + Send>>,
     /// Encoding/decoding buffer.
-    buffer: BytesMut
+    buffer: BytesMut,
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
@@ -63,7 +55,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             nonce: [0; 24],
             protocols: Vec::new(),
             extensions: Vec::new(),
-            buffer: BytesMut::new()
+            buffer: BytesMut::new(),
         }
     }
 
@@ -113,7 +105,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             crate::read(&mut self.socket, &mut self.buffer, BLOCK_SIZE).await?;
             if let Parsing::Done { value, offset } = self.decode_response()? {
                 self.buffer.advance(offset);
-                return Ok(value)
+                return Ok(value);
             }
         }
     }
@@ -140,7 +132,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         self.buffer.extend_from_slice(b" HTTP/1.1");
         self.buffer.extend_from_slice(b"\r\nHost: ");
         self.buffer.extend_from_slice(self.host.as_bytes());
-        self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
+        self.buffer
+            .extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
         self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
         self.buffer.extend_from_slice(&self.nonce);
         if let Some(o) = &self.origin {
@@ -148,7 +141,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             self.buffer.extend_from_slice(o.as_bytes())
         }
         if let Some((last, prefix)) = self.protocols.split_last() {
-            self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
+            self.buffer
+                .extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
             for p in prefix {
                 self.buffer.extend_from_slice(p.as_bytes());
                 self.buffer.extend_from_slice(b",")
@@ -156,7 +150,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             self.buffer.extend_from_slice(last.as_bytes())
         }
         append_extensions(&self.extensions, &mut self.buffer);
-        self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Version: 13\r\n\r\n")
+        self.buffer
+            .extend_from_slice(b"\r\nSec-WebSocket-Version: 13\r\n\r\n")
     }
 
     /// Decode the server response to this client request.
@@ -167,25 +162,37 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         let offset = match response.parse(self.buffer.as_ref()) {
             Ok(httparse::Status::Complete(off)) => off,
             Ok(httparse::Status::Partial) => return Ok(Parsing::NeedMore(())),
-            Err(e) => return Err(Error::Http(Box::new(e)))
+            Err(e) => return Err(Error::Http(Box::new(e))),
         };
 
         if response.version != Some(1) {
-            return Err(Error::UnsupportedHttpVersion)
+            return Err(Error::UnsupportedHttpVersion);
         }
 
         match response.code {
             Some(101) => (),
-            Some(code@(301 ..= 303)) | Some(code@307) | Some(code@308) => { // redirect response
+            Some(code @ (301..=303)) | Some(code @ 307) | Some(code @ 308) => {
+                // redirect response
                 let location = with_first_header(response.headers, "Location", |loc| {
                     Ok(String::from(std::str::from_utf8(loc)?))
                 })?;
-                let response = ServerResponse::Redirect { status_code: code, location };
-                return Ok(Parsing::Done { value: response, offset })
+                let response = ServerResponse::Redirect {
+                    status_code: code,
+                    location,
+                };
+                return Ok(Parsing::Done {
+                    value: response,
+                    offset,
+                });
             }
             other => {
-                let response = ServerResponse::Rejected { status_code: other.unwrap_or(0) };
-                return Ok(Parsing::Done { value: response, offset })
+                let response = ServerResponse::Rejected {
+                    status_code: other.unwrap_or(0),
+                };
+                return Ok(Parsing::Done {
+                    value: response,
+                    offset,
+                });
             }
         }
 
@@ -198,14 +205,16 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
             digest.update(KEY);
             let ours = base64::encode(&digest.finalize());
             if ours.as_bytes() != theirs {
-                return Err(Error::InvalidSecWebSocketAccept)
+                return Err(Error::InvalidSecWebSocketAccept);
             }
             Ok(())
         })?;
 
         // Parse `Sec-WebSocket-Extensions` headers.
 
-        for h in response.headers.iter()
+        for h in response
+            .headers
+            .iter()
             .filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
         {
             configure_extensions(&mut self.extensions, std::str::from_utf8(h.value)?)?
@@ -214,18 +223,25 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
         // Match `Sec-WebSocket-Protocol` header.
 
         let mut selected_proto = None;
-        if let Some(tp) = response.headers.iter()
+        if let Some(tp) = response
+            .headers
+            .iter()
             .find(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_PROTOCOL))
         {
             if let Some(&p) = self.protocols.iter().find(|x| x.as_bytes() == tp.value) {
                 selected_proto = Some(String::from(p))
             } else {
-                return Err(Error::UnsolicitedProtocol)
+                return Err(Error::UnsolicitedProtocol);
             }
         }
 
-        let response = ServerResponse::Accepted { protocol: selected_proto };
-        Ok(Parsing::Done { value: response, offset })
+        let response = ServerResponse::Accepted {
+            protocol: selected_proto,
+        };
+        Ok(Parsing::Done {
+            value: response,
+            offset,
+        })
     }
 }
 
@@ -235,19 +251,18 @@ pub enum ServerResponse {
     /// The server has accepted our request.
     Accepted {
         /// The protocol (if any) the server has selected.
-        protocol: Option<String>
+        protocol: Option<String>,
     },
     /// The server is redirecting us to some other location.
     Redirect {
         /// The HTTP response status code.
         status_code: u16,
         /// The location URL we should go to.
-        location: String
+        location: String,
     },
     /// The server rejected our request.
     Rejected {
         /// HTTP response status code.
-        status_code: u16
-    }
+        status_code: u16,
+    },
 }
-

@@ -112,10 +112,10 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod connection;
 pub mod data;
 pub mod extension;
 pub mod handshake;
-pub mod connection;
 
 use bytes::BytesMut;
 use futures::io::{AsyncRead, AsyncReadExt};
@@ -134,10 +134,10 @@ pub enum Parsing<T, N = ()> {
         /// The parsed value.
         value: T,
         /// The offset into the byte slice that has been consumed.
-        offset: usize
+        offset: usize,
     },
     /// Parsing is incomplete and needs more data.
-    NeedMore(N)
+    NeedMore(N),
 }
 
 /// A buffer type used for implementing `Extension`s.
@@ -148,7 +148,7 @@ pub enum Storage<'a> {
     /// A mutable byte slice.
     Unique(&'a mut [u8]),
     /// An owned byte buffer.
-    Owned(Vec<u8>)
+    Owned(Vec<u8>),
 }
 
 impl AsRef<[u8]> for Storage<'_> {
@@ -156,7 +156,7 @@ impl AsRef<[u8]> for Storage<'_> {
         match self {
             Storage::Shared(d) => d,
             Storage::Unique(d) => d,
-            Storage::Owned(b) => b.as_ref()
+            Storage::Owned(b) => b.as_ref(),
         }
     }
 }
@@ -171,16 +171,15 @@ const fn as_u64(a: usize) -> u64 {
 /// Fill the buffer from the given `AsyncRead` impl with up to `max` bytes.
 async fn read<R>(reader: &mut R, dest: &mut BytesMut, max: usize) -> io::Result<()>
 where
-    R: AsyncRead + Unpin
+    R: AsyncRead + Unpin,
 {
     let i = dest.len();
     dest.resize(i + max, 0u8);
-    let n = reader.read(&mut dest[i ..]).await?;
+    let n = reader.read(&mut dest[i..]).await?;
     dest.truncate(i + n);
     if n == 0 {
-        return Err(io::ErrorKind::UnexpectedEof.into())
+        return Err(io::ErrorKind::UnexpectedEof.into());
     }
     log::trace!("read {} bytes", n);
     Ok(())
 }
-

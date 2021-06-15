@@ -13,12 +13,12 @@
 pub mod client;
 pub mod server;
 
+use crate::extension::{Extension, Param};
 use bytes::BytesMut;
-use crate::extension::{Param, Extension};
 use std::{fmt, io, str};
 
 pub use client::{Client, ServerResponse};
-pub use server::{Server, ClientRequest};
+pub use server::{ClientRequest, Server};
 
 // Defined in RFC 6455 and used to generate the `Sec-WebSocket-Accept` header
 // in the server handshake response.
@@ -34,38 +34,41 @@ const SEC_WEBSOCKET_PROTOCOL: &str = "Sec-WebSocket-Protocol";
 /// Check a set of headers contains a specific one.
 fn expect_ascii_header(headers: &[httparse::Header], name: &str, ours: &str) -> Result<(), Error> {
     enum State {
-        Init, // Start state
-        Name, // Header name found
-        Match // Header value matches
+        Init,  // Start state
+        Name,  // Header name found
+        Match, // Header value matches
     }
 
-    headers.iter()
+    headers
+        .iter()
         .filter(|h| h.name.eq_ignore_ascii_case(name))
         .fold(Ok(State::Init), |result, header| {
             if let Ok(State::Match) = result {
-                return result
+                return result;
             }
             if str::from_utf8(header.value)?
                 .split(',')
                 .any(|v| v.trim().eq_ignore_ascii_case(ours))
             {
-                return Ok(State::Match)
+                return Ok(State::Match);
             }
             Ok(State::Name)
         })
-        .and_then(|state| {
-            match state {
-                State::Init => Err(Error::HeaderNotFound(name.into())),
-                State::Name => Err(Error::UnexpectedHeader(name.into())),
-                State::Match => Ok(())
-            }
+        .and_then(|state| match state {
+            State::Init => Err(Error::HeaderNotFound(name.into())),
+            State::Name => Err(Error::UnexpectedHeader(name.into())),
+            State::Match => Ok(()),
         })
 }
 
 /// Pick the first header with the given name and apply the given closure to it.
-fn with_first_header<'a, F, R>(headers: &[httparse::Header<'a>], name: &str, f: F) -> Result<R, Error>
+fn with_first_header<'a, F, R>(
+    headers: &[httparse::Header<'a>],
+    name: &str,
+    f: F,
+) -> Result<R, Error>
 where
-    F: Fn(&'a [u8]) -> Result<R, Error>
+    F: Fn(&'a [u8]) -> Result<R, Error>,
 {
     if let Some(h) = headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)) {
         f(h.value)
@@ -75,12 +78,18 @@ where
 }
 
 // Configure all extensions with parsed parameters.
-fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str) -> Result<(), Error> {
+fn configure_extensions(
+    extensions: &mut [Box<dyn Extension + Send>],
+    line: &str,
+) -> Result<(), Error> {
     for e in line.split(',') {
         let mut ext_parts = e.split(';');
         if let Some(name) = ext_parts.next() {
             let name = name.trim();
-            if let Some(ext) = extensions.iter_mut().find(|x| x.name().eq_ignore_ascii_case(name)) {
+            if let Some(ext) = extensions
+                .iter_mut()
+                .find(|x| x.name().eq_ignore_ascii_case(name))
+            {
                 let mut params = Vec::new();
                 for p in ext_parts {
                     let mut key_value = p.split('=');
@@ -101,7 +110,7 @@ fn configure_extensions(extensions: &mut [Box<dyn Extension + Send>], line: &str
 // Write all extensions to the given buffer.
 fn append_extensions<'a, I>(extensions: I, bytes: &mut BytesMut)
 where
-    I: IntoIterator<Item = &'a Box<dyn Extension + Send>>
+    I: IntoIterator<Item = &'a Box<dyn Extension + Send>>,
 {
     let mut iter = extensions.into_iter().peekable();
 
@@ -154,38 +163,29 @@ pub enum Error {
     /// The HTTP entity could not be parsed successfully.
     Http(crate::BoxedError),
     /// UTF-8 decoding failed.
-    Utf8(str::Utf8Error)
+    Utf8(str::Utf8Error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Io(e) =>
-                write!(f, "i/o error: {}", e),
-            Error::UnsupportedHttpVersion =>
-                f.write_str("http version was not 1.1"),
-            Error::IncompleteHttpRequest =>
-                f.write_str("http request was incomplete"),
-            Error::SecWebSocketKeyInvalidLength(len) =>
-                write!(f, "Sec-WebSocket-Key header was {} bytes long, expected 24", len),
-            Error::InvalidRequestMethod =>
-                f.write_str("handshake was not a GET request"),
-            Error::HeaderNotFound(name) =>
-                write!(f, "header {} not found", name),
-            Error::UnexpectedHeader(name) =>
-                write!(f, "header {} had an unexpected value", name),
-            Error::InvalidSecWebSocketAccept =>
-                f.write_str("websocket key mismatch"),
-            Error::UnsolicitedExtension =>
-                f.write_str("unsolicited extension returned"),
-            Error::UnsolicitedProtocol =>
-                f.write_str("unsolicited protocol returned"),
-            Error::Extension(e) =>
-                write!(f, "extension error: {}", e),
-            Error::Http(e) =>
-                write!(f, "http parser error: {}", e),
-            Error::Utf8(e) =>
-                write!(f, "utf-8 decoding error: {}", e)
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::UnsupportedHttpVersion => f.write_str("http version was not 1.1"),
+            Error::IncompleteHttpRequest => f.write_str("http request was incomplete"),
+            Error::SecWebSocketKeyInvalidLength(len) => write!(
+                f,
+                "Sec-WebSocket-Key header was {} bytes long, expected 24",
+                len
+            ),
+            Error::InvalidRequestMethod => f.write_str("handshake was not a GET request"),
+            Error::HeaderNotFound(name) => write!(f, "header {} not found", name),
+            Error::UnexpectedHeader(name) => write!(f, "header {} had an unexpected value", name),
+            Error::InvalidSecWebSocketAccept => f.write_str("websocket key mismatch"),
+            Error::UnsolicitedExtension => f.write_str("unsolicited extension returned"),
+            Error::UnsolicitedProtocol => f.write_str("unsolicited protocol returned"),
+            Error::Extension(e) => write!(f, "extension error: {}", e),
+            Error::Http(e) => write!(f, "http parser error: {}", e),
+            Error::Utf8(e) => write!(f, "utf-8 decoding error: {}", e),
         }
     }
 }
@@ -205,8 +205,7 @@ impl std::error::Error for Error {
             | Error::UnexpectedHeader(_)
             | Error::InvalidSecWebSocketAccept
             | Error::UnsolicitedExtension
-            | Error::UnsolicitedProtocol
-            => None
+            | Error::UnsolicitedProtocol => None,
         }
     }
 }
@@ -243,12 +242,30 @@ mod tests {
     #[test]
     fn header_match() {
         let headers = &[
-            httparse::Header { name: "foo", value: b"a,b,c,d" },
-            httparse::Header { name: "foo", value: b"x" },
-            httparse::Header { name: "foo", value: b"y, z, a" },
-            httparse::Header { name: "bar", value: b"xxx" },
-            httparse::Header { name: "bar", value: b"sdfsdf 423 42 424" },
-            httparse::Header { name: "baz", value: b"123" }
+            httparse::Header {
+                name: "foo",
+                value: b"a,b,c,d",
+            },
+            httparse::Header {
+                name: "foo",
+                value: b"x",
+            },
+            httparse::Header {
+                name: "foo",
+                value: b"y, z, a",
+            },
+            httparse::Header {
+                name: "bar",
+                value: b"xxx",
+            },
+            httparse::Header {
+                name: "bar",
+                value: b"sdfsdf 423 42 424",
+            },
+            httparse::Header {
+                name: "baz",
+                value: b"123",
+            },
         ];
 
         assert!(expect_ascii_header(headers, "foo", "a").is_ok());

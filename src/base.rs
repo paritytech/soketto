@@ -62,7 +62,7 @@ pub enum OpCode {
     /// A reserved op code.
     Reserved14,
     /// A reserved op code.
-    Reserved15
+    Reserved15,
 }
 
 impl OpCode {
@@ -88,7 +88,7 @@ impl OpCode {
             | OpCode::Reserved13
             | OpCode::Reserved14
             | OpCode::Reserved15 => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -111,7 +111,7 @@ impl fmt::Display for OpCode {
             OpCode::Reserved12 => f.write_str("Reserved:12"),
             OpCode::Reserved13 => f.write_str("Reserved:13"),
             OpCode::Reserved14 => f.write_str("Reserved:14"),
-            OpCode::Reserved15 => f.write_str("Reserved:15")
+            OpCode::Reserved15 => f.write_str("Reserved:15"),
         }
     }
 }
@@ -150,7 +150,7 @@ impl TryFrom<u8> for OpCode {
             13 => Ok(OpCode::Reserved13),
             14 => Ok(OpCode::Reserved14),
             15 => Ok(OpCode::Reserved15),
-            _ => Err(UnknownOpCode(()))
+            _ => Err(UnknownOpCode(())),
         }
     }
 }
@@ -173,7 +173,7 @@ impl From<OpCode> for u8 {
             OpCode::Reserved12 => 12,
             OpCode::Reserved13 => 13,
             OpCode::Reserved14 => 14,
-            OpCode::Reserved15 => 15
+            OpCode::Reserved15 => 15,
         }
     }
 }
@@ -190,12 +190,14 @@ pub struct Header {
     masked: bool,
     opcode: OpCode,
     mask: u32,
-    payload_len: usize
+    payload_len: usize,
 }
 
 impl fmt::Display for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({} (fin {}) (rsv {}{}{}) (mask ({} {:x})) (len {}))",
+        write!(
+            f,
+            "({} (fin {}) (rsv {}{}{}) (mask ({} {:x})) (len {}))",
             self.opcode,
             self.fin as u8,
             self.rsv1 as u8,
@@ -203,7 +205,8 @@ impl fmt::Display for Header {
             self.rsv3 as u8,
             self.masked as u8,
             self.mask,
-            self.payload_len)
+            self.payload_len
+        )
     }
 }
 
@@ -218,7 +221,7 @@ impl Header {
             masked: false,
             opcode: oc,
             mask: 0,
-            payload_len: 0
+            payload_len: 0,
         }
     }
 
@@ -331,7 +334,7 @@ pub struct Codec {
     /// Bits reserved by an extension.
     reserved_bits: u8,
     /// Scratch buffer used during header encoding.
-    header_buffer: [u8; MAX_HEADER_SIZE]
+    header_buffer: [u8; MAX_HEADER_SIZE],
 }
 
 impl Default for Codec {
@@ -339,7 +342,7 @@ impl Default for Codec {
         Codec {
             max_data_size: 256 * 1024 * 1024,
             reserved_bits: 0,
-            header_buffer: [0; MAX_HEADER_SIZE]
+            header_buffer: [0; MAX_HEADER_SIZE],
         }
     }
 }
@@ -385,7 +388,7 @@ impl Codec {
     /// Decode a websocket frame header.
     pub fn decode_header(&self, bytes: &[u8]) -> Result<Parsing<Header, usize>, Error> {
         if bytes.len() < 2 {
-            return Ok(Parsing::NeedMore(2 - bytes.len()))
+            return Ok(Parsing::NeedMore(2 - bytes.len()));
         }
 
         let first = bytes[0];
@@ -396,11 +399,11 @@ impl Codec {
         let opcode = OpCode::try_from(first & 0xF)?;
 
         if opcode.is_reserved() {
-            return Err(Error::ReservedOpCode)
+            return Err(Error::ReservedOpCode);
         }
 
         if opcode.is_control() && !fin {
-            return Err(Error::FragmentedControl)
+            return Err(Error::FragmentedControl);
         }
 
         let mut header = Header::new(opcode);
@@ -408,19 +411,19 @@ impl Codec {
 
         let rsv1 = first & 0x40 != 0;
         if rsv1 && (self.reserved_bits & 4 == 0) {
-            return Err(Error::InvalidReservedBit(1))
+            return Err(Error::InvalidReservedBit(1));
         }
         header.set_rsv1(rsv1);
 
         let rsv2 = first & 0x20 != 0;
         if rsv2 && (self.reserved_bits & 2 == 0) {
-            return Err(Error::InvalidReservedBit(2))
+            return Err(Error::InvalidReservedBit(2));
         }
         header.set_rsv2(rsv2);
 
         let rsv3 = first & 0x10 != 0;
         if rsv3 && (self.reserved_bits & 1 == 0) {
-            return Err(Error::InvalidReservedBit(3))
+            return Err(Error::InvalidReservedBit(3));
         }
         header.set_rsv3(rsv3);
         header.set_masked(second & 0x80 != 0);
@@ -428,7 +431,7 @@ impl Codec {
         let len: u64 = match second & 0x7F {
             TWO_EXT => {
                 if bytes.len() < offset + 2 {
-                    return Ok(Parsing::NeedMore(offset + 2 - bytes.len()))
+                    return Ok(Parsing::NeedMore(offset + 2 - bytes.len()));
                 }
                 let len = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
                 offset += 2;
@@ -436,43 +439,45 @@ impl Codec {
             }
             EIGHT_EXT => {
                 if bytes.len() < offset + 8 {
-                    return Ok(Parsing::NeedMore(offset + 8 - bytes.len()))
+                    return Ok(Parsing::NeedMore(offset + 8 - bytes.len()));
                 }
                 let mut b = [0; 8];
-                b.copy_from_slice(&bytes[offset .. offset + 8]);
+                b.copy_from_slice(&bytes[offset..offset + 8]);
                 offset += 8;
                 u64::from_be_bytes(b)
             }
-            n => u64::from(n)
+            n => u64::from(n),
         };
 
         if len > MAX_CTRL_BODY_SIZE && header.opcode().is_control() {
-            return Err(Error::InvalidControlFrameLen)
+            return Err(Error::InvalidControlFrameLen);
         }
 
-        let len: usize =
-            if len > as_u64(self.max_data_size) {
-                return Err(Error::PayloadTooLarge {
-                    actual: len,
-                    maximum: as_u64(self.max_data_size)
-                })
-            } else {
-                len as usize
-            };
+        let len: usize = if len > as_u64(self.max_data_size) {
+            return Err(Error::PayloadTooLarge {
+                actual: len,
+                maximum: as_u64(self.max_data_size),
+            });
+        } else {
+            len as usize
+        };
 
         header.set_payload_len(len);
 
         if header.is_masked() {
             if bytes.len() < offset + 4 {
-                return Ok(Parsing::NeedMore(offset + 4 - bytes.len()))
+                return Ok(Parsing::NeedMore(offset + 4 - bytes.len()));
             }
             let mut b = [0; 4];
-            b.copy_from_slice(&bytes[offset .. offset + 4]);
+            b.copy_from_slice(&bytes[offset..offset + 4]);
             offset += 4;
             header.set_mask(u32::from_be_bytes(b));
         }
 
-        Ok(Parsing::Done { value: header, offset })
+        Ok(Parsing::Done {
+            value: header,
+            offset,
+        })
     }
 
     /// Encode a websocket frame header.
@@ -514,22 +519,22 @@ impl Codec {
             second_byte |= TWO_EXT;
             self.header_buffer[offset] = second_byte;
             offset += 1;
-            self.header_buffer[offset .. offset + 2].copy_from_slice(&(len as u16).to_be_bytes());
+            self.header_buffer[offset..offset + 2].copy_from_slice(&(len as u16).to_be_bytes());
             offset += 2;
         } else {
             second_byte |= EIGHT_EXT;
             self.header_buffer[offset] = second_byte;
             offset += 1;
-            self.header_buffer[offset .. offset + 8].copy_from_slice(&as_u64(len).to_be_bytes());
+            self.header_buffer[offset..offset + 8].copy_from_slice(&as_u64(len).to_be_bytes());
             offset += 8;
         }
 
         if header.is_masked() {
-            self.header_buffer[offset .. offset + 4].copy_from_slice(&header.mask().to_be_bytes());
+            self.header_buffer[offset..offset + 4].copy_from_slice(&header.mask().to_be_bytes());
             offset += 4;
         }
 
-        &self.header_buffer[.. offset]
+        &self.header_buffer[..offset]
     }
 
     /// Use the given header's mask and apply it to the data.
@@ -560,26 +565,23 @@ pub enum Error {
     /// The reserved bit is invalid.
     InvalidReservedBit(u8),
     /// The payload length of a frame exceeded the configured maximum.
-    PayloadTooLarge { actual: u64, maximum: u64 }
+    PayloadTooLarge { actual: u64, maximum: u64 },
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Io(e) =>
-                write!(f, "i/o error: {}", e),
-            Error::UnknownOpCode =>
-                f.write_str("unknown opcode"),
-            Error::ReservedOpCode =>
-                f.write_str("reserved opcode"),
-            Error::FragmentedControl =>
-                f.write_str("fragmented control frame"),
-            Error::InvalidControlFrameLen =>
-                f.write_str("invalid control frame length"),
-            Error::InvalidReservedBit(n) =>
-                write!(f, "invalid reserved bit: {}", n),
-            Error::PayloadTooLarge { actual, maximum } =>
-                write!(f, "payload too large: len = {}, maximum = {}", actual, maximum)
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::UnknownOpCode => f.write_str("unknown opcode"),
+            Error::ReservedOpCode => f.write_str("reserved opcode"),
+            Error::FragmentedControl => f.write_str("fragmented control frame"),
+            Error::InvalidControlFrameLen => f.write_str("invalid control frame length"),
+            Error::InvalidReservedBit(n) => write!(f, "invalid reserved bit: {}", n),
+            Error::PayloadTooLarge { actual, maximum } => write!(
+                f,
+                "payload too large: len = {}, maximum = {}",
+                actual, maximum
+            ),
         }
     }
 }
@@ -593,8 +595,7 @@ impl std::error::Error for Error {
             | Error::FragmentedControl
             | Error::InvalidControlFrameLen
             | Error::InvalidReservedBit(_)
-            | Error::PayloadTooLarge {..}
-            => None
+            | Error::PayloadTooLarge { .. } => None,
         }
     }
 }
@@ -611,14 +612,13 @@ impl From<UnknownOpCode> for Error {
     }
 }
 
-
 // Tests //////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
+    use super::{Codec, Error, OpCode};
     use crate::Parsing;
     use quickcheck::QuickCheck;
-    use super::{OpCode, Codec, Error};
 
     #[test]
     fn decode_partial_header() {
@@ -665,7 +665,7 @@ mod test {
     #[test]
     fn decode_invalid_control_payload_len() {
         // Payload on control frame must be 125 bytes or less. 2nd byte must be 0xFD or less.
-        let ctrl_payload_len : &[u8] = &[0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let ctrl_payload_len: &[u8] = &[0x89, 0xFE, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         assert!(matches! {
             Codec::new().decode_header(ctrl_payload_len),
             Err(Error::InvalidControlFrameLen)
@@ -742,4 +742,3 @@ mod test {
         QuickCheck::new().quickcheck(property as fn((bool, bool, bool)) -> bool)
     }
 }
-

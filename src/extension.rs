@@ -14,7 +14,7 @@
 #[cfg(feature = "deflate")]
 pub mod deflate;
 
-use crate::{BoxedError, Storage, base::Header};
+use crate::{base::Header, BoxedError, Storage};
 use std::{borrow::Cow, fmt};
 
 /// A websocket extension as per RFC 6455, section 9.
@@ -108,7 +108,7 @@ impl<E: Extension + ?Sized> Extension for Box<E> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param<'a> {
     name: Cow<'a, str>,
-    value: Option<Cow<'a, str>>
+    value: Option<Cow<'a, str>>,
 }
 
 impl<'a> fmt::Display for Param<'a> {
@@ -123,10 +123,10 @@ impl<'a> fmt::Display for Param<'a> {
 
 impl<'a> Param<'a> {
     /// Create a new parameter with the given name.
-    pub fn new(name: impl Into<Cow<'a, str>>) -> Self{
+    pub fn new(name: impl Into<Cow<'a, str>>) -> Self {
         Param {
             name: name.into(),
-            value: None
+            value: None,
         }
     }
 
@@ -150,8 +150,7 @@ impl<'a> Param<'a> {
     pub fn acquire(self) -> Param<'static> {
         Param {
             name: Cow::Owned(self.name.into_owned()),
-            value: self.value.map(|v| Cow::Owned(v.into_owned()))
+            value: self.value.map(|v| Cow::Owned(v.into_owned())),
         }
     }
 }
-

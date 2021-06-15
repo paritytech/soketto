@@ -26,12 +26,20 @@ pub enum Incoming<'a> {
 impl Incoming<'_> {
     /// Is this text or binary data?
     pub fn is_data(&self) -> bool {
-        if let Incoming::Data(_) = self { true } else { false }
+        if let Incoming::Data(_) = self {
+            true
+        } else {
+            false
+        }
     }
 
     /// Is this a PONG?
     pub fn is_pong(&self) -> bool {
-        if let Incoming::Pong(_) = self { true } else { false }
+        if let Incoming::Pong(_) = self {
+            true
+        } else {
+            false
+        }
     }
 
     /// Is this text data?
@@ -58,25 +66,33 @@ pub enum Data {
     /// Textual data (number of bytes).
     Text(usize),
     /// Binary data (number of bytes).
-    Binary(usize)
+    Binary(usize),
 }
 
 impl Data {
     /// Is this text data?
     pub fn is_text(&self) -> bool {
-        if let Data::Text(_) = self { true } else { false }
+        if let Data::Text(_) = self {
+            true
+        } else {
+            false
+        }
     }
 
     /// Is this binary data?
     pub fn is_binary(&self) -> bool {
-        if let Data::Binary(_) = self { true } else { false }
+        if let Data::Binary(_) = self {
+            true
+        } else {
+            false
+        }
     }
 
     /// The length of data (number of bytes).
     pub fn len(&self) -> usize {
         match self {
             Data::Text(n) => *n,
-            Data::Binary(n) => *n
+            Data::Binary(n) => *n,
         }
     }
 }

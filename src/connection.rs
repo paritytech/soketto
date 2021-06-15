@@ -9,10 +9,18 @@
 //! A persistent websocket connection after the handshake phase, represented
 //! as a [`Sender`] and [`Receiver`] pair.
 
-use bytes::{Buf, BytesMut};
-use crate::{Storage, Parsing, base::{self, Header, MAX_HEADER_SIZE, OpCode}, extension::Extension};
 use crate::data::{ByteSlice125, Data, Incoming};
-use futures::{io::{ReadHalf, WriteHalf}, lock::BiLock, prelude::*};
+use crate::{
+    base::{self, Header, OpCode, MAX_HEADER_SIZE},
+    extension::Extension,
+    Parsing, Storage,
+};
+use bytes::{Buf, BytesMut};
+use futures::{
+    io::{ReadHalf, WriteHalf},
+    lock::BiLock,
+    prelude::*,
+};
 use std::{fmt, io, str};
 
 /// Accumulated max. size of a complete message.
@@ -27,7 +35,7 @@ pub enum Mode {
     /// Client-side of a connection (implies masking of payload data).
     Client,
     /// Server-side of a connection.
-    Server
+    Server,
 }
 
 impl Mode {
@@ -63,7 +71,7 @@ pub struct Sender<T> {
     writer: BiLock<WriteHalf<T>>,
     mask_buffer: Vec<u8>,
     extensions: BiLock<Vec<Box<dyn Extension + Send>>>,
-    has_extensions: bool
+    has_extensions: bool,
 }
 
 /// The receiving half of a connection.
@@ -79,7 +87,7 @@ pub struct Receiver<T> {
     buffer: BytesMut,
     ctrl_buffer: BytesMut,
     max_message_size: usize,
-    is_closed: bool
+    is_closed: bool,
 }
 
 /// A connection builder.
@@ -95,7 +103,7 @@ pub struct Builder<T> {
     codec: base::Codec,
     extensions: Vec<Box<dyn Extension + Send>>,
     buffer: BytesMut,
-    max_message_size: usize
+    max_message_size: usize,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
@@ -117,7 +125,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             codec,
             extensions: Vec::new(),
             buffer: BytesMut::new(),
-            max_message_size: MAX_MESSAGE_SIZE
+            max_message_size: MAX_MESSAGE_SIZE,
         }
     }
 
@@ -131,7 +139,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
     /// Only enabled extensions will be considered.
     pub fn add_extensions<I>(&mut self, extensions: I)
     where
-        I: IntoIterator<Item = Box<dyn Extension + Send>>
+        I: IntoIterator<Item = Box<dyn Extension + Send>>,
     {
         for e in extensions.into_iter().filter(|e| e.is_enabled()) {
             log::debug!("{}: using extension: {}", self.id, e.name());
@@ -173,7 +181,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             buffer: self.buffer,
             ctrl_buffer: BytesMut::new(),
             max_message_size: self.max_message_size,
-            is_closed: false
+            is_closed: false,
         };
 
         let send = Sender {
@@ -183,7 +191,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
             mask_buffer: Vec::new(),
             codec: self.codec,
             extensions: ext2,
-            has_extensions
+            has_extensions,
         };
 
         (send, recv)
@@ -235,7 +243,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             // Check if total message does not exceed maximum.
             if length > self.max_message_size {
                 log::warn!("{}: accumulated message length exceeds maximum", self.id);
-                return Err(Error::MessageTooLarge { current: length, maximum: self.max_message_size })
+                return Err(Error::MessageTooLarge {
+                    current: length,
+                    maximum: self.max_message_size,
+                });
             }
 
             // Get the frame's payload data bytes from buffer or socket.
@@ -261,46 +272,66 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if bytes_to_read > 0 {
                     let n = message.len();
                     message.resize(n + bytes_to_read, 0u8);
-                    self.reader.read_exact(&mut message[n ..]).await?
+                    self.reader.read_exact(&mut message[n..]).await?
                 }
 
                 debug_assert_eq!(header.payload_len(), message.len() - old_msg_len);
 
-                base::Codec::apply_mask(&header, &mut message[old_msg_len ..]);
+                base::Codec::apply_mask(&header, &mut message[old_msg_len..]);
             }
 
             match (header.is_fin(), header.opcode()) {
-                (false, OpCode::Continue) => { // Intermediate message fragment.
+                (false, OpCode::Continue) => {
+                    // Intermediate message fragment.
                     if first_fragment_opcode.is_none() {
-                        log::debug!("{}: continue frame while not processing message fragments", self.id);
-                        return Err(Error::UnexpectedOpCode(OpCode::Continue))
+                        log::debug!(
+                            "{}: continue frame while not processing message fragments",
+                            self.id
+                        );
+                        return Err(Error::UnexpectedOpCode(OpCode::Continue));
                     }
-                    continue
+                    continue;
                 }
-                (false, oc) => { // Initial message fragment.
+                (false, oc) => {
+                    // Initial message fragment.
                     if first_fragment_opcode.is_some() {
-                        log::debug!("{}: initial fragment while processing a fragmented message", self.id);
-                        return Err(Error::UnexpectedOpCode(oc))
+                        log::debug!(
+                            "{}: initial fragment while processing a fragmented message",
+                            self.id
+                        );
+                        return Err(Error::UnexpectedOpCode(oc));
                     }
                     first_fragment_opcode = Some(oc);
                     self.decode_with_extensions(&mut header, message).await?;
-                    continue
+                    continue;
                 }
-                (true, OpCode::Continue) => { // Last message fragment.
+                (true, OpCode::Continue) => {
+                    // Last message fragment.
                     if let Some(oc) = first_fragment_opcode.take() {
                         header.set_payload_len(message.len());
-                        log::trace!("{}: last fragment: total length = {} bytes", self.id, message.len());
+                        log::trace!(
+                            "{}: last fragment: total length = {} bytes",
+                            self.id,
+                            message.len()
+                        );
                         self.decode_with_extensions(&mut header, message).await?;
                         header.set_opcode(oc);
                     } else {
-                        log::debug!("{}: last continue frame while not processing message fragments", self.id);
-                        return Err(Error::UnexpectedOpCode(OpCode::Continue))
+                        log::debug!(
+                            "{}: last continue frame while not processing message fragments",
+                            self.id
+                        );
+                        return Err(Error::UnexpectedOpCode(OpCode::Continue));
                     }
                 }
-                (true, oc) => { // Regular non-fragmented message.
+                (true, oc) => {
+                    // Regular non-fragmented message.
                     if first_fragment_opcode.is_some() {
-                        log::debug!("{}: regular message while processing fragmented message", self.id);
-                        return Err(Error::UnexpectedOpCode(oc))
+                        log::debug!(
+                            "{}: regular message while processing fragmented message",
+                            self.id
+                        );
+                        return Err(Error::UnexpectedOpCode(oc));
                     }
                     self.decode_with_extensions(&mut header, message).await?
                 }
@@ -309,9 +340,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             let num_bytes = message.len() - message_len;
 
             if header.opcode() == OpCode::Text {
-                return Ok(Incoming::Data(Data::Text(num_bytes)))
+                return Ok(Incoming::Data(Data::Text(num_bytes)));
             } else {
-                return Ok(Incoming::Data(Data::Binary(num_bytes)))
+                return Ok(Incoming::Data(Data::Binary(num_bytes)));
             }
         }
     }
@@ -320,7 +351,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     pub async fn receive_data(&mut self, message: &mut Vec<u8>) -> Result<Data, Error> {
         loop {
             if let Incoming::Data(d) = self.receive(message).await? {
-                return Ok(d)
+                return Ok(d);
             }
         }
     }
@@ -329,14 +360,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     async fn receive_header(&mut self) -> Result<Header, Error> {
         loop {
             match self.codec.decode_header(&self.buffer)? {
-                Parsing::Done { value: header, offset } => {
+                Parsing::Done {
+                    value: header,
+                    offset,
+                } => {
                     debug_assert!(offset <= MAX_HEADER_SIZE);
                     self.buffer.advance(offset);
-                    return Ok(header)
+                    return Ok(header);
                 }
-                Parsing::NeedMore(n) => {
-                    crate::read(&mut self.reader, &mut self.buffer, n).await?
-                }
+                Parsing::NeedMore(n) => crate::read(&mut self.reader, &mut self.buffer, n).await?,
             }
         }
     }
@@ -344,12 +376,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     /// Read the complete payload data into the read buffer.
     async fn read_buffer(&mut self, header: &Header) -> Result<(), Error> {
         if header.payload_len() <= self.buffer.len() {
-            return Ok(())
+            return Ok(());
         }
         let i = self.buffer.len();
         let d = header.payload_len() - i;
         self.buffer.resize(i + d, 0u8);
-        self.reader.read_exact(&mut self.buffer[i ..]).await?;
+        self.reader.read_exact(&mut self.buffer[i..]).await?;
         Ok(())
     }
 
@@ -364,7 +396,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 let mut answer = Header::new(OpCode::Pong);
                 let mut unused = Vec::new();
                 let mut data = Storage::Unique(&mut self.ctrl_buffer);
-                write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut answer, &mut data, &mut unused).await?;
+                write(
+                    self.id,
+                    self.mode,
+                    &mut self.codec,
+                    &mut self.writer,
+                    &mut answer,
+                    &mut data,
+                    &mut unused,
+                )
+                .await?;
                 self.flush().await?;
                 Ok(None)
             }
@@ -378,10 +419,28 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
                 if let Some(CloseReason { code, .. }) = reason {
                     let mut data = code.to_be_bytes();
                     let mut data = Storage::Unique(&mut data);
-                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
+                    let _ = write(
+                        self.id,
+                        self.mode,
+                        &mut self.codec,
+                        &mut self.writer,
+                        &mut header,
+                        &mut data,
+                        &mut unused,
+                    )
+                    .await;
                 } else {
                     let mut data = Storage::Unique(&mut []);
-                    let _ = write(self.id, self.mode, &mut self.codec, &mut self.writer, &mut header, &mut data, &mut unused).await;
+                    let _ = write(
+                        self.id,
+                        self.mode,
+                        &mut self.codec,
+                        &mut self.writer,
+                        &mut header,
+                        &mut data,
+                        &mut unused,
+                    )
+                    .await;
                 }
                 self.flush().await?;
                 self.writer.lock().await.close().await?;
@@ -399,14 +458,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
             | OpCode::Reserved12
             | OpCode::Reserved13
             | OpCode::Reserved14
-            | OpCode::Reserved15 => Err(Error::UnexpectedOpCode(header.opcode()))
+            | OpCode::Reserved15 => Err(Error::UnexpectedOpCode(header.opcode())),
         }
     }
 
     /// Apply all extensions to the given header and the internal message buffer.
-    async fn decode_with_extensions(&mut self, header: &mut Header, message: &mut Vec<u8>) -> Result<(), Error> {
+    async fn decode_with_extensions(
+        &mut self,
+        header: &mut Header,
+        message: &mut Vec<u8>,
+    ) -> Result<(), Error> {
         if !self.has_extensions {
-            return Ok(())
+            return Ok(());
         }
         for e in self.extensions.lock().await.iter_mut() {
             log::trace!("{}: decoding with extension: {}", self.id, e.name());
@@ -419,9 +482,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
     async fn flush(&mut self) -> Result<(), Error> {
         log::trace!("{}: Receiver flushing connection", self.id);
         if self.is_closed {
-            return Ok(())
+            return Ok(());
         }
-        self.writer.lock().await.flush().await.or(Err(Error::Closed))
+        self.writer
+            .lock()
+            .await
+            .flush()
+            .await
+            .or(Err(Error::Closed))
     }
 }
 
@@ -429,7 +497,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// Send a text value over the websocket connection.
     pub async fn send_text(&mut self, data: impl AsRef<str>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Text);
-        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes())).await
+        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref().as_bytes()))
+            .await
     }
 
     /// Send a text value over the websocket connection.
@@ -437,13 +506,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// This method performs one copy fewer than [`Sender::send_text`].
     pub async fn send_text_owned(&mut self, data: String) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Text);
-        self.send_frame(&mut header, &mut Storage::Owned(data.into_bytes())).await
+        self.send_frame(&mut header, &mut Storage::Owned(data.into_bytes()))
+            .await
     }
 
     /// Send some binary data over the websocket connection.
     pub async fn send_binary(&mut self, data: impl AsRef<[u8]>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Binary);
-        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.send_frame(&mut header, &mut Storage::Shared(data.as_ref()))
+            .await
     }
 
     /// Send some binary data over the websocket connection.
@@ -452,25 +523,33 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// The `data` buffer may be modified by this method, e.g. if masking is necessary.
     pub async fn send_binary_mut(&mut self, mut data: impl AsMut<[u8]>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Binary);
-        self.send_frame(&mut header, &mut Storage::Unique(data.as_mut())).await
+        self.send_frame(&mut header, &mut Storage::Unique(data.as_mut()))
+            .await
     }
 
     /// Ping the remote end.
     pub async fn send_ping(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Ping);
-        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref()))
+            .await
     }
 
     /// Send an unsolicited Pong to the remote.
     pub async fn send_pong(&mut self, data: ByteSlice125<'_>) -> Result<(), Error> {
         let mut header = Header::new(OpCode::Pong);
-        self.write(&mut header, &mut Storage::Shared(data.as_ref())).await
+        self.write(&mut header, &mut Storage::Shared(data.as_ref()))
+            .await
     }
 
     /// Flush the socket buffer.
     pub async fn flush(&mut self) -> Result<(), Error> {
         log::trace!("{}: Sender flushing connection", self.id);
-        self.writer.lock().await.flush().await.or(Err(Error::Closed))
+        self.writer
+            .lock()
+            .await
+            .flush()
+            .await
+            .or(Err(Error::Closed))
     }
 
     /// Send a close message and close the connection.
@@ -478,17 +557,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
         log::trace!("{}: closing connection", self.id);
         let mut header = Header::new(OpCode::Close);
         let code = 1000_u16.to_be_bytes(); // 1000 = normal closure
-        self.write(&mut header, &mut Storage::Shared(&code[..])).await?;
+        self.write(&mut header, &mut Storage::Shared(&code[..]))
+            .await?;
         self.flush().await?;
-        self.writer.lock().await.close().await.or(Err(Error::Closed))
+        self.writer
+            .lock()
+            .await
+            .close()
+            .await
+            .or(Err(Error::Closed))
     }
 
     /// Send arbitrary websocket frames.
     ///
     /// Before sending, extensions will be applied to header and payload data.
-    async fn send_frame(&mut self, header: &mut Header, data: &mut Storage<'_>) -> Result<(), Error> {
+    async fn send_frame(
+        &mut self,
+        header: &mut Header,
+        data: &mut Storage<'_>,
+    ) -> Result<(), Error> {
         if !self.has_extensions {
-            return self.write(header, data).await
+            return self.write(header, data).await;
         }
 
         for e in self.extensions.lock().await.iter_mut() {
@@ -504,21 +593,29 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Sender<T> {
     /// The data will be masked if necessary.
     /// No extensions will be applied to header and payload data.
     async fn write(&mut self, header: &mut Header, data: &mut Storage<'_>) -> Result<(), Error> {
-        write(self.id, self.mode, &mut self.codec, &mut self.writer, header, data, &mut self.mask_buffer).await
+        write(
+            self.id,
+            self.mode,
+            &mut self.codec,
+            &mut self.writer,
+            header,
+            data,
+            &mut self.mask_buffer,
+        )
+        .await
     }
 }
 
 /// Write header and payload data to socket.
-async fn write<T: AsyncWrite + Unpin>
-    ( id: Id
-    , mode: Mode
-    , codec: &mut base::Codec
-    , writer: &mut BiLock<WriteHalf<T>>
-    , header: &mut Header
-    , data: &mut Storage<'_>
-    , mask_buffer: &mut Vec<u8>
-    ) -> Result<(), Error>
-{
+async fn write<T: AsyncWrite + Unpin>(
+    id: Id,
+    mode: Mode,
+    codec: &mut base::Codec,
+    writer: &mut BiLock<WriteHalf<T>>,
+    header: &mut Header,
+    data: &mut Storage<'_>,
+    mask_buffer: &mut Vec<u8>,
+) -> Result<(), Error> {
     if mode.is_client() {
         header.set_masked(true);
         header.set_mask(rand::random());
@@ -532,7 +629,7 @@ async fn write<T: AsyncWrite + Unpin>
     w.write_all(&header_bytes).await.or(Err(Error::Closed))?;
 
     if !header.is_masked() {
-        return w.write_all(data.as_ref()).await.or(Err(Error::Closed))
+        return w.write_all(data.as_ref()).await.or(Err(Error::Closed));
     }
 
     match data {
@@ -563,7 +660,10 @@ fn close_answer(data: &[u8]) -> Result<(Header, Option<CloseReason>), Error> {
     // Check that the reason string is properly encoded
     let descr = std::str::from_utf8(&data[2..])?.into();
     let code = u16::from_be_bytes([data[0], data[1]]);
-    let reason = CloseReason { code, descr: Some(descr) };
+    let reason = CloseReason {
+        code,
+        descr: Some(descr),
+    };
 
     // Status codes are defined in
     // https://tools.ietf.org/html/rfc6455#section-7.4.1 and
@@ -612,19 +712,17 @@ pub struct CloseReason {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Io(e) =>
-                write!(f, "i/o error: {}", e),
-            Error::Codec(e) =>
-                write!(f, "codec error: {}", e),
-            Error::Extension(e) =>
-                write!(f, "extension error: {}", e),
-            Error::UnexpectedOpCode(c) =>
-                write!(f, "unexpected opcode: {}", c),
-            Error::Utf8(e) =>
-                write!(f, "utf-8 error: {}", e),
-            Error::MessageTooLarge { current, maximum } =>
-                write!(f, "message too large: len >= {}, maximum = {}", current, maximum),
-            Error::Closed => f.write_str("connection closed")
+            Error::Io(e) => write!(f, "i/o error: {}", e),
+            Error::Codec(e) => write!(f, "codec error: {}", e),
+            Error::Extension(e) => write!(f, "extension error: {}", e),
+            Error::UnexpectedOpCode(c) => write!(f, "unexpected opcode: {}", c),
+            Error::Utf8(e) => write!(f, "utf-8 error: {}", e),
+            Error::MessageTooLarge { current, maximum } => write!(
+                f,
+                "message too large: len >= {}, maximum = {}",
+                current, maximum
+            ),
+            Error::Closed => f.write_str("connection closed"),
         }
     }
 }
@@ -636,10 +734,7 @@ impl std::error::Error for Error {
             Error::Codec(e) => Some(e),
             Error::Extension(e) => Some(&**e),
             Error::Utf8(e) => Some(e),
-            Error::UnexpectedOpCode(_)
-            | Error::MessageTooLarge {..}
-            | Error::Closed
-            => None
+            Error::UnexpectedOpCode(_) | Error::MessageTooLarge { .. } | Error::Closed => None,
         }
     }
 }

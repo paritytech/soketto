@@ -10,24 +10,16 @@
 //!
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
-use bytes::BytesMut;
-use crate::extension::Extension;
+use super::{
+    append_extensions, configure_extensions, expect_ascii_header, with_first_header, Error,
+    WebSocketKey, KEY, MAX_NUM_HEADERS, SEC_WEBSOCKET_EXTENSIONS, SEC_WEBSOCKET_PROTOCOL,
+};
 use crate::connection::{self, Mode};
+use crate::extension::Extension;
+use bytes::BytesMut;
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
-use super::{
-    WebSocketKey,
-    Error,
-    KEY,
-    MAX_NUM_HEADERS,
-    SEC_WEBSOCKET_EXTENSIONS,
-    SEC_WEBSOCKET_PROTOCOL,
-    append_extensions,
-    configure_extensions,
-    expect_ascii_header,
-    with_first_header
-};
 
 // Most HTTP servers default to 8KB limit on headers
 const MAX_HEADERS_SIZE: usize = 8 * 1024;
@@ -42,7 +34,7 @@ pub struct Server<'a, T> {
     /// Extensions the server supports.
     extensions: Vec<Box<dyn Extension + Send>>,
     /// Encoding/decoding buffer.
-    buffer: BytesMut
+    buffer: BytesMut,
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
@@ -52,7 +44,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             socket,
             protocols: Vec::new(),
             extensions: Vec::new(),
-            buffer: BytesMut::new()
+            buffer: BytesMut::new(),
         }
     }
 
@@ -97,7 +89,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
             // We don't expect body, so can search for the CRLF headers tail from
             // the end of the buffer.
-            if self.buffer[skip..limit].windows(4).rev().any(|w| w == b"\r\n\r\n") {
+            if self.buffer[skip..limit]
+                .windows(4)
+                .rev()
+                .any(|w| w == b"\r\n\r\n")
+            {
                 break;
             }
 
@@ -147,13 +143,13 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
         match request.parse(self.buffer.as_ref()) {
             Ok(httparse::Status::Complete(_)) => (),
             Ok(httparse::Status::Partial) => return Err(Error::IncompleteHttpRequest),
-            Err(e) => return Err(Error::Http(Box::new(e)))
+            Err(e) => return Err(Error::Http(Box::new(e))),
         };
         if request.method != Some("GET") {
-            return Err(Error::InvalidRequestMethod)
+            return Err(Error::InvalidRequestMethod);
         }
         if request.version != Some(1) {
-            return Err(Error::UnsupportedHttpVersion)
+            return Err(Error::UnsupportedHttpVersion);
         }
 
         let host = with_first_header(&request.headers, "Host", Ok)?;
@@ -177,14 +173,18 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
             WebSocketKey::try_from(k).map_err(|_| Error::SecWebSocketKeyInvalidLength(k.len()))
         })?;
 
-        for h in request.headers.iter()
+        for h in request
+            .headers
+            .iter()
             .filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
         {
             configure_extensions(&mut self.extensions, std::str::from_utf8(h.value)?)?
         }
 
         let mut protocols = Vec::new();
-        for p in request.headers.iter()
+        for p in request
+            .headers
+            .iter()
             .filter(|h| h.name.eq_ignore_ascii_case(SEC_WEBSOCKET_PROTOCOL))
         {
             if let Some(&p) = self.protocols.iter().find(|x| x.as_bytes() == p.value) {
@@ -194,7 +194,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 
         let path = request.path.unwrap_or("/");
 
-        Ok(ClientRequest { ws_key, protocols, path, headers })
+        Ok(ClientRequest {
+            ws_key,
+            protocols,
+            path,
+            headers,
+        })
     }
 
     // Encode server handshake response.
@@ -208,21 +213,29 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
                     digest.update(KEY);
                     let d = digest.finalize();
                     let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
-                    &key_buf[.. n]
+                    &key_buf[..n]
                 };
-                self.buffer.extend_from_slice(concat![
-                    "HTTP/1.1 101 Switching Protocols",
-                    "\r\nServer: soketto-", env!("CARGO_PKG_VERSION"),
-                    "\r\nUpgrade: websocket",
-                    "\r\nConnection: upgrade",
-                    "\r\nSec-WebSocket-Accept: ",
-                ].as_bytes());
+                self.buffer.extend_from_slice(
+                    concat![
+                        "HTTP/1.1 101 Switching Protocols",
+                        "\r\nServer: soketto-",
+                        env!("CARGO_PKG_VERSION"),
+                        "\r\nUpgrade: websocket",
+                        "\r\nConnection: upgrade",
+                        "\r\nSec-WebSocket-Accept: ",
+                    ]
+                    .as_bytes(),
+                );
                 self.buffer.extend_from_slice(accept_value);
                 if let Some(p) = protocol {
-                    self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
+                    self.buffer
+                        .extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
                     self.buffer.extend_from_slice(p.as_bytes())
                 }
-                append_extensions(self.extensions.iter().filter(|e| e.is_enabled()), &mut self.buffer);
+                append_extensions(
+                    self.extensions.iter().filter(|e| e.is_enabled()),
+                    &mut self.buffer,
+                );
                 self.buffer.extend_from_slice(b"\r\n\r\n")
             }
             Response::Reject { status_code } => {
@@ -286,12 +299,10 @@ pub enum Response<'a> {
     /// The server accepts the handshake request.
     Accept {
         key: WebSocketKey,
-        protocol: Option<&'a str>
+        protocol: Option<&'a str>,
     },
     /// The server rejects the handshake request.
-    Reject {
-        status_code: u16
-    }
+    Reject { status_code: u16 },
 }
 
 /// Known status codes and their reason phrases.
@@ -355,5 +366,5 @@ const STATUSCODES: &[(u16, &str)] = &[
     (507, "507 Insufficient Storage"),
     (508, "508 Loop Detected"),
     (510, "510 Not Extended"),
-    (511, "511 Network Authentication Required")
+    (511, "511 Network Authentication Required"),
 ];
