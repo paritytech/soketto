@@ -4,9 +4,8 @@ These steps assume that you've checked out the Soketto repository and are in the
 
 1. Ensure that everything you'd like to see released is on the `develop` branch.
 
-2. Create a release branch off `develop`, for example `release-v0.6.0`. The branch name should start with `release`
-   in order that we can target commits with CI. You'll want to decide how far the version needs to be bumped 
-   based on the changes to date. If unsure what to bump the version to (eg is it a major, minor or patch 
+2. Create a release branch off `develop`, for example `release-v0.6.0`. The branch name should start with `release` so that we can target commits with CI. Decide how far the version needs to be bumped 
+   based on the changes to date. If unsure what to bump the version to (e.g. is it a major, minor or patch 
    release), check with the Parity Tools team.
 
 3. Check that you're happy with the current documentation.
