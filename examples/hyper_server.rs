@@ -14,24 +14,23 @@
 // https://github.com/de-vri-es/hyper-tungstenite-rs.
 
 use futures::io::{BufReader, BufWriter};
-use hyper::{Request, Response, Body};
-use soketto::{ handshake, BoxedError };
-use tokio_util::compat::{TokioAsyncReadCompatExt};
+use hyper::{Body, Request, Response};
+use soketto::{handshake, BoxedError};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 /// Start up a hyper server.
 #[tokio::main]
 async fn main() -> Result<(), BoxedError> {
-    let addr = ([127, 0, 0, 1], 3000).into();
+	let addr = ([127, 0, 0, 1], 3000).into();
 
-    let service = hyper::service::make_service_fn(|_| async {
-		Ok::<_, hyper::Error>(hyper::service::service_fn(handler))
-	});
-    let server = hyper::Server::bind(&addr).serve(service);
+	let service =
+		hyper::service::make_service_fn(|_| async { Ok::<_, hyper::Error>(hyper::service::service_fn(handler)) });
+	let server = hyper::Server::bind(&addr).serve(service);
 
-    println!("Listening on http://{}", addr);
-    server.await?;
+	println!("Listening on http://{}", addr);
+	server.await?;
 
-    Ok(())
+	Ok(())
 }
 
 /// Handle incoming HTTP Requests.
@@ -55,8 +54,7 @@ async fn handler(req: Request<Body>) -> Result<hyper::Response<Body>, BoxedError
 
 /// Return the response to the upgrade request, and a way to get hold of the underlying TCP stream
 fn upgrade_to_websocket(req: Request<Body>) -> Result<(Response<Body>, hyper::upgrade::OnUpgrade), handshake::Error> {
-	let key = req.headers().get("Sec-WebSocket-Key")
-		.ok_or(handshake::Error::InvalidSecWebSocketAccept)?;
+	let key = req.headers().get("Sec-WebSocket-Key").ok_or(handshake::Error::InvalidSecWebSocketAccept)?;
 	if req.headers().get("Sec-WebSocket-Version").map(|v| v.as_bytes()) != Some(b"13") {
 		return Err(handshake::Error::HeaderNotFound("Sec-WebSocket-Version".into()));
 	}
@@ -78,7 +76,6 @@ fn upgrade_to_websocket(req: Request<Body>) -> Result<(Response<Body>, hyper::up
 
 /// Echo any messages we get from the client back to them
 async fn websocket_echo_messages(on_upgrade: hyper::upgrade::OnUpgrade) -> Result<(), BoxedError> {
-
 	// Wait for the request to upgrade, and pass the stream we get back to Soketto to handle the WS connection:
 	let stream = on_upgrade.await?;
 	let server = handshake::Server::new(BufReader::new(BufWriter::new(stream.compat())));
@@ -142,12 +139,16 @@ pub fn is_upgrade_request<B>(request: &hyper::Request<B>) -> bool {
 }
 
 /// Check if there is a header of the given name containing the wanted value.
-fn header_contains_value(headers: &hyper::HeaderMap, header: impl hyper::header::AsHeaderName, value: impl AsRef<[u8]>) -> bool {
+fn header_contains_value(
+	headers: &hyper::HeaderMap,
+	header: impl hyper::header::AsHeaderName,
+	value: impl AsRef<[u8]>,
+) -> bool {
 	fn trim(data: &[u8]) -> &[u8] {
 		trim_end(trim_start(data))
 	}
 	fn trim_start(data: &[u8]) -> &[u8] {
-		if let Some(start) =data.iter().position(|x| !x.is_ascii_whitespace()) {
+		if let Some(start) = data.iter().position(|x| !x.is_ascii_whitespace()) {
 			&data[start..]
 		} else {
 			b""
