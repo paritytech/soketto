@@ -131,8 +131,7 @@ pub fn is_upgrade_request<B>(request: &hyper::Request<B>) -> bool {
 }
 
 /// Check if there is a header of the given name containing the wanted value.
-fn header_contains_value(headers: &hyper::HeaderMap, header: hyper::header::HeaderName, value: &[u8],
-) -> bool {
+fn header_contains_value(headers: &hyper::HeaderMap, header: hyper::header::HeaderName, value: &[u8]) -> bool {
 	pub fn trim(x: &[u8]) -> &[u8] {
 		let from = match x.iter().position(|x| !x.is_ascii_whitespace()) {
 			Some(i) => i,
