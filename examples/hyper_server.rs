@@ -9,9 +9,6 @@
 // An example of how to use of Soketto alongside Hyper, so that we can handle
 // standard HTTP traffic with Hyper, and WebSocket connections with Soketto, on
 // the same port.
-//
-// Some pieces of this code are adapted from
-// https://github.com/de-vri-es/hyper-tungstenite-rs.
 
 use futures::io::{BufReader, BufWriter};
 use hyper::{Body, Request, Response};
@@ -68,7 +65,7 @@ fn upgrade_to_websocket(req: Request<Body>) -> Result<(Response<Body>, hyper::up
 		.header(hyper::header::CONNECTION, "upgrade")
 		.header(hyper::header::UPGRADE, "websocket")
 		.header("Sec-WebSocket-Accept", accept_key)
-		.body(Body::from("switching to websocket protocol"))
+		.body(Body::empty())
 		.expect("bug: failed to build response");
 
 	Ok((response, hyper::upgrade::on(req)))
@@ -128,21 +125,13 @@ fn generate_websocket_accept_key<'a>(key: &[u8], buf: &'a mut [u8; 32]) -> &'a [
 }
 
 /// Check if a request is a websocket upgrade request.
-///
-/// If the `Upgrade` header lists multiple protocols,
-/// this function returns true if of them are `"websocket"`,
-/// If the server supports multiple upgrade protocols,
-/// it would be more appropriate to try each listed protocol in order.
 pub fn is_upgrade_request<B>(request: &hyper::Request<B>) -> bool {
-	header_contains_value(request.headers(), hyper::header::CONNECTION, "Upgrade")
-		&& header_contains_value(request.headers(), hyper::header::UPGRADE, "websocket")
+	header_contains_value(request.headers(), hyper::header::CONNECTION, b"upgrade")
+		&& header_contains_value(request.headers(), hyper::header::UPGRADE, b"websocket")
 }
 
 /// Check if there is a header of the given name containing the wanted value.
-fn header_contains_value(
-	headers: &hyper::HeaderMap,
-	header: impl hyper::header::AsHeaderName,
-	value: impl AsRef<[u8]>,
+fn header_contains_value(headers: &hyper::HeaderMap, header: hyper::header::HeaderName, value: &[u8],
 ) -> bool {
 	pub fn trim(x: &[u8]) -> &[u8] {
 		let from = match x.iter().position(|x| !x.is_ascii_whitespace()) {
@@ -153,7 +142,6 @@ fn header_contains_value(
 		&x[from..=to]
 	}
 
-	let value = value.as_ref();
 	for header in headers.get_all(header) {
 		if header.as_bytes().split(|&c| c == b',').any(|x| trim(x).eq_ignore_ascii_case(value)) {
 			return true;
