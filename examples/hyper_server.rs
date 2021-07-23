@@ -144,22 +144,13 @@ fn header_contains_value(
 	header: impl hyper::header::AsHeaderName,
 	value: impl AsRef<[u8]>,
 ) -> bool {
-	fn trim(data: &[u8]) -> &[u8] {
-		trim_end(trim_start(data))
-	}
-	fn trim_start(data: &[u8]) -> &[u8] {
-		if let Some(start) = data.iter().position(|x| !x.is_ascii_whitespace()) {
-			&data[start..]
-		} else {
-			b""
-		}
-	}
-	fn trim_end(data: &[u8]) -> &[u8] {
-		if let Some(last) = data.iter().rposition(|x| !x.is_ascii_whitespace()) {
-			&data[..last + 1]
-		} else {
-			b""
-		}
+	pub fn trim(x: &[u8]) -> &[u8] {
+		let from = match x.iter().position(|x| !x.is_ascii_whitespace()) {
+			Some(i) => i,
+			None => return &x[0..0],
+		};
+		let to = x.iter().rposition(|x| !x.is_ascii_whitespace()).unwrap();
+		&x[from..=to]
 	}
 
 	let value = value.as_ref();
