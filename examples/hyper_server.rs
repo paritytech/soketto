@@ -35,7 +35,7 @@ async fn main() -> Result<(), BoxedError> {
 		hyper::service::make_service_fn(|_| async { Ok::<_, hyper::Error>(hyper::service::service_fn(handler)) });
 	let server = hyper::Server::bind(&addr).serve(service);
 
-	println!("Listening on http://{}", addr);
+	println!("Listening on http://{}", server.local_addr());
 	server.await?;
 
 	Ok(())
