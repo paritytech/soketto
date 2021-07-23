@@ -9,6 +9,17 @@
 // An example of how to use of Soketto alongside Hyper, so that we can handle
 // standard HTTP traffic with Hyper, and WebSocket connections with Soketto, on
 // the same port.
+//
+// To try this, start up the example (`cargo run --example hyper_server`) and then
+// navigate to localhost:3000 and, in the browser JS console, run:
+//
+// ```
+// var socket = new WebSocket("ws://localhost:3000");
+// socket.onmessage = function(msg) { console.log(msg) };
+// socket.send("Hello!");
+// ```
+//
+// You'll see any messages you send achoed back.
 
 use futures::io::{BufReader, BufWriter};
 use hyper::{Body, Request, Response};
