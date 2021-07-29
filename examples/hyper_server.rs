@@ -19,7 +19,7 @@
 // socket.send("Hello!");
 // ```
 //
-// You'll see any messages you send achoed back.
+// You'll see any messages you send echoed back.
 
 use futures::io::{BufReader, BufWriter};
 use hyper::{Body, Request, Response};
