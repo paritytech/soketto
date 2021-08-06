@@ -19,7 +19,7 @@
 // socket.send("Hello!");
 // ```
 //
-// You'll see any messages you send achoed back.
+// You'll see any messages you send echoed back.
 
 use futures::io::{BufReader, BufWriter};
 use hyper::{Body, Request, Response};
@@ -67,7 +67,7 @@ fn upgrade_to_websocket(req: Request<Body>) -> Result<(Response<Body>, hyper::up
 		return Err(handshake::Error::HeaderNotFound("Sec-WebSocket-Version".into()));
 	}
 
-	// Just a little ceremony we need to go to to return the correct response key:
+	// Just a little ceremony we need to go through to return the correct response key:
 	let mut accept_key_buf = [0; 32];
 	let accept_key = generate_websocket_accept_key(key.as_bytes(), &mut accept_key_buf);
 
