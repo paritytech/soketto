@@ -11,10 +11,13 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 pub mod client;
+#[cfg(feature = "http")]
+pub mod http;
 pub mod server;
 
 use crate::extension::{Extension, Param};
 use bytes::BytesMut;
+use sha1::{Digest, Sha1};
 use std::{fmt, io, str};
 
 pub use client::{Client, ServerResponse};
@@ -119,6 +122,19 @@ where
 			bytes.extend_from_slice(b", ")
 		}
 	}
+}
+
+/// This function takes a 16 byte key (base64 encoded, and so 24 bytes of input) that is expected via
+/// the `Sec-WebSocket-Key` header during a websocket handshake, and a 32 byte output buffer, and
+/// writes the response that's expected to be handed back in the response header `Sec-WebSocket-Accept`.
+fn generate_accept_key<'k>(key_base64: &[u8; 24], output_buf: &'k mut [u8; 32]) -> &'k [u8] {
+	let mut digest = Sha1::new();
+	digest.update(key_base64);
+	digest.update(KEY);
+	let d = digest.finalize();
+
+	let n = base64::encode_config_slice(&d, base64::STANDARD, output_buf);
+	&output_buf[..n]
 }
 
 /// Enumeration of possible handshake errors.
