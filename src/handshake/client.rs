@@ -18,9 +18,10 @@ use crate::connection::{self, Mode};
 use crate::{extension::Extension, Parsing};
 use bytes::{Buf, BytesMut};
 use futures::prelude::*;
-use httparse::Header;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
+
+pub use httparse::Header;
 
 const BLOCK_SIZE: usize = 8 * 1024;
 
@@ -71,7 +72,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 		mem::take(&mut self.buffer)
 	}
 
-	/// Set connection headers to a slice.
+	/// Set connection headers to a slice. These headers are not checked for validity,
+	/// the caller of this method is responsible for verification as well as avoiding
+	/// conflicts with internally set headers.
 	pub fn set_headers(&mut self, h: &'a [Header]) -> &mut Self {
 		self.headers = h;
 		self
