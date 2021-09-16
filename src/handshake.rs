@@ -108,20 +108,7 @@ where
 		bytes.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ")
 	}
 
-	while let Some(e) = iter.next() {
-		bytes.extend_from_slice(e.name().as_bytes());
-		for p in e.params() {
-			bytes.extend_from_slice(b"; ");
-			bytes.extend_from_slice(p.name().as_bytes());
-			if let Some(v) = p.value() {
-				bytes.extend_from_slice(b"=");
-				bytes.extend_from_slice(v.as_bytes())
-			}
-		}
-		if iter.peek().is_some() {
-			bytes.extend_from_slice(b", ")
-		}
-	}
+	append_extension_header_value(iter, bytes)
 }
 
 // Write the extension header value to the given buffer.

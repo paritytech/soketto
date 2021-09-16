@@ -36,7 +36,12 @@ pub struct Server<'a, T> {
 	buffer: BytesMut,
 }
 
-impl<'a, T> Server<'a, T> {
+impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
+	/// Create a new server handshake.
+	pub fn new(socket: T) -> Self {
+		Server { socket, protocols: Vec::new(), extensions: Vec::new(), buffer: BytesMut::new() }
+	}
+
 	/// Override the buffer to use for request/response handling.
 	pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
 		self.buffer = b;
@@ -63,18 +68,6 @@ impl<'a, T> Server<'a, T> {
 	/// Get back all extensions.
 	pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
 		self.extensions.drain(..)
-	}
-
-	/// Get out the inner socket of the server.
-	pub fn into_inner(self) -> T {
-		self.socket
-	}
-}
-
-impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
-	/// Create a new server handshake.
-	pub fn new(socket: T) -> Self {
-		Server { socket, protocols: Vec::new(), extensions: Vec::new(), buffer: BytesMut::new() }
 	}
 
 	/// Await an incoming client handshake request.
@@ -125,6 +118,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 		builder.set_buffer(self.buffer);
 		builder.add_extensions(self.extensions.drain(..));
 		builder
+	}
+
+	/// Get out the inner socket of the server.
+	pub fn into_inner(self) -> T {
+		self.socket
 	}
 
 	// Decode client handshake request.
