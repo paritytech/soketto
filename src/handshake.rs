@@ -124,6 +124,27 @@ where
 	}
 }
 
+// Write the extension header value to the given buffer.
+fn append_extension_header_value<'a, I>(mut extensions_iter: std::iter::Peekable<I>, bytes: &mut BytesMut)
+where
+	I: Iterator<Item = &'a Box<dyn Extension + Send>>,
+{
+	while let Some(e) = extensions_iter.next() {
+		bytes.extend_from_slice(e.name().as_bytes());
+		for p in e.params() {
+			bytes.extend_from_slice(b"; ");
+			bytes.extend_from_slice(p.name().as_bytes());
+			if let Some(v) = p.value() {
+				bytes.extend_from_slice(b"=");
+				bytes.extend_from_slice(v.as_bytes())
+			}
+		}
+		if extensions_iter.peek().is_some() {
+			bytes.extend_from_slice(b", ")
+		}
+	}
+}
+
 /// This function takes a 16 byte key (base64 encoded, and so 24 bytes of input) that is expected via
 /// the `Sec-WebSocket-Key` header during a websocket handshake, and a 32 byte output buffer, and
 /// writes the response that's expected to be handed back in the response header `Sec-WebSocket-Accept`.

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Parity Technologies (UK) Ltd.
+// Copyright (c) 2021 Parity Technologies (UK) Ltd.
 //
 // Licensed under the Apache License, Version 2.0
 // <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT
@@ -6,46 +6,79 @@
 // option. All files in the project carrying such notice may not be copied,
 // modified, or distributed except according to those terms.
 
-//! This module exposes a utility method and a couple of related types to
-//! make it easier to upgrade an [`http::Request`] into a Soketto Socket
-//! connection. Take a look at the `examples/hyper_server` example to see it
-//! in use.
+/*!
+This module exposes the utility method [`upgrade_request`] to make it easier to upgrade
+an [`http::Request`] into a Soketto Socket connection. Take a look at the `examples/hyper_server.rs`
+example in the crate repository to see this in action.
+*/
 
-use super::SEC_WEBSOCKET_EXTENSIONS;
+use super::{Server, SEC_WEBSOCKET_EXTENSIONS};
 use crate::handshake;
-use crate::handshake::server::ServerConfiguration;
 use http::{header, HeaderMap, Response};
 use std::convert::TryInto;
 
 /// An error attempting to upgrade the [`http::Request`]
-pub enum UpgradeError {
+pub enum NegotiationError {
 	/// The [`http::Request`] provided wasn't a socket upgrade request.
 	NotAnUpgradeRequest,
 	/// A [`handshake::Error`] encountered attempting to upgrade the request.
 	HandshakeError(handshake::Error),
 }
 
-impl From<handshake::Error> for UpgradeError {
+impl From<handshake::Error> for NegotiationError {
 	fn from(e: handshake::Error) -> Self {
-		UpgradeError::HandshakeError(e)
+		NegotiationError::HandshakeError(e)
 	}
 }
 
-/// This is handed back on a successful call to [`upgrade_request`].
-pub struct Upgraded {
-	/// This should be handed back to the client to complete the upgrade.
-	pub response: http::Response<()>,
-	/// This should be passed to a [`handshake::Server`] once it's been
-	/// constructed, to configure it according to this request.
-	pub server_configuration: ServerConfiguration,
+/// This is handed back on a successful call to [`negotiate_upgrade`]. It has one method,
+/// [`Negotiation::into_response`], which can be provided a Soketto server, and hands back
+/// a response to send to the client, as well as configuring the server extensions as needed
+/// based on the request.
+pub struct Negotiation {
+	key: [u8; 24],
+	extension_config: Vec<String>,
+}
+
+impl Negotiation {
+	/// Generate an [`http::Response`] to the negotiation request. This should be
+	/// returned to the client to complete the upgrade negotiation.
+	pub fn into_response<'a, T>(self, server: &mut Server<'a, T>) -> Result<Response<()>, handshake::Error> {
+		// Attempt to set the extension configuration params that the client requested.
+		for config_str in self.extension_config {
+			handshake::configure_extensions(server.extensions_mut(), &config_str)?;
+		}
+
+		let mut accept_key_buf = [0; 32];
+		let accept_key = handshake::generate_accept_key(&self.key, &mut accept_key_buf);
+
+		// Build a response that should be sent back to the client to acknowledge the upgrade.
+		let mut response = Response::builder()
+			.status(http::StatusCode::SWITCHING_PROTOCOLS)
+			.header(http::header::CONNECTION, "upgrade")
+			.header(http::header::UPGRADE, "websocket")
+			.header("Sec-WebSocket-Accept", accept_key);
+
+		// Tell the client about the agreed-upon extension configuration. We reuse code to build up the
+		// extension header value, but that does make this a little more clunky.
+		if !server.extensions_mut().is_empty() {
+			let mut buf = bytes::BytesMut::new();
+			let enabled_extensions = server.extensions_mut().iter().filter(|e| e.is_enabled()).peekable();
+			handshake::append_extension_header_value(enabled_extensions, &mut buf);
+			response = response.header("Sec-WebSocket-Extensions", buf.as_ref());
+		}
+
+		let response = response.body(()).expect("bug: failed to build response");
+		Ok(response)
+	}
 }
 
 /// Upgrade the provided [`http::Request`] to a socket connection. This returns an [`http::Response`]
-/// that should be sent back to the client, as well as a [`ServerConfiguration`] struct which can be
+/// that should be sent back to the client, as well as a [`ExtensionConfiguration`] struct which can be
 /// handed to a Soketto server to configure its extensions/protocols based on this request.
-pub fn upgrade_request<B>(req: &http::Request<B>) -> Result<Upgraded, UpgradeError> {
+pub fn negotiate_upgrade<B>(req: &http::Request<B>) -> Result<Negotiation, NegotiationError> {
 	if !is_upgrade_request(&req) {
-		return Err(UpgradeError::NotAnUpgradeRequest);
+		return Err(NegotiationError::NotAnUpgradeRequest);
 	}
 
 	let key = match req.headers().get("Sec-WebSocket-Key") {
@@ -59,33 +92,21 @@ pub fn upgrade_request<B>(req: &http::Request<B>) -> Result<Upgraded, UpgradeErr
 		return Err(handshake::Error::HeaderNotFound("Sec-WebSocket-Version".into()).into());
 	}
 
-	// Given the bytes provided in Sec-WebSocket-Key, generate the bytes to return in Sec-WebSocket-Accept:
-	let mut accept_key_buf = [0; 32];
-	let key = match key.as_bytes().try_into() {
+	// Pull out the Sec-WebSocket-Key; we'll need this for our response.
+	let key: [u8; 24] = match key.as_bytes().try_into() {
 		Ok(key) => key,
-		Err(_) => return Err(UpgradeError::HandshakeError(handshake::Error::InvalidSecWebSocketAccept)),
+		Err(_) => return Err(NegotiationError::HandshakeError(handshake::Error::InvalidSecWebSocketAccept)),
 	};
-	let accept_key = handshake::generate_accept_key(key, &mut accept_key_buf);
 
-	// Get extension information out of the request.
+	// Get extension information out of the request as we'll need this as well.
 	let extension_config = req
 		.headers()
 		.iter()
 		.filter(|&(name, _)| name.as_str().eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
 		.map(|(_, value)| Ok(std::str::from_utf8(value.as_bytes())?.to_string()))
 		.collect::<Result<Vec<_>, handshake::Error>>()?;
-	let server_configuration = ServerConfiguration { extension_config };
 
-	// Build a response that should be sent back to the client to acknowledge the upgrade.
-	let response = Response::builder()
-		.status(http::StatusCode::SWITCHING_PROTOCOLS)
-		.header(http::header::CONNECTION, "upgrade")
-		.header(http::header::UPGRADE, "websocket")
-		.header("Sec-WebSocket-Accept", accept_key)
-		.body(())
-		.expect("bug: failed to build response");
-
-	Ok(Upgraded { response, server_configuration })
+	Ok(Negotiation { key, extension_config })
 }
 
 /// Check if a request looks like a websocket upgrade request.
