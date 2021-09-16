@@ -14,7 +14,7 @@ edition = "2018"
 all-features = true
 
 [features]
-default = ["http"] # todo remove
+default = []
 deflate = ["flate2"]
 
 [dependencies]
