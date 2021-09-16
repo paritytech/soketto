@@ -7,50 +7,102 @@
 // modified, or distributed except according to those terms.
 
 /*!
-This module exposes the utility method [`upgrade_request`] to make it easier to upgrade
-an [`http::Request`] into a Soketto Socket connection. Take a look at the `examples/hyper_server.rs`
-example in the crate repository to see this in action.
+This module somewhat mirrors [`crate::handshake::server`], expect it's focus is on handling
+externally provided [`http`] types, making it easier to integrate with external web servers
+such as [`hyper`].
+
+See `examples/hyper_server.rs` from this crate's repository for example usage.
 */
 
-use super::{Server, SEC_WEBSOCKET_EXTENSIONS};
+use super::SEC_WEBSOCKET_EXTENSIONS;
+use crate::connection::{self, Mode};
+use crate::extension::Extension;
 use crate::handshake;
+use bytes::BytesMut;
+use futures::prelude::*;
 use http::{header, HeaderMap, Response};
 use std::convert::TryInto;
+use std::mem;
 
-/// An error attempting to upgrade the [`http::Request`]
-pub enum NegotiationError {
-	/// The [`http::Request`] provided wasn't a socket upgrade request.
-	NotAnUpgradeRequest,
-	/// A [`handshake::Error`] encountered attempting to upgrade the request.
-	HandshakeError(handshake::Error),
+/// A re-export of [`Error`].
+pub type Error = handshake::Error;
+
+/// Websocket handshake server. This is similar to [`handshake::Server`], but it is
+/// focused on performing the WebSocket handshake using a provided [`http::Request`], as opposed
+/// to decoding the request internally.
+pub struct Server {
+	/// Extensions the server supports.
+	extensions: Vec<Box<dyn Extension + Send>>,
+	/// Encoding/decoding buffer.
+	buffer: BytesMut,
 }
 
-impl From<handshake::Error> for NegotiationError {
-	fn from(e: handshake::Error) -> Self {
-		NegotiationError::HandshakeError(e)
+impl Server {
+	/// Create a new server handshake.
+	pub fn new() -> Self {
+		Server { extensions: Vec::new(), buffer: BytesMut::new() }
 	}
-}
 
-/// This is handed back on a successful call to [`negotiate_upgrade`]. It has one method,
-/// [`Negotiation::into_response`], which can be provided a Soketto server, and hands back
-/// a response to send to the client, as well as configuring the server extensions as needed
-/// based on the request.
-pub struct Negotiation {
-	key: [u8; 24],
-	extension_config: Vec<String>,
-}
+	/// Override the buffer to use for request/response handling.
+	pub fn set_buffer(&mut self, b: BytesMut) -> &mut Self {
+		self.buffer = b;
+		self
+	}
 
-impl Negotiation {
-	/// Generate an [`http::Response`] to the negotiation request. This should be
-	/// returned to the client to complete the upgrade negotiation.
-	pub fn into_response<'a, T>(self, server: &mut Server<'a, T>) -> Result<Response<()>, handshake::Error> {
-		// Attempt to set the extension configuration params that the client requested.
-		for config_str in self.extension_config {
-			handshake::configure_extensions(server.extensions_mut(), &config_str)?;
+	/// Extract the buffer.
+	pub fn take_buffer(&mut self) -> BytesMut {
+		mem::take(&mut self.buffer)
+	}
+
+	/// Add an extension the server supports.
+	pub fn add_extension(&mut self, e: Box<dyn Extension + Send>) -> &mut Self {
+		self.extensions.push(e);
+		self
+	}
+
+	/// Get back all extensions.
+	pub fn drain_extensions(&mut self) -> impl Iterator<Item = Box<dyn Extension + Send>> + '_ {
+		self.extensions.drain(..)
+	}
+
+	/// Attempt to interpret the provided [`http::Request`] as a WebSocket Upgrade request. If successful, this
+	/// returns an [`http::Response`] that should be returned to the client to complete the handshake.
+	pub fn receive_request<B>(&mut self, req: &http::Request<B>) -> Result<http::Response<()>, Error> {
+		if !is_upgrade_request(&req) {
+			return Err(Error::InvalidSecWebSocketAccept);
 		}
 
+		let key = match req.headers().get("Sec-WebSocket-Key") {
+			Some(key) => key,
+			None => {
+				return Err(Error::HeaderNotFound("Sec-WebSocket-Key".into()).into());
+			}
+		};
+
+		if req.headers().get("Sec-WebSocket-Version").map(|v| v.as_bytes()) != Some(b"13") {
+			return Err(Error::HeaderNotFound("Sec-WebSocket-Version".into()).into());
+		}
+
+		// Pull out the Sec-WebSocket-Key and generate the appropriate response to it.
+		let key: &[u8; 24] = match key.as_bytes().try_into() {
+			Ok(key) => key,
+			Err(_) => return Err(Error::InvalidSecWebSocketAccept),
+		};
 		let mut accept_key_buf = [0; 32];
-		let accept_key = handshake::generate_accept_key(&self.key, &mut accept_key_buf);
+		let accept_key = handshake::generate_accept_key(key, &mut accept_key_buf);
+
+		// Get extension information out of the request as we'll need this as well.
+		let extension_config = req
+			.headers()
+			.iter()
+			.filter(|&(name, _)| name.as_str().eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
+			.map(|(_, value)| Ok(std::str::from_utf8(value.as_bytes())?.to_string()))
+			.collect::<Result<Vec<_>, Error>>()?;
+
+		// Attempt to set the extension configuration params that the client requested.
+		for config_str in &extension_config {
+			handshake::configure_extensions(&mut self.extensions, &config_str)?;
+		}
 
 		// Build a response that should be sent back to the client to acknowledge the upgrade.
 		let mut response = Response::builder()
@@ -61,9 +113,9 @@ impl Negotiation {
 
 		// Tell the client about the agreed-upon extension configuration. We reuse code to build up the
 		// extension header value, but that does make this a little more clunky.
-		if !server.extensions_mut().is_empty() {
+		if !self.extensions.is_empty() {
 			let mut buf = bytes::BytesMut::new();
-			let enabled_extensions = server.extensions_mut().iter().filter(|e| e.is_enabled()).peekable();
+			let enabled_extensions = self.extensions.iter().filter(|e| e.is_enabled()).peekable();
 			handshake::append_extension_header_value(enabled_extensions, &mut buf);
 			response = response.header("Sec-WebSocket-Extensions", buf.as_ref());
 		}
@@ -71,51 +123,23 @@ impl Negotiation {
 		let response = response.body(()).expect("bug: failed to build response");
 		Ok(response)
 	}
+
+	/// Turn this handshake into a [`connection::Builder`].
+	pub fn into_builder<T: AsyncRead + AsyncWrite + Unpin>(mut self, socket: T) -> connection::Builder<T> {
+		let mut builder = connection::Builder::new(socket, Mode::Server);
+		builder.set_buffer(self.buffer);
+		builder.add_extensions(self.extensions.drain(..));
+		builder
+	}
 }
 
-/// Upgrade the provided [`http::Request`] to a socket connection. This returns an [`http::Response`]
-/// that should be sent back to the client, as well as a [`ExtensionConfiguration`] struct which can be
-/// handed to a Soketto server to configure its extensions/protocols based on this request.
-pub fn negotiate_upgrade<B>(req: &http::Request<B>) -> Result<Negotiation, NegotiationError> {
-	if !is_upgrade_request(&req) {
-		return Err(NegotiationError::NotAnUpgradeRequest);
-	}
-
-	let key = match req.headers().get("Sec-WebSocket-Key") {
-		Some(key) => key,
-		None => {
-			return Err(handshake::Error::HeaderNotFound("Sec-WebSocket-Key".into()).into());
-		}
-	};
-
-	if req.headers().get("Sec-WebSocket-Version").map(|v| v.as_bytes()) != Some(b"13") {
-		return Err(handshake::Error::HeaderNotFound("Sec-WebSocket-Version".into()).into());
-	}
-
-	// Pull out the Sec-WebSocket-Key; we'll need this for our response.
-	let key: [u8; 24] = match key.as_bytes().try_into() {
-		Ok(key) => key,
-		Err(_) => return Err(NegotiationError::HandshakeError(handshake::Error::InvalidSecWebSocketAccept)),
-	};
-
-	// Get extension information out of the request as we'll need this as well.
-	let extension_config = req
-		.headers()
-		.iter()
-		.filter(|&(name, _)| name.as_str().eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
-		.map(|(_, value)| Ok(std::str::from_utf8(value.as_bytes())?.to_string()))
-		.collect::<Result<Vec<_>, handshake::Error>>()?;
-
-	Ok(Negotiation { key, extension_config })
-}
-
-/// Check if a request looks like a websocket upgrade request.
-fn is_upgrade_request<B>(request: &http::Request<B>) -> bool {
+// Check if a request looks like a valid websocket upgrade request.
+pub fn is_upgrade_request<B>(request: &http::Request<B>) -> bool {
 	header_contains_value(request.headers(), header::CONNECTION, b"upgrade")
 		&& header_contains_value(request.headers(), header::UPGRADE, b"websocket")
 }
 
-/// Check if there is a header of the given name containing the wanted value.
+// Check if there is a header of the given name containing the wanted value.
 fn header_contains_value(headers: &HeaderMap, header: header::HeaderName, value: &[u8]) -> bool {
 	pub fn trim(x: &[u8]) -> &[u8] {
 		let from = match x.iter().position(|x| !x.is_ascii_whitespace()) {

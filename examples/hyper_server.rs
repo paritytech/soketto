@@ -24,10 +24,7 @@
 use futures::io::{BufReader, BufWriter};
 use hyper::{Body, Request, Response};
 use soketto::{
-	handshake::{
-		self,
-		http::{negotiate_upgrade, NegotiationError},
-	},
+	handshake::http::{is_upgrade_request, Server},
 	BoxedError,
 };
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -47,65 +44,53 @@ async fn main() -> Result<(), BoxedError> {
 	Ok(())
 }
 
-/// Our SokettoServer in this example is basically a hyper `Upgraded` stream with a BufReader and BufWriter wrapped
-/// around it for performance.
-type SokettoServer<'a> =
-	handshake::Server<'a, BufReader<BufWriter<tokio_util::compat::Compat<hyper::upgrade::Upgraded>>>>;
-
 /// Handle incoming HTTP Requests.
 async fn handler(req: Request<Body>) -> Result<hyper::Response<Body>, BoxedError> {
-	match negotiate_upgrade(&req) {
-		// The upgrade request was successful, so reply with the appropriate response and start a Soketto server up:
-		Ok(upgrade_negotiation) => {
-// BUG: So, this all looks good in theory, and gives us a way to neatly configure a server based on the incoming request,
-// and ensure that the response contains the correct information. BUT! `hyper::upgrade::on` waits until the response is sent
-// (I think) until it hands back the stream, so it doesn't actually work! Will need a(nother) rethink..
+	if is_upgrade_request(&req) {
+		// Create a new handshake server.
+		let mut server = Server::new();
 
-			// The negotiation to upgrade to a WebSocket connection has been successful so far. Next, we get back the underlying
-			// stream using `hyper::upgrade::on`, and hand this to a Soketto server to use to handle the WebSocket communication
-			// on this socket.
-			let stream = hyper::upgrade::on(req).await?;
-			let mut server = handshake::Server::new(BufReader::new(BufWriter::new(stream.compat())));
-
-			// Now that we have a server, we can add extensions to it if we like.
-			#[cfg(feature = "deflate")]
-			{
-				let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Server);
-				server.add_extension(Box::new(deflate));
-			}
-
-			// Given a configured server, we can now conclude our upgrade negotiation by getting back a response to hand back to the client.
-			// This may lead to some configuration of enabled extensions based on the incoming request params, and will fail if the configuration
-			// parameters are invalid for the extionsions in question.
-			let response = match upgrade_negotiation.into_response(&mut server) {
-				Ok(res) => res,
-				Err(_e) => {
-					println!("aaah {:?}", _e);
-					return Ok(Response::new(Body::from("Something went wrong upgrading!")))
-				},
-			};
-
-			// Spawn off a task to handle the long running socket server that we've established.
-			tokio::spawn(async move {
-				if let Err(e) = websocket_echo_messages(server).await {
-					eprintln!("Error upgrading to websocket connection: {}", e);
-				}
-			});
-
-			// Return the response ("fixing" the body type, since `negotiate_upgrade` doesn't know about `hyper::Body`).
-			Ok(response.map(|()| Body::empty()))
+		// Add any extensions that we want to use.
+		#[cfg(feature = "deflate")]
+		{
+			let deflate = soketto::extension::deflate::Deflate::new(soketto::Mode::Server);
+			server.add_extension(Box::new(deflate));
 		}
-		// We tried to upgrade and failed early on; tell the client about the failure however we like:
-		Err(NegotiationError::HandshakeError(_e)) => Ok(Response::new(Body::from("Something went wrong upgrading!"))),
+
+		// Attempt begin the handshake.
+		match server.receive_request(&req) {
+			// The handshake has been successful so far; return the response we're given back
+			// and spawn a task to handle the long-running WebSocket server:
+			Ok(response) => {
+				tokio::spawn(async move {
+					if let Err(e) = websocket_echo_messages(server, req).await {
+						eprintln!("Error upgrading to websocket connection: {}", e);
+					}
+				});
+				Ok(response.map(|()| Body::empty()))
+			}
+			// We tried to upgrade and failed early on; tell the client about the failure however we like:
+			Err(_e) => Ok(Response::new(Body::from("Something went wrong upgrading!"))),
+		}
+	} else {
 		// The request wasn't an upgrade request; let's treat it as a standard HTTP request:
-		Err(NegotiationError::NotAnUpgradeRequest) => Ok(Response::new(Body::from("Hello HTTP!"))),
+		Ok(Response::new(Body::from("Hello HTTP!")))
 	}
 }
 
 /// Echo any messages we get from the client back to them
-async fn websocket_echo_messages(server: SokettoServer<'_>) -> Result<(), BoxedError> {
+async fn websocket_echo_messages(server: Server, req: Request<Body>) -> Result<(), BoxedError> {
+	// The negotiation to upgrade to a WebSocket connection has been successful so far. Next, we get back the underlying
+	// stream using `hyper::upgrade::on`, and hand this to a Soketto server to use to handle the WebSocket communication
+	// on this socket.
+	//
+	// Note: awaiting this won't succeed until the handshake response has been returned to the client, so this must be
+	// spawned on a separate task so as not to block that response being handed back.
+	let stream = hyper::upgrade::on(req).await?;
+	let stream = BufReader::new(BufWriter::new(stream.compat()));
+
 	// Get back a reader and writer that we can use to send and receive websocket messages.
-	let (mut sender, mut receiver) = server.into_builder().finish();
+	let (mut sender, mut receiver) = server.into_builder(stream).finish();
 
 	// Echo any received messages back to the client:
 	let mut message = Vec::new();

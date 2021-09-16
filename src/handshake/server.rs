@@ -24,7 +24,7 @@ use std::{mem, str};
 const MAX_HEADERS_SIZE: usize = 8 * 1024;
 const BLOCK_SIZE: usize = 8 * 1024;
 
-/// Websocket handshake client.
+/// Websocket handshake server.
 #[derive(Debug)]
 pub struct Server<'a, T> {
 	socket: T,
@@ -68,13 +68,6 @@ impl<'a, T> Server<'a, T> {
 	/// Get out the inner socket of the server.
 	pub fn into_inner(self) -> T {
 		self.socket
-	}
-
-	/// This is not exposed publically, but is useful to allow optional features
-	/// access to the extensions to configure them.
-	#[cfg(feature = "http")]
-	pub(crate) fn extensions_mut(&mut self) -> &mut Vec<Box<dyn Extension + Send>> {
-		&mut self.extensions
 	}
 }
 
