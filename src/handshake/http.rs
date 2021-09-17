@@ -8,8 +8,8 @@
 
 /*!
 This module somewhat mirrors [`crate::handshake::server`], expect it's focus is on handling
-externally provided [`http`] types, making it easier to integrate with external web servers
-such as [`hyper`].
+an externally provided [`http::Request`] type, making it easier to integrate with external web
+servers such as [`hyper`].
 
 See `examples/hyper_server.rs` from this crate's repository for example usage.
 */
@@ -24,16 +24,16 @@ use http::{header, HeaderMap, Response};
 use std::convert::TryInto;
 use std::mem;
 
-/// A re-export of [`Error`].
+/// A re-export of [`handshake::Error`].
 pub type Error = handshake::Error;
 
 /// Websocket handshake server. This is similar to [`handshake::Server`], but it is
 /// focused on performing the WebSocket handshake using a provided [`http::Request`], as opposed
 /// to decoding the request internally.
 pub struct Server {
-	/// Extensions the server supports.
+	// Extensions the server supports.
 	extensions: Vec<Box<dyn Extension + Send>>,
-	/// Encoding/decoding buffer.
+	// Encoding/decoding buffer.
 	buffer: BytesMut,
 }
 
@@ -133,7 +133,7 @@ impl Server {
 	}
 }
 
-// Check if a request looks like a valid websocket upgrade request.
+/// Check if an [`http::Request`] looks like a valid websocket upgrade request.
 pub fn is_upgrade_request<B>(request: &http::Request<B>) -> bool {
 	header_contains_value(request.headers(), header::CONNECTION, b"upgrade")
 		&& header_contains_value(request.headers(), header::UPGRADE, b"websocket")
