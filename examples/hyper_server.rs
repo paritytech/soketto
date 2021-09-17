@@ -59,20 +59,23 @@ async fn handler(req: Request<Body>) -> Result<hyper::Response<Body>, BoxedError
 			server.add_extension(Box::new(deflate));
 		}
 
-		// Attempt begin the handshake.
+		// Attempt the handshake.
 		match server.receive_request(&req) {
 			// The handshake has been successful so far; return the response we're given back
 			// and spawn a task to handle the long-running WebSocket server:
 			Ok(response) => {
 				tokio::spawn(async move {
 					if let Err(e) = websocket_echo_messages(server, req).await {
-						eprintln!("Error upgrading to websocket connection: {}", e);
+						log::error!("Error upgrading to websocket connection: {}", e);
 					}
 				});
 				Ok(response.map(|()| Body::empty()))
 			}
 			// We tried to upgrade and failed early on; tell the client about the failure however we like:
-			Err(_e) => Ok(Response::new(Body::from("Something went wrong upgrading!"))),
+			Err(e) => {
+				log::error!("Could not upgrade connection: {}", e);
+				Ok(Response::new(Body::from("Something went wrong upgrading!")))
+			}
 		}
 	} else {
 		// The request wasn't an upgrade request; let's treat it as a standard HTTP request:
