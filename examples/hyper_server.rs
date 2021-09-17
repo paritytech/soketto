@@ -32,6 +32,8 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 /// Start up a hyper server.
 #[tokio::main]
 async fn main() -> Result<(), BoxedError> {
+	env_logger::init();
+
 	let addr = ([127, 0, 0, 1], 3000).into();
 
 	let service =
