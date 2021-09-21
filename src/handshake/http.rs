@@ -7,9 +7,9 @@
 // modified, or distributed except according to those terms.
 
 /*!
-This module somewhat mirrors [`crate::handshake::server`], expect it's focus is on handling
-an externally provided [`http::Request`] type, making it easier to integrate with external web
-servers such as [`hyper`].
+This module somewhat mirrors [`crate::handshake::server`], expect it's focus is on working
+with the [`http::Request`] and [`http::Response`] types, making it easier to integrate with
+external web servers such as Hyper.
 
 See `examples/hyper_server.rs` from this crate's repository for example usage.
 */
