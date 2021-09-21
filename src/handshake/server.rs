@@ -186,8 +186,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 	fn encode_response(&mut self, response: &Response<'_>) {
 		match response {
 			Response::Accept { key, protocol } => {
-				let mut key_buf = [0; 32];
-				let accept_value = super::generate_accept_key(&key, &mut key_buf);
+				let accept_value = super::generate_accept_key(&key);
 				self.buffer.extend_from_slice(
 					concat![
 						"HTTP/1.1 101 Switching Protocols",
@@ -199,7 +198,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 					]
 					.as_bytes(),
 				);
-				self.buffer.extend_from_slice(accept_value);
+				self.buffer.extend_from_slice(&accept_value);
 				if let Some(p) = protocol {
 					self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
 					self.buffer.extend_from_slice(p.as_bytes())

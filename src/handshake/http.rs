@@ -88,8 +88,7 @@ impl Server {
 			Ok(key) => key,
 			Err(_) => return Err(Error::InvalidSecWebSocketAccept),
 		};
-		let mut accept_key_buf = [0; 32];
-		let accept_key = handshake::generate_accept_key(key, &mut accept_key_buf);
+		let accept_key = handshake::generate_accept_key(key);
 
 		// Get extension information out of the request as we'll need this as well.
 		let extension_config = req
@@ -109,7 +108,7 @@ impl Server {
 			.status(http::StatusCode::SWITCHING_PROTOCOLS)
 			.header(http::header::CONNECTION, "upgrade")
 			.header(http::header::UPGRADE, "websocket")
-			.header("Sec-WebSocket-Accept", accept_key);
+			.header("Sec-WebSocket-Accept", &accept_key[..]);
 
 		// Tell the client about the agreed-upon extension configuration. We reuse code to build up the
 		// extension header value, but that does make this a little more clunky.
