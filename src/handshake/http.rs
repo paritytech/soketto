@@ -14,7 +14,7 @@ servers such as [`hyper`].
 See `examples/hyper_server.rs` from this crate's repository for example usage.
 */
 
-use super::SEC_WEBSOCKET_EXTENSIONS;
+use super::{WebSocketKey, SEC_WEBSOCKET_EXTENSIONS};
 use crate::connection::{self, Mode};
 use crate::extension::Extension;
 use crate::handshake;
@@ -84,7 +84,7 @@ impl Server {
 		}
 
 		// Pull out the Sec-WebSocket-Key and generate the appropriate response to it.
-		let key: &[u8; 24] = match key.as_bytes().try_into() {
+		let key: &WebSocketKey = match key.as_bytes().try_into() {
 			Ok(key) => key,
 			Err(_) => return Err(Error::InvalidSecWebSocketAccept),
 		};

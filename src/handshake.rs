@@ -137,7 +137,7 @@ where
 // writes the response that's expected to be handed back in the response header `Sec-WebSocket-Accept`.
 //
 // See https://datatracker.ietf.org/doc/html/rfc6455#section-1.3 for more information on this.
-fn generate_accept_key<'k>(key_base64: &[u8; 24], output_buf: &'k mut [u8; 32]) -> &'k [u8] {
+fn generate_accept_key<'k>(key_base64: &WebSocketKey, output_buf: &'k mut [u8; 32]) -> &'k [u8] {
 	let mut digest = Sha1::new();
 	digest.update(key_base64);
 	digest.update(KEY);
