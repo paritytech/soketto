@@ -102,6 +102,10 @@
 //! # }
 //!
 //! ```
+//!
+//! See `examples/hyper_server.rs` from this crate's repository for an example of
+//! starting up a WebSocket server alongside an Hyper HTTP server.
+//!
 //! [client]: handshake::Client
 //! [server]: handshake::Server
 //! [Sender]: connection::Sender

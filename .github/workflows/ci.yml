@@ -2,7 +2,7 @@ name: Rust
 
 on:
   push:
-    # Run jobs when commits are pushed to 
+    # Run jobs when commits are pushed to
     # develop or release-like branches:
     branches:
       - develop
@@ -40,7 +40,7 @@ jobs:
         uses: actions-rs/cargo@v1.0.3
         with:
           command: check
-          args: --all-targets
+          args: --all-targets --all-features
 
   fmt:
     name: Run rustfmt

@@ -11,21 +11,20 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 use super::{
-	append_extensions, configure_extensions, expect_ascii_header, with_first_header, Error, WebSocketKey, KEY,
+	append_extensions, configure_extensions, expect_ascii_header, with_first_header, Error, WebSocketKey,
 	MAX_NUM_HEADERS, SEC_WEBSOCKET_EXTENSIONS, SEC_WEBSOCKET_PROTOCOL,
 };
 use crate::connection::{self, Mode};
 use crate::extension::Extension;
 use bytes::BytesMut;
 use futures::prelude::*;
-use sha1::{Digest, Sha1};
 use std::{mem, str};
 
 // Most HTTP servers default to 8KB limit on headers
 const MAX_HEADERS_SIZE: usize = 8 * 1024;
 const BLOCK_SIZE: usize = 8 * 1024;
 
-/// Websocket handshake client.
+/// Websocket handshake server.
 #[derive(Debug)]
 pub struct Server<'a, T> {
 	socket: T,
@@ -187,15 +186,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 	fn encode_response(&mut self, response: &Response<'_>) {
 		match response {
 			Response::Accept { key, protocol } => {
-				let mut key_buf = [0; 32];
-				let accept_value = {
-					let mut digest = Sha1::new();
-					digest.update(key);
-					digest.update(KEY);
-					let d = digest.finalize();
-					let n = base64::encode_config_slice(&d, base64::STANDARD, &mut key_buf);
-					&key_buf[..n]
-				};
+				let accept_value = super::generate_accept_key(&key);
 				self.buffer.extend_from_slice(
 					concat![
 						"HTTP/1.1 101 Switching Protocols",
@@ -207,7 +198,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 					]
 					.as_bytes(),
 				);
-				self.buffer.extend_from_slice(accept_value);
+				self.buffer.extend_from_slice(&accept_value);
 				if let Some(p) = protocol {
 					self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
 					self.buffer.extend_from_slice(p.as_bytes())

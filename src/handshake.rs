@@ -11,10 +11,13 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 pub mod client;
+#[cfg(feature = "http")]
+pub mod http;
 pub mod server;
 
 use crate::extension::{Extension, Param};
 use bytes::BytesMut;
+use sha1::{Digest, Sha1};
 use std::{fmt, io, str};
 
 pub use client::{Client, ServerResponse};
@@ -105,7 +108,15 @@ where
 		bytes.extend_from_slice(b"\r\nSec-WebSocket-Extensions: ")
 	}
 
-	while let Some(e) = iter.next() {
+	append_extension_header_value(iter, bytes)
+}
+
+// Write the extension header value to the given buffer.
+fn append_extension_header_value<'a, I>(mut extensions_iter: std::iter::Peekable<I>, bytes: &mut BytesMut)
+where
+	I: Iterator<Item = &'a Box<dyn Extension + Send>>,
+{
+	while let Some(e) = extensions_iter.next() {
 		bytes.extend_from_slice(e.name().as_bytes());
 		for p in e.params() {
 			bytes.extend_from_slice(b"; ");
@@ -115,10 +126,31 @@ where
 				bytes.extend_from_slice(v.as_bytes())
 			}
 		}
-		if iter.peek().is_some() {
+		if extensions_iter.peek().is_some() {
 			bytes.extend_from_slice(b", ")
 		}
 	}
+}
+
+// This function takes a 16 byte key (base64 encoded, and so 24 bytes of input) that is expected via
+// the `Sec-WebSocket-Key` header during a websocket handshake, and writes the response that's expected
+// to be handed back in the response header `Sec-WebSocket-Accept`.
+//
+// The response is a base64 encoding of a 160bit hash. base64 encoding uses 1 ascii character per 6 bits,
+// and 160 / 6 = 26.66 characters. The output is padded with '=' to the nearest 4 characters, so we need 28
+// bytes in total for all of the characters.
+//
+// See https://datatracker.ietf.org/doc/html/rfc6455#section-1.3 for more information on this.
+fn generate_accept_key<'k>(key_base64: &WebSocketKey) -> [u8; 28] {
+	let mut digest = Sha1::new();
+	digest.update(key_base64);
+	digest.update(KEY);
+	let d = digest.finalize();
+
+	let mut output_buf = [0; 28];
+	let n = base64::encode_config_slice(&d, base64::STANDARD, &mut output_buf);
+	debug_assert_eq!(n, 28, "encoding to base64 should be exactly 28 bytes");
+	output_buf
 }
 
 /// Enumeration of possible handshake errors.
