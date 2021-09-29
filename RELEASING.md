@@ -11,7 +11,7 @@ These steps assume that you've checked out the Soketto repository and are in the
 3.  Check that you're happy with the current documentation.
 
     ```
-    cargo doc --open
+    cargo doc --open --all-features
     ```
 
     CI checks for broken internal links at the moment. Optionally you can also confirm that any external links
@@ -19,7 +19,7 @@ These steps assume that you've checked out the Soketto repository and are in the
 
     ```
     cargo install cargo-deadlinks
-    cargo deadlinks --check-http
+    cargo deadlinks --check-http -- --all-features
     ```
 
     If there are minor issues with the documentation, they can be fixed in the release branch.
