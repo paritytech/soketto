@@ -3,16 +3,14 @@ name: Rust
 on:
   push:
     # Run jobs when commits are pushed to
-    # develop or release-like branches:
+    # master or release-like branches:
     branches:
-      - develop
       - master
       - release*
   pull_request:
-    # Run jobs for any PR that wants to merge
-    # to develop:
+    # Run jobs for any external PR that wants
+    # to merge to master, too:
     branches:
-      - develop
       - master
 
 env:

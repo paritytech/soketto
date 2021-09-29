@@ -2,9 +2,11 @@
 
 These steps assume that you've checked out the Soketto repository and are in the root directory of it.
 
-1.  Ensure that everything you'd like to see released is on the `develop` branch.
+We also assume that ongoing work done is being merged directly to the `master` branch.
 
-2.  Create a release branch off `develop`, for example `release-v0.6.0`. The branch name should start with `release`
+1.  Ensure that everything you'd like to see released is on the `master` branch.
+
+2.  Create a release branch off `master`, for example `release-v0.6.0`. The branch name should start with `release`
     so that we can target commits with CI. Decide how far the version needs to be bumped based on the changes to date.
     If unsure what to bump the version to (e.g. is it a major, minor or patch release), check with the Parity Tools team.
 
@@ -33,15 +35,9 @@ These steps assume that you've checked out the Soketto repository and are in the
 
     You can also look through the commit history to find the code changes since the last release (eg `git log --pretty LAST_VERSION_TAG..HEAD`).
 
-6.  Commit any of the above changes to the release branch and open a PR in GitHub with a base of `develop`.
+6.  Commit any of the above changes to the release branch and open a PR in GitHub with a base of `master`.
 
-    **Note:** We'll change this to `master` prior to merging, but setting the initial base branch to `develop`
-    gives us an easier to review PR, and the code changes that would show up if it were set to `master` have
-    already been reviewed.
-
-7.  Once the branch has been reviewed and passes CI:
-    - **Change the base branch to `master`**
-    - Merge the PR to `master`.
+7.  Once the branch has been reviewed and passes CI, merge it.
 
 8.  Now, we're ready to publish the release to crates.io.
 
@@ -69,5 +65,3 @@ These steps assume that you've checked out the Soketto repository and are in the
     and draft a new release which points to the tag you just pushed to `master` above. Copy the changelog comments
     for the current release into the release description.
 
-10. Merge the `master` branch back to develop so that we keep track of any changes that we made on
-    the release branch.
