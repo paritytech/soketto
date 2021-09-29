@@ -21,6 +21,8 @@ use futures::prelude::*;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
 
+pub use httparse::Header;
+
 const BLOCK_SIZE: usize = 8 * 1024;
 
 /// Websocket client handshake.
@@ -32,8 +34,8 @@ pub struct Client<'a, T> {
 	host: &'a str,
 	/// The HTTP host ressource.
 	resource: &'a str,
-	/// The HTTP origin header.
-	origin: Option<&'a str>,
+	/// The HTTP headers.
+	headers: &'a [Header<'a>],
 	/// A buffer holding the base-64 encoded request nonce.
 	nonce: WebSocketKey,
 	/// The protocols to include in the handshake.
@@ -51,7 +53,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			socket,
 			host,
 			resource,
-			origin: None,
+			headers: &[],
 			nonce: [0; 24],
 			protocols: Vec::new(),
 			extensions: Vec::new(),
@@ -70,9 +72,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 		mem::take(&mut self.buffer)
 	}
 
-	/// Set the handshake origin header.
-	pub fn set_origin(&mut self, o: &'a str) -> &mut Self {
-		self.origin = Some(o);
+	/// Set connection headers to a slice. These headers are not checked for validity,
+	/// the caller of this method is responsible for verification as well as avoiding
+	/// conflicts with internally set headers.
+	pub fn set_headers(&mut self, h: &'a [Header]) -> &mut Self {
+		self.headers = h;
 		self
 	}
 
@@ -135,10 +139,12 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 		self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
 		self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
 		self.buffer.extend_from_slice(&self.nonce);
-		if let Some(o) = &self.origin {
-			self.buffer.extend_from_slice(b"\r\nOrigin: ");
-			self.buffer.extend_from_slice(o.as_bytes())
-		}
+		self.headers.iter().for_each(|h| {
+			self.buffer.extend_from_slice(b"\r\n");
+			self.buffer.extend_from_slice(h.name.as_bytes());
+			self.buffer.extend_from_slice(b": ");
+			self.buffer.extend_from_slice(h.value);
+		});
 		if let Some((last, prefix)) = self.protocols.split_last() {
 			self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
 			for p in prefix {

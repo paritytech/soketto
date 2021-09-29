@@ -4,6 +4,11 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## 0.7.0
+
+- [added] Added the `handshake::http` module and example usage at `examples/hyper_server.rs` to make using Soketto in conjunction with libraries that use the `http` types (like Hyper) simpler [#45](https://github.com/paritytech/soketto/pull/45) [#48](https://github.com/paritytech/soketto/pull/48)
+- [added] Allow setting custom headers on the client to be sent to WebSocket servers when the opening handshake is performed [#47](https://github.com/paritytech/soketto/pull/47)
+
 ## 0.6.0
 
 - [changed] Expose the `Origin` headers from the client handshake on `ClientRequest` [#35](https://github.com/paritytech/soketto/pull/35)
