@@ -243,6 +243,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 			// Check if total message does not exceed maximum.
 			if length > self.max_message_size {
 				log::warn!("{}: accumulated message length exceeds maximum", self.id);
+
+				// Discard bytes that were too large to fit in the buffer.
+				// TODO(niklasad1): check how slow this is...
+				// not sure how just advance AsyncRead without doing this.
+				// we could maybe execute the futures as batch instead...
+				let mut advance = length;
+				let mut tmp = [0; 1024];
+				while advance > 0 {
+					let take = std::cmp::min(1024, advance);
+					self.reader.read_exact(&mut tmp[0..take]).await?;
+					advance -= take;
+				}
+
 				return Err(Error::MessageTooLarge { current: length, maximum: self.max_message_size });
 			}
 
