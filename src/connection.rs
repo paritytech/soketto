@@ -245,9 +245,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 				log::warn!("{}: accumulated message length exceeds maximum", self.id);
 
 				// Discard bytes that were too large to fit in the buffer.
-				// TODO(niklasad1): check how slow this is...
-				// not sure how just advance AsyncRead without doing this.
-				// we could maybe execute the futures as batch instead...
+				// NOTE(niklasad1): use an array to avoid allocating more memory
+				// than `max_message_size`.
 				let mut advance = length;
 				let mut tmp = [0; 1024];
 				while advance > 0 {
