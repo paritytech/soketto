@@ -690,7 +690,7 @@ impl From<base::Error> for Error {
 	}
 }
 
-/// Discard `n` bytes from underlying reader.
+/// Discard `n` bytes from the underlying reader.
 async fn discard_bytes<R: AsyncRead + Unpin>(n: u64, reader: R) -> Result<u64, io::Error> {
 	futures::io::copy(&mut reader.take(n), &mut futures::io::sink()).await
 }
