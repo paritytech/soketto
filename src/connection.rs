@@ -245,16 +245,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 				log::warn!("{}: accumulated message length exceeds maximum", self.id);
 
 				// Discard bytes that were too large to fit in the buffer.
-				// NOTE(niklasad1): use an array to avoid allocating more memory
-				// than `max_message_size`.
-				let mut advance = length;
-				let mut tmp = [0; 1024];
-				while advance > 0 {
-					let take = std::cmp::min(1024, advance);
-					self.reader.read_exact(&mut tmp[0..take]).await?;
-					advance -= take;
-				}
-
+				discard_bytes(length as u64, &mut self.reader).await?;
 				return Err(Error::MessageTooLarge { current: length, maximum: self.max_message_size });
 			}
 
@@ -696,5 +687,26 @@ impl From<str::Utf8Error> for Error {
 impl From<base::Error> for Error {
 	fn from(e: base::Error) -> Self {
 		Error::Codec(e)
+	}
+}
+
+/// Discard `n` bytes from underlying reader.
+async fn discard_bytes<R: AsyncRead + Unpin>(n: u64, reader: R) -> Result<u64, io::Error> {
+	futures::io::copy(&mut reader.take(n), &mut futures::io::sink()).await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::discard_bytes;
+	use futures::{io::Cursor, AsyncReadExt};
+
+	#[tokio::test]
+	async fn discard_bytes_works() {
+		let bytes: Vec<u8> = (0..5).collect();
+		let mut cursor = Cursor::new(bytes);
+		discard_bytes(1_u64, &mut cursor).await.unwrap();
+		let mut read = vec![0; 4];
+		cursor.read_exact(&mut read).await.unwrap();
+		assert_eq!(read, vec![1, 2, 3, 4]);
 	}
 }
