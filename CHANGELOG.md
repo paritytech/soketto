@@ -4,7 +4,12 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-# 0.7.1
+## Unreleased
+
+- Migrated to 2021 edition, enforcing MSRV of `1.56.1`. [#56](https://github.com/paritytech/soketto/pull/56)
+
+
+## 0.7.1
 
 - [fixed] Advance reader when a too big message is received [#54](https://github.com/paritytech/soketto/pull/54)
 
