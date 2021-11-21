@@ -161,8 +161,6 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 		let headers = RequestHeaders { host, origin };
 
 		let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
-			use std::convert::TryFrom;
-
 			WebSocketKey::try_from(k).map_err(|_| Error::SecWebSocketKeyInvalidLength(k.len()))
 		})?;
 
