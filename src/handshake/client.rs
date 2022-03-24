@@ -44,6 +44,8 @@ pub struct Client<'a, T> {
 	extensions: Vec<Box<dyn Extension + Send>>,
 	/// Encoding/decoding buffer.
 	buffer: BytesMut,
+	/// Handshake Response headers
+	response_headers: Vec<(String, Vec<u8>)>,
 }
 
 impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
@@ -58,6 +60,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			protocols: Vec::new(),
 			extensions: Vec::new(),
 			buffer: BytesMut::new(),
+			response_headers: Vec::new(),
 		}
 	}
 
@@ -78,6 +81,11 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 	pub fn set_headers(&mut self, h: &'a [Header]) -> &mut Self {
 		self.headers = h;
 		self
+	}
+
+	/// The HTTP headers returned from a successful handshake request
+	pub fn response_headers(&self) -> &[(String, Vec<u8>)] {
+		self.response_headers.as_slice()
 	}
 
 	/// Add a protocol to be included in the handshake.
@@ -168,6 +176,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			Err(e) => return Err(Error::Http(Box::new(e))),
 		};
 
+
 		if response.version != Some(1) {
 			return Err(Error::UnsupportedHttpVersion);
 		}
@@ -218,6 +227,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			}
 		}
 
+		self.response_headers = response.headers.iter().map(|h| (String::from(h.name), Vec::from(h.value))).collect();
 		let response = ServerResponse::Accepted { protocol: selected_proto };
 		Ok(Parsing::Done { value: response, offset })
 	}
