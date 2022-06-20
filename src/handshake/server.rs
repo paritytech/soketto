@@ -18,6 +18,8 @@ use crate::connection::{self, Mode};
 use crate::extension::Extension;
 use bytes::BytesMut;
 use futures::prelude::*;
+use http::HeaderMap;
+use std::str::FromStr;
 use std::{mem, str};
 
 // Most HTTP servers default to 8KB limit on headers
@@ -142,23 +144,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 			return Err(Error::UnsupportedHttpVersion);
 		}
 
-		let host = with_first_header(&request.headers, "Host", Ok)?;
-
 		expect_ascii_header(request.headers, "Upgrade", "websocket")?;
 		expect_ascii_header(request.headers, "Connection", "upgrade")?;
 		expect_ascii_header(request.headers, "Sec-WebSocket-Version", "13")?;
-
-		let origin =
-			request.headers.iter().find_map(
-				|h| {
-					if h.name.eq_ignore_ascii_case("Origin") {
-						Some(h.value)
-					} else {
-						None
-					}
-				},
-			);
-		let headers = RequestHeaders { host, origin };
 
 		let ws_key = with_first_header(&request.headers, "Sec-WebSocket-Key", |k| {
 			WebSocketKey::try_from(k).map_err(|_| Error::SecWebSocketKeyInvalidLength(k.len()))
@@ -173,6 +161,14 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 			if let Some(&p) = self.protocols.iter().find(|x| x.as_bytes() == p.value) {
 				protocols.push(p)
 			}
+		}
+
+		let mut headers = http::HeaderMap::new();
+
+		for header in request.headers {
+			let k = http::header::HeaderName::from_str(header.name).map_err(|e| Error::Http(Box::new(e)))?;
+			let v = http::HeaderValue::from_bytes(header.value).map_err(|e| Error::Http(Box::new(e)))?;
+			headers.append(k, v);
 		}
 
 		let path = request.path.unwrap_or("/");
@@ -224,16 +220,7 @@ pub struct ClientRequest<'a> {
 	ws_key: WebSocketKey,
 	protocols: Vec<&'a str>,
 	path: &'a str,
-	headers: RequestHeaders<'a>,
-}
-
-/// Select HTTP headers sent by the client.
-#[derive(Debug, Copy, Clone)]
-pub struct RequestHeaders<'a> {
-	/// The [`Host`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Host) header.
-	pub host: &'a [u8],
-	/// The [`Origin`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin) header, if provided.
-	pub origin: Option<&'a [u8]>,
+	headers: HeaderMap,
 }
 
 impl<'a> ClientRequest<'a> {
@@ -253,8 +240,8 @@ impl<'a> ClientRequest<'a> {
 	}
 
 	/// Select HTTP headers sent by the client.
-	pub fn headers(&self) -> RequestHeaders {
-		self.headers
+	pub fn headers(&self) -> &HeaderMap {
+		&self.headers
 	}
 }
 

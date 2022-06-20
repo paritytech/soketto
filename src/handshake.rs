@@ -11,7 +11,6 @@
 //! [handshake]: https://tools.ietf.org/html/rfc6455#section-4
 
 pub mod client;
-#[cfg(feature = "http")]
 pub mod http;
 pub mod server;
 
