@@ -18,11 +18,10 @@ use crate::connection::{self, Mode};
 use crate::{extension::Extension, Parsing};
 use bytes::{Buf, BytesMut};
 use futures::prelude::*;
-use http::HeaderMap;
 use sha1::{Digest, Sha1};
 use std::{mem, str};
 
-pub use httparse::Header;
+pub use http::HeaderMap;
 
 const BLOCK_SIZE: usize = 8 * 1024;
 
@@ -36,7 +35,7 @@ pub struct Client<'a, T> {
 	/// The HTTP host resource.
 	resource: &'a str,
 	/// The HTTP headers.
-	headers: HeaderMap,
+	headers: Option<&'a HeaderMap>,
 	/// A buffer holding the base-64 encoded request nonce.
 	nonce: WebSocketKey,
 	/// The protocols to include in the handshake.
@@ -54,7 +53,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			socket,
 			host,
 			resource,
-			headers: HeaderMap::new(),
+			headers: None,
 			nonce: [0; 24],
 			protocols: Vec::new(),
 			extensions: Vec::new(),
@@ -76,8 +75,8 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 	/// Set connection headers to a slice. These headers are not checked for validity,
 	/// the caller of this method is responsible for verification as well as avoiding
 	/// conflicts with internally set headers.
-	pub fn set_headers(&mut self, h: HeaderMap) -> &mut Self {
-		self.headers = h;
+	pub fn set_headers(&mut self, h: &'a HeaderMap) -> &mut Self {
+		self.headers = Some(h);
 		self
 	}
 
@@ -140,12 +139,16 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 		self.buffer.extend_from_slice(b"\r\nUpgrade: websocket\r\nConnection: Upgrade");
 		self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Key: ");
 		self.buffer.extend_from_slice(&self.nonce);
-		self.headers.iter().for_each(|(name, value)| {
-			self.buffer.extend_from_slice(b"\r\n");
-			self.buffer.extend_from_slice(name.as_ref());
-			self.buffer.extend_from_slice(b": ");
-			self.buffer.extend_from_slice(value.as_ref());
-		});
+
+		if let Some(headers) = self.headers {
+			headers.iter().for_each(|(name, value)| {
+				self.buffer.extend_from_slice(b"\r\n");
+				self.buffer.extend_from_slice(name.as_ref());
+				self.buffer.extend_from_slice(b": ");
+				self.buffer.extend_from_slice(value.as_ref());
+			});
+		}
+
 		if let Some((last, prefix)) = self.protocols.split_last() {
 			self.buffer.extend_from_slice(b"\r\nSec-WebSocket-Protocol: ");
 			for p in prefix {

@@ -18,9 +18,9 @@ use crate::connection::{self, Mode};
 use crate::extension::Extension;
 use bytes::BytesMut;
 use futures::prelude::*;
-use http::HeaderMap;
-use std::str::FromStr;
 use std::{mem, str};
+
+pub use httparse::Header;
 
 // Most HTTP servers default to 8KB limit on headers
 const MAX_HEADERS_SIZE: usize = 8 * 1024;
@@ -144,6 +144,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 			return Err(Error::UnsupportedHttpVersion);
 		}
 
+		// do we need to this when all headers are exposed?!.
+		let _host = with_first_header(&request.headers, "Host", Ok)?;
+
 		expect_ascii_header(request.headers, "Upgrade", "websocket")?;
 		expect_ascii_header(request.headers, "Connection", "upgrade")?;
 		expect_ascii_header(request.headers, "Sec-WebSocket-Version", "13")?;
@@ -163,17 +166,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Server<'a, T> {
 			}
 		}
 
-		let mut headers = http::HeaderMap::new();
-
-		for header in request.headers {
-			let k = http::header::HeaderName::from_str(header.name).map_err(|e| Error::Http(Box::new(e)))?;
-			let v = http::HeaderValue::from_bytes(header.value).map_err(|e| Error::Http(Box::new(e)))?;
-			headers.append(k, v);
-		}
-
 		let path = request.path.unwrap_or("/");
 
-		Ok(ClientRequest { ws_key, protocols, path, headers })
+		Ok(ClientRequest { ws_key, protocols, path, headers: request.headers.to_vec() })
 	}
 
 	// Encode server handshake response.
@@ -220,7 +215,7 @@ pub struct ClientRequest<'a> {
 	ws_key: WebSocketKey,
 	protocols: Vec<&'a str>,
 	path: &'a str,
-	headers: HeaderMap,
+	headers: Vec<Header<'a>>,
 }
 
 impl<'a> ClientRequest<'a> {
@@ -239,9 +234,13 @@ impl<'a> ClientRequest<'a> {
 		self.path
 	}
 
-	/// Select HTTP headers sent by the client.
-	pub fn headers(&self) -> &HeaderMap {
+	/// HTTP headers sent by the client.
+	pub fn headers(&self) -> &'a [Header] {
 		&self.headers
+	}
+
+	pub fn into_parts(self) -> (WebSocketKey, Vec<&'a str>, &'a str, Vec<Header<'a>>) {
+		(self.ws_key, self.protocols, self.path, self.headers)
 	}
 }
 
