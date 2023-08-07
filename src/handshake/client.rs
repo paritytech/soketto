@@ -32,7 +32,7 @@ pub struct Client<'a, T> {
 	socket: T,
 	/// The HTTP host to send the handshake to.
 	host: &'a str,
-	/// The HTTP host ressource.
+	/// The HTTP host resource.
 	resource: &'a str,
 	/// The HTTP headers.
 	headers: &'a [Header<'a>],
