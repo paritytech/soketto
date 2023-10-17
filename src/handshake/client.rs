@@ -131,7 +131,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 	/// Encode the client handshake as a request, ready to be sent to the server.
 	fn encode_request(&mut self) {
 		let nonce: [u8; 16] = rand::random();
-		base64::engine::general_purpose::STANDARD.encode_slice(nonce, &mut self.nonce).unwrap();
+		base64::engine::general_purpose::STANDARD
+			.encode_slice(nonce, &mut self.nonce)
+			.expect("encoding to base64 is exactly 16 bytes; qed");
 		self.buffer.extend_from_slice(b"GET ");
 		self.buffer.extend_from_slice(self.resource.as_bytes());
 		self.buffer.extend_from_slice(b" HTTP/1.1");
