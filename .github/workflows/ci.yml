@@ -32,7 +32,7 @@ jobs:
           override: true
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.0
+        uses: Swatinem/rust-cache@v2.7.3
 
       - name: Build
         uses: actions-rs/cargo@v1.0.3
@@ -56,7 +56,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.0
+        uses: Swatinem/rust-cache@v2.7.3
 
       - name: Cargo fmt
         uses: actions-rs/cargo@v1.0.3
@@ -79,7 +79,7 @@ jobs:
           override: true
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.0
+        uses: Swatinem/rust-cache@v2.7.3
 
       - name: Check internal documentation links
         run: RUSTDOCFLAGS="--deny broken_intra_doc_links" cargo doc --verbose --workspace --no-deps --document-private-items
@@ -99,7 +99,7 @@ jobs:
           override: true
 
       - name: Rust Cache
-        uses: Swatinem/rust-cache@v2.7.0
+        uses: Swatinem/rust-cache@v2.7.3
 
       - name: Cargo build
         uses: actions-rs/cargo@v1.0.3
