@@ -19,7 +19,7 @@ default = []
 deflate = ["flate2"]
 
 [dependencies]
-base64 = { default-features = false, features = ["alloc"], version = "0.13" }
+base64 = { default-features = false, features = ["alloc"], version = "0.21.7" }
 bytes = { default-features = false, version = "1.0" }
 flate2 = { default-features = false, features = ["zlib"], optional = true, version = "1.0.13" }
 futures = { default-features = false, features = ["bilock", "std", "unstable"], version = "0.3.1" }
