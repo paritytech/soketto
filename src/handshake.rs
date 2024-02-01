@@ -16,6 +16,7 @@ pub mod http;
 pub mod server;
 
 use crate::extension::{Extension, Param};
+use base64::Engine;
 use bytes::BytesMut;
 use sha1::{Digest, Sha1};
 use std::{fmt, io, str};
@@ -148,8 +149,7 @@ fn generate_accept_key<'k>(key_base64: &WebSocketKey) -> [u8; 28] {
 	let d = digest.finalize();
 
 	let mut output_buf = [0; 28];
-	let n = base64::encode_config_slice(&d, base64::STANDARD, &mut output_buf);
-	debug_assert_eq!(n, 28, "encoding to base64 should be exactly 28 bytes");
+	base64::engine::general_purpose::STANDARD.encode_slice(d, &mut output_buf).expect("encoding to base64 should be exactly 28 bytes");
 	output_buf
 }
 
@@ -282,3 +282,5 @@ mod tests {
 		assert!(expect_ascii_header(headers, "???", "x").is_err());
 	}
 }
+
+
