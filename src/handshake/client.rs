@@ -16,6 +16,7 @@ use super::{
 };
 use crate::connection::{self, Mode};
 use crate::{extension::Extension, Parsing};
+use base64::Engine;
 use bytes::{Buf, BytesMut};
 use futures::prelude::*;
 use sha1::{Digest, Sha1};
@@ -130,7 +131,9 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 	/// Encode the client handshake as a request, ready to be sent to the server.
 	fn encode_request(&mut self) {
 		let nonce: [u8; 16] = rand::random();
-		base64::encode_config_slice(&nonce, base64::STANDARD, &mut self.nonce);
+		base64::engine::general_purpose::STANDARD
+			.encode_slice(nonce, &mut self.nonce)
+			.expect("encoding to base64 is exactly 16 bytes; qed");
 		self.buffer.extend_from_slice(b"GET ");
 		self.buffer.extend_from_slice(self.resource.as_bytes());
 		self.buffer.extend_from_slice(b" HTTP/1.1");
@@ -194,7 +197,7 @@ impl<'a, T: AsyncRead + AsyncWrite + Unpin> Client<'a, T> {
 			let mut digest = Sha1::new();
 			digest.update(&self.nonce);
 			digest.update(KEY);
-			let ours = base64::encode(&digest.finalize());
+			let ours = base64::engine::general_purpose::STANDARD.encode(digest.finalize());
 			if ours.as_bytes() != theirs {
 				return Err(Error::InvalidSecWebSocketAccept);
 			}
