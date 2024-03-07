@@ -8,7 +8,7 @@
 
 //! Types describing various forms of payload data.
 
-use std::{convert::TryFrom, fmt};
+use std::fmt;
 
 use crate::connection::CloseReason;
 

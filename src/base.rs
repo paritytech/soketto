@@ -18,7 +18,7 @@
 //! [base]: https://tools.ietf.org/html/rfc6455#section-5.2
 
 use crate::{as_u64, Parsing};
-use std::{convert::TryFrom, fmt, io};
+use std::{fmt, io};
 
 /// Max. size of a frame header.
 pub(crate) const MAX_HEADER_SIZE: usize = 14;
