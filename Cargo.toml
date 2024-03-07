@@ -1,6 +1,6 @@
 [package]
 name = "soketto"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["Parity Technologies <admin@parity.io>", "Jason Ozias <jason.g.ozias@gmail.com>"]
 description = "A websocket protocol implementation."
 keywords = ["websocket", "codec", "async", "futures"]
@@ -9,7 +9,7 @@ license = "Apache-2.0 OR MIT"
 readme = "README.md"
 repository = "https://github.com/paritytech/soketto"
 edition = "2021"
-rust-version = "1.56.1"
+rust-version = "1.71.1"
 
 [package.metadata.docs.rs]
 all-features = true
