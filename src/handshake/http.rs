@@ -21,7 +21,6 @@ use crate::handshake;
 use bytes::BytesMut;
 use futures::prelude::*;
 use http::{header, HeaderMap, Response};
-use std::convert::TryInto;
 use std::mem;
 
 /// A re-export of [`handshake::Error`].
