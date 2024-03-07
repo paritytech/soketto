@@ -4,10 +4,14 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
-## Unreleased
+## 0.8.0
 
-- Migrated to 2021 edition, enforcing MSRV of `1.56.1`. [#56](https://github.com/paritytech/soketto/pull/56)
-
+- [changed] move to rust 2021 [#56](https://github.com/paritytech/soketto/pull/56)
+- [changed] Replace sha-1 v0.9 with sha1 v0.10 [#62](https://github.com/paritytech/soketto/pull/62)
+- [changed] Update hyper requirement from v0.14 to v1.0 [#99](https://github.com/paritytech/soketto/pull/99)
+- [changed] Update base64 requirement from 0.13 to 0.22 [#97](https://github.com/paritytech/soketto/pull/97)
+- [changed] Bump MSRV to 1.71.1.
+- [fixed] doc typo on Client resource field [#79](https://github.com/paritytech/soketto/pull/97)
 
 ## 0.7.1
 
