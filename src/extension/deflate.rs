@@ -17,10 +17,10 @@ use crate::{
 	extension::{Extension, Param},
 	BoxedError, Storage,
 };
-use flate2::{write::DeflateDecoder, Compress, Compression, FlushCompress, Status};
+use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status};
 use std::{
 	convert::TryInto,
-	io::{self, Write},
+	io::{self},
 	mem,
 };
 
@@ -29,6 +29,10 @@ const SERVER_MAX_WINDOW_BITS: &str = "server_max_window_bits";
 
 const CLIENT_NO_CONTEXT_TAKEOVER: &str = "client_no_context_takeover";
 const CLIENT_MAX_WINDOW_BITS: &str = "client_max_window_bits";
+
+const DEFAULT_GROWTH: usize = 4096;
+const DEFAULT_DECOMPRESS_SIZE: usize = 256 * 1024 * 1024;
+const TRAILER: [u8; 4] = [0, 0, 0xFF, 0xFF];
 
 /// The deflate extension type.
 ///
@@ -40,9 +44,16 @@ pub struct Deflate {
 	enabled: bool,
 	buffer: Vec<u8>,
 	params: Vec<Param<'static>>,
+	zlib_compression_level: Compression,
 	our_max_window_bits: u8,
 	their_max_window_bits: u8,
+	no_our_context_takeover: bool,
+	no_their_context_takeover: bool,
 	await_last_fragment: bool,
+	max_buffer_size: usize,
+	grow_buffer_size: usize,
+	encoder: Compress,
+	decoder: Decompress,
 }
 
 impl Deflate {
@@ -63,9 +74,16 @@ impl Deflate {
 			enabled: false,
 			buffer: Vec::new(),
 			params,
+			zlib_compression_level: Compression::fast(),
 			our_max_window_bits: 15,
 			their_max_window_bits: 15,
 			await_last_fragment: false,
+			no_our_context_takeover: false,
+			no_their_context_takeover: false,
+			max_buffer_size: DEFAULT_DECOMPRESS_SIZE,
+			grow_buffer_size: DEFAULT_GROWTH,
+			encoder: Compress::new(Compression::fast(), false),
+			decoder: Decompress::new(false),
 		}
 	}
 
@@ -110,6 +128,29 @@ impl Deflate {
 			p.set_value(Some(max.to_string()));
 			self.params.push(p)
 		}
+	}
+
+	/// Set the maximum size of the internal buffer used for decompression.
+	///
+	/// Messages that decompress to a size larger than this will fail to decode.
+	pub fn set_max_buffer_size(&mut self, size: usize) {
+		self.max_buffer_size = size;
+	}
+
+	/// Set the size by which the internal buffer grows when it runs out of space.
+	pub fn set_grow_buffer_size(&mut self, size: usize) {
+		self.grow_buffer_size = size;
+	}
+
+	/// Set the zlib compression level to use. The range is from 0 (no compression) to 9 (best compression).
+	///
+	/// The default is 1 (fastest compression).
+	pub fn set_compression_level(&mut self, level: u32) {
+		self.zlib_compression_level = match level {
+			0..=9 => Compression::new(level),
+			_ => panic!("invalid compression level: {}", level),
+		};
+		let _ = self.encoder.set_level(self.zlib_compression_level);
 	}
 
 	fn set_their_max_window_bits(&mut self, p: &Param, expected: Option<u8>) -> Result<(), ()> {
@@ -173,8 +214,14 @@ impl Extension for Deflate {
 								return Ok(());
 							}
 						}
-						CLIENT_NO_CONTEXT_TAKEOVER => self.params.push(Param::new(CLIENT_NO_CONTEXT_TAKEOVER)),
-						SERVER_NO_CONTEXT_TAKEOVER => self.params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER)),
+						CLIENT_NO_CONTEXT_TAKEOVER => {
+							self.params.push(Param::new(CLIENT_NO_CONTEXT_TAKEOVER));
+							self.no_their_context_takeover = true;
+						}
+						SERVER_NO_CONTEXT_TAKEOVER => {
+							self.params.push(Param::new(SERVER_NO_CONTEXT_TAKEOVER));
+							self.no_our_context_takeover = true;
+						}
 						_ => {
 							log::debug!("{}: unknown parameter: {}", self.name(), p.name());
 							return Ok(());
@@ -183,12 +230,11 @@ impl Extension for Deflate {
 				}
 			}
 			Mode::Client => {
-				let mut server_no_context_takeover = false;
 				for p in params {
 					log::trace!("configure client with: {}", p);
 					match p.name() {
-						SERVER_NO_CONTEXT_TAKEOVER => server_no_context_takeover = true,
-						CLIENT_NO_CONTEXT_TAKEOVER => {} // must be supported
+						SERVER_NO_CONTEXT_TAKEOVER => self.no_their_context_takeover = true,
+						CLIENT_NO_CONTEXT_TAKEOVER => self.no_our_context_takeover = true,
 						SERVER_MAX_WINDOW_BITS => {
 							let expected = Some(self.their_max_window_bits);
 							if self.set_their_max_window_bits(&p, expected).is_err() {
@@ -213,13 +259,11 @@ impl Extension for Deflate {
 						}
 					}
 				}
-				if !server_no_context_takeover {
-					log::debug!("{}: server did not confirm no context takeover", self.name());
-					return Ok(());
-				}
 			}
 		}
 		self.enabled = true;
+		self.encoder = Compress::new_with_window_bits(self.zlib_compression_level, false, self.our_max_window_bits);
+		self.decoder = Decompress::new_with_window_bits(false, self.their_max_window_bits);
 		Ok(())
 	}
 
@@ -251,14 +295,33 @@ impl Extension for Deflate {
 			}
 		}
 
-		// Restore LEN and NLEN:
-		data.extend_from_slice(&[0, 0, 0xFF, 0xFF]); // cf. RFC 7692, 7.2.2
+		if header.is_rsv1() {
+			// Restore LEN and NLEN:
+			data.extend_from_slice(&TRAILER); // cf. RFC 7692, 7.2.2
 
-		self.buffer.clear();
-		let mut decoder = DeflateDecoder::new(&mut self.buffer);
-		decoder.write_all(&data)?;
-		decoder.finish()?;
-		mem::swap(data, &mut self.buffer);
+			if self.no_their_context_takeover {
+				self.decoder.reset(false);
+			}
+
+			self.buffer.clear();
+
+			loop {
+				if self.buffer.len() >= self.max_buffer_size {
+					return Err(io::Error::new(io::ErrorKind::Other, "decompressed message too large").into());
+				}
+
+				self.buffer.reserve(self.grow_buffer_size);
+				let status = self.decoder.decompress_vec(&data, &mut self.buffer, FlushDecompress::Sync)?;
+
+				match status {
+					Status::Ok => break,
+					Status::BufError => continue,
+					Status::StreamEnd => break,
+				}
+			}
+
+			mem::swap(data, &mut self.buffer);
+		}
 
 		header.set_rsv1(false);
 		header.set_payload_len(data.len());
@@ -281,22 +344,29 @@ impl Extension for Deflate {
 		self.buffer.clear();
 		self.buffer.reserve(data.as_ref().len());
 
-		let mut encoder = Compress::new_with_window_bits(Compression::fast(), false, self.our_max_window_bits);
+		if self.no_our_context_takeover {
+			self.encoder.reset();
+		}
+
+		let start_total_in = self.encoder.total_in();
+		let mut total_in = 0;
 
 		// Compress all input bytes.
-		while encoder.total_in() < as_u64(data.as_ref().len()) {
-			let i: usize = encoder.total_in().try_into()?;
-			match encoder.compress_vec(&data.as_ref()[i..], &mut self.buffer, FlushCompress::None)? {
-				Status::BufError => self.buffer.reserve(4096),
+		while total_in < as_u64(data.as_ref().len()) {
+			total_in = self.encoder.total_in() - start_total_in;
+			let i: usize = total_in.try_into()?;
+
+			match self.encoder.compress_vec(&data.as_ref()[i..], &mut self.buffer, FlushCompress::None)? {
+				Status::BufError => self.buffer.reserve(self.grow_buffer_size),
 				Status::Ok => continue,
 				Status::StreamEnd => break,
 			}
 		}
 
 		// We need to append an empty deflate block if not there yet (RFC 7692, 7.2.1).
-		while !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
+		while !self.buffer.ends_with(&TRAILER) {
 			self.buffer.reserve(5); // Make sure there is room for the trailing end bytes.
-			match encoder.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)? {
+			match self.encoder.compress_vec(&[], &mut self.buffer, FlushCompress::Sync)? {
 				Status::Ok => continue,
 				Status::BufError => continue, // more capacity is reserved above
 				Status::StreamEnd => break,
@@ -304,8 +374,7 @@ impl Extension for Deflate {
 		}
 
 		// If we still have not seen the empty deflate block appended, something is wrong.
-		if !self.buffer.ends_with(&[0, 0, 0xFF, 0xFF]) {
-			log::error!("missing 00 00 FF FF");
+		if !self.buffer.ends_with(&TRAILER) {
 			return Err(io::Error::new(io::ErrorKind::Other, "missing 00 00 FF FF").into());
 		}
 
