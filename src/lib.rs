@@ -121,6 +121,9 @@ pub mod data;
 pub mod extension;
 pub mod handshake;
 
+#[cfg(test)]
+mod tests;
+
 use bytes::BytesMut;
 use futures::io::{AsyncRead, AsyncReadExt};
 use std::io;

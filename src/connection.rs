@@ -219,11 +219,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 				return Err(Error::Closed);
 			}
 
-			self.ctrl_buffer.clear();
-			let mut header = self.receive_header().await?;
+            // This log message shows that Rust async restarts the entire function
+            // when the socket is written to, causing repeated entry of `receive_header`.
+			log::trace!("{}: recv: start buffer len={}", self.id, self.buffer.len());
+            let mut header = self.receive_header().await?;
 			log::trace!("{}: recv: {}", self.id, header);
 
 			// Handle control frames: PING, PONG and CLOSE.
+			self.ctrl_buffer.clear();
 			if header.opcode().is_control() {
 				self.read_buffer(&header).await?;
 				self.ctrl_buffer = self.buffer.split_to(header.payload_len());
@@ -349,9 +352,33 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 					self.buffer.advance(offset);
 					return Ok(header);
 				}
-				Parsing::NeedMore(n) => crate::read(&mut self.reader, &mut self.buffer, n).await?,
+				Parsing::NeedMore(n) => self.read_some(n).await?,
 			}
 		}
+	}
+
+	/// Read some bytes, but only update self.buffer once data is actually read.
+    ///
+    /// Unfortunately this means an extra copy of the (header) bytes.
+    ///
+	async fn read_some(&mut self, max: usize) -> io::Result<()> {
+		log::trace!("{}: reading {} bytes into buffer len={}", self.id, max, self.buffer.len());
+        let mut buf : [u8; 16] = [255; 16];
+
+		let n = self.reader.read(&mut buf).await?;
+		log::trace!("{}: reading returned {} bytes", self.id, n);
+		if n == 0 {
+			return Err(io::ErrorKind::UnexpectedEof.into());
+		}
+        let buf = &buf[0..n];
+
+        if self.buffer.is_empty() {
+            self.buffer = buf.into();
+        } else {
+        	self.buffer.extend_from_slice(buf);
+        }
+		log::trace!("{}: read {} bytes buffer len={}", self.id, max, self.buffer.len());
+		Ok(())
 	}
 
 	/// Read the complete payload data into the read buffer.
@@ -362,7 +389,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 		let i = self.buffer.len();
 		let d = header.payload_len() - i;
 		self.buffer.resize(i + d, 0u8);
-		self.reader.read_exact(&mut self.buffer[i..]).await?;
+        self.reader.read_exact(&mut self.buffer[i..]).await?;
+        
 		Ok(())
 	}
 
