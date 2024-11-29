@@ -416,7 +416,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 				}
 				self.flush().await?;
 				// Close down the connection but the I/O stream could already be closed and
-				// we don't want propagate such error to the user if the IO was already closed.
+				// we don't want propagate such error to the user if the I/O was already closed.
 				_ = self.writer.lock().await.close().await;
 				self.is_closed = true;
 				Ok(reason)
