@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog].
 
 ## 0.8.1
 
-- [fixed] omit I/O error after close handshake completed [#115](https://github.com/paritytech/soketto/pull/115)
+- [fixed] ignore I/O error after successful close handshake [#115](https://github.com/paritytech/soketto/pull/115)
 
 ## 0.8.0
 
