@@ -385,7 +385,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 			OpCode::Pong => Ok(None),
 			OpCode::Close => {
 				log::trace!("{}: Acknowledging CLOSE to sender", self.id);
-				self.is_closed = true;
 				let (mut header, reason) = close_answer(&self.ctrl_buffer)?;
 				// Write back a Close frame
 				let mut unused = Vec::new();
@@ -416,7 +415,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 					.await;
 				}
 				self.flush().await?;
-				self.writer.lock().await.close().await?;
+				// Close down the connection but the IO stream could already be closed and
+				// we don't want propagate such error to the user if the IO was already closed.
+				_ = self.writer.lock().await.close().await;
+				self.is_closed = true;
 				Ok(reason)
 			}
 			OpCode::Binary
