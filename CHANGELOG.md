@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog].
 
 [Keep a Changelog]: http://keepachangelog.com/en/1.0.0/
 
+## 0.8.1
+
+- [fixed] ignore I/O error after successful close handshake [#115](https://github.com/paritytech/soketto/pull/115)
+
 ## 0.8.0
 
 - [changed] move to rust 2021 [#56](https://github.com/paritytech/soketto/pull/56)
