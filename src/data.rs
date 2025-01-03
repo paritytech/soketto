@@ -98,11 +98,11 @@ impl Data {
 }
 
 /// Wrapper type which restricts the length of its byte slice to 125 bytes.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct ByteSlice125<'a>(&'a [u8]);
 
 /// Error, if converting to [`ByteSlice125`] fails.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct SliceTooLarge(());
 
 impl fmt::Display for SliceTooLarge {
