@@ -88,6 +88,8 @@ pub struct Receiver<T> {
 	ctrl_buffer: BytesMut,
 	max_message_size: usize,
 	is_closed: bool,
+	/// Whether the remaining fragments of a too large message are skipped.
+	skip_fragments: bool,
 }
 
 /// A connection builder.
@@ -182,6 +184,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Builder<T> {
 			ctrl_buffer: BytesMut::new(),
 			max_message_size: self.max_message_size,
 			is_closed: false,
+			skip_fragments: false,
 		};
 
 		let send = Sender {
@@ -209,6 +212,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 	/// values. If PONGs are not expected or uninteresting,
 	/// [`Receiver::receive_data`] may be used instead which skips over PONGs
 	/// and considers only application payload data.
+	///
+	/// [`Error::MessageTooLarge`] is returned as soon as a message exceeds the
+	/// maximum message size. The remaining frames of that message are skipped
+	/// by the following calls, which continue with what comes after it.
 	pub async fn receive(&mut self, message: &mut Vec<u8>) -> Result<Incoming<'_>, Error> {
 		let mut first_fragment_opcode = None;
 		let mut length: usize = 0;
@@ -238,14 +245,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 				continue;
 			}
 
+			// Skip the remaining fragments of a message that was too large.
+			if self.skip_fragments {
+				self.skip_fragments = false;
+				self.discard_payload(&header).await?;
+				if header.opcode() != OpCode::Continue {
+					log::debug!("{}: new message while skipping message fragments", self.id);
+					return Err(Error::UnexpectedOpCode(header.opcode()));
+				}
+				self.skip_fragments = !header.is_fin();
+				continue;
+			}
+
 			length = length.saturating_add(header.payload_len());
 
 			// Check if total message does not exceed maximum.
 			if length > self.max_message_size {
 				log::warn!("{}: accumulated message length exceeds maximum", self.id);
 
-				// Discard bytes that were too large to fit in the buffer.
-				discard_bytes(length as u64, &mut self.reader).await?;
+				// Discard the payload of this frame, earlier fragments have been read already.
+				self.discard_payload(&header).await?;
+				self.skip_fragments = !header.is_fin();
 				return Err(Error::MessageTooLarge { current: length, maximum: self.max_message_size });
 			}
 
@@ -363,6 +383,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Receiver<T> {
 		let d = header.payload_len() - i;
 		self.buffer.resize(i + d, 0u8);
 		self.reader.read_exact(&mut self.buffer[i..]).await?;
+		Ok(())
+	}
+
+	/// Discard the payload data of the given frame.
+	async fn discard_payload(&mut self, header: &Header) -> Result<(), Error> {
+		// Part of the payload may be in the read buffer already.
+		let buffered = header.payload_len().min(self.buffer.len());
+		self.buffer.advance(buffered);
+		discard_bytes((header.payload_len() - buffered) as u64, &mut self.reader).await?;
 		Ok(())
 	}
 
@@ -699,8 +728,17 @@ async fn discard_bytes<R: AsyncRead + Unpin>(n: u64, reader: R) -> Result<u64, i
 
 #[cfg(test)]
 mod tests {
-	use super::discard_bytes;
+	use super::{discard_bytes, Builder, Error, Mode, Receiver};
+	use crate::{base::OpCode, Data, Incoming};
 	use futures::{io::Cursor, AsyncReadExt};
+
+	/// Creates a receiver for the given bytes, of which the first `buffered` are already in its read buffer.
+	fn receiver(bytes: &[u8], buffered: usize, max_message_size: usize) -> Receiver<Cursor<Vec<u8>>> {
+		let mut builder = Builder::new(Cursor::new(bytes[buffered..].to_vec()), Mode::Server);
+		builder.set_buffer(bytes[..buffered].into());
+		builder.set_max_message_size(max_message_size);
+		builder.finish().1
+	}
 
 	#[tokio::test]
 	async fn discard_bytes_works() {
@@ -710,5 +748,48 @@ mod tests {
 		let mut read = vec![0; 4];
 		cursor.read_exact(&mut read).await.unwrap();
 		assert_eq!(read, vec![1, 2, 3, 4]);
+	}
+
+	#[tokio::test]
+	async fn fragmented_message_too_large() {
+		// A message of four fragments that exceeds the limit with the second one, a message that fits, and a
+		// first fragment that exceeds the limit but is followed by a new message.
+		let frames = [
+			&[0x01, 0x03][..],
+			b"abc",
+			&[0x00, 0x03],
+			b"def",
+			&[0x00, 0x03],
+			b"ghi",
+			&[0x80, 0x03],
+			b"jkl",
+			&[0x81, 0x02],
+			b"ok",
+			&[0x01, 0x05],
+			b"abcde",
+			&[0x81, 0x02],
+			b"ok",
+		]
+		.concat();
+
+		for buffered in 0..=frames.len() {
+			let mut receiver = receiver(&frames, buffered, 4);
+
+			let mut message = Vec::new();
+			assert!(matches!(
+				receiver.receive(&mut message).await,
+				Err(Error::MessageTooLarge { current: 6, maximum: 4 })
+			));
+
+			message.clear();
+			assert_eq!(receiver.receive(&mut message).await.unwrap(), Incoming::Data(Data::Text(2)));
+			assert_eq!(message, b"ok");
+
+			assert!(matches!(
+				receiver.receive(&mut message).await,
+				Err(Error::MessageTooLarge { current: 5, maximum: 4 })
+			));
+			assert!(matches!(receiver.receive(&mut message).await, Err(Error::UnexpectedOpCode(OpCode::Text))));
+		}
 	}
 }
