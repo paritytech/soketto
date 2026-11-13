@@ -761,6 +761,9 @@ mod tests {
 	use crate::{base::OpCode, Data, Incoming};
 	use futures::{io::Cursor, AsyncReadExt};
 
+	#[cfg(feature = "deflate")]
+	use crate::extension::{deflate::Deflate, Extension};
+
 	/// Creates a receiver for the given bytes, of which the first `buffered` are already in its read buffer.
 	fn receiver(bytes: &[u8], buffered: usize, max_message_size: usize) -> Receiver<Cursor<Vec<u8>>> {
 		let mut builder = Builder::new(Cursor::new(bytes[buffered..].to_vec()), Mode::Server);
@@ -854,5 +857,26 @@ mod tests {
 
 		assert_eq!(receiver.receive(&mut message).await.unwrap(), Incoming::Pong(&[]));
 		assert!(matches!(receiver.receive(&mut message).await, Err(Error::MessageTooLarge { current: 6, maximum: 5 })));
+	}
+
+	#[cfg(feature = "deflate")]
+	#[tokio::test]
+	async fn uncompressed_message_after_compressed_message_too_large() {
+		// A compressed message of two fragments that exceeds the limit, followed by an uncompressed one.
+		let frames =
+			[&[0x41, 0x03][..], b"abc", &[0x80, 0x03], b"def", &[0x01, 0x02], b"he", &[0x80, 0x03], b"llo"].concat();
+		let mut deflate = Deflate::new(Mode::Server);
+		deflate.configure(&[]).unwrap();
+		let mut builder = Builder::new(Cursor::new(frames), Mode::Server);
+		builder.add_extensions([Box::new(deflate) as Box<dyn Extension + Send>]);
+		builder.set_max_message_size(5);
+		let mut receiver = builder.finish().1;
+
+		let mut message = Vec::new();
+		assert!(matches!(receiver.receive(&mut message).await, Err(Error::MessageTooLarge { current: 6, maximum: 5 })));
+
+		message.clear();
+		assert_eq!(receiver.receive(&mut message).await.unwrap(), Incoming::Data(Data::Text(5)));
+		assert_eq!(message, b"hello");
 	}
 }
