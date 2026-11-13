@@ -228,6 +228,11 @@ impl Extension for Deflate {
 	}
 
 	fn decode(&mut self, header: &mut Header, data: &mut Vec<u8>) -> Result<(), BoxedError> {
+		// The last fragment of the previous message is not decoded if that message was rejected.
+		if let OpCode::Binary | OpCode::Text = header.opcode() {
+			self.await_last_fragment = false;
+		}
+
 		if data.is_empty() {
 			return Ok(());
 		}
